@@ -4779,13 +4779,26 @@ function AltNeedKey(character, itemID)
     return "altneed:" .. character .. ":" .. itemID
 end
 
+-- Whether this character can get the item for someone else: gather it
+-- with one of its skills, make it with one of its recipes, or already has
+-- some (bags or bank). Not things only another character can get.
+function CanGetForAlt(itemID, itemName)
+    if CountWhere(itemID, true, false) > 0 then return true end
+    local mine = settings.producers and settings.producers[CharacterKey()]
+    if mine and mine[itemID] then return true end
+    local ok, skill = pcall(CanGather, itemID, itemName, GatherSkills())
+    return ok and skill and true or false
+end
+
 function SyncAltNeedBars()
     local wanted = {}
     if settings.altShopping then
         settings.altShopHidden = settings.altShopHidden or {}
         for _, need in ipairs(AltShortfalls()) do
             local key = AltNeedKey(need.character, need.itemID)
-            if not settings.altShopHidden[key] then wanted[key] = need end
+            if not settings.altShopHidden[key] and CanGetForAlt(need.itemID, need.name) then
+                wanted[key] = need
+            end
         end
     end
     local changed = false
@@ -4823,9 +4836,19 @@ end
 altShopWatcher = CreateFrame("Frame")
 pcall(altShopWatcher.RegisterEvent, altShopWatcher, "PLAYER_LOGOUT")
 pcall(altShopWatcher.RegisterEvent, altShopWatcher, "PLAYER_LOGIN")
+pcall(altShopWatcher.RegisterEvent, altShopWatcher, "BAG_UPDATE_DELAYED")
+altShopSyncPending = false
 altShopWatcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGOUT" then
         pcall(RemoveAltNeedBars)
+    elseif event == "BAG_UPDATE_DELAYED" then
+        -- Picking up something an alt needs can add its bar.
+        if not settings or not settings.altShopping or altShopSyncPending then return end
+        altShopSyncPending = true
+        C_Timer.After(2, function()
+            altShopSyncPending = false
+            Safe("alt shopping", SyncAltNeedBars)()
+        end)
     else
         C_Timer.After(4, function()
             pcall(RemoveAltNeedBars)

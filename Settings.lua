@@ -475,7 +475,7 @@ function BuildConfigFrame()
     y = y - 30
 
     y = AddCheck(page, y, "Show what my other characters need",
-        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for Vespera\"), filling as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it.",
+        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for Vespera\") that this character can get: gather with its own skills, make with its own recipes, or already has some of. Bars fill as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it.",
         function() return settings.altShopping end,
         function(v)
             settings.altShopping = v or nil
