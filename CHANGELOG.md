@@ -4,6 +4,7 @@
 
 - One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules, countdowns and the craft-next key (`/bartab craft`) work as before.
 - Fixed: mailing your other characters skipped anything in your reagent bag (herbs, leather), so a letter could go without it, or a later letter come up empty. All your bags are used now, everything for one character goes in one letter, and BarTab says if it couldn't find something to attach.
+- The mail prompt has a "Mail all I have of each, not just what's needed" checkbox: tick it to send everything you have spare of each material (after your own bars' goals), not just what the other character is short, e.g. a whole stack of 20 rather than 3. The list in the prompt updates as you tick it, and the choice is remembered.
 - Examples in the guide, help, settings and changelog use placeholder names ([Alt]) instead of real characters'.
 
 ## 1.60.1.10

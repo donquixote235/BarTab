@@ -4515,6 +4515,7 @@ MAIL_MODES = {
 MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
 mailJob = nil
 mailboxOpen = false
+OfferMailText = nil
 
 -- item ID -> total of the goals of a bar list's active, non-crate bars.
 function BarNeeds(list)
@@ -4570,7 +4571,9 @@ function AltShortfalls()
 end
 
 -- { { to = "[Alt]", character = key, itemID, name, count }, ... }
-function FindMailSends()
+-- allSpare: send all you have spare of each, not just what's short (the
+-- rest goes to the first character who needs it).
+function FindMailSends(allSpare)
     local scan = ScanBags()
     -- What's spare here: bags less your own bars' goals.
     local myNeeds = BarNeeds(trackedItems)
@@ -4586,6 +4589,15 @@ function FindMailSends()
             spare[need.itemID] = spare[need.itemID] - count
             sends[#sends + 1] = { to = need.to, character = need.character, itemID = need.itemID,
                 name = need.name, count = count }
+        end
+    end
+    if allSpare then
+        for _, send in ipairs(sends) do
+            local left = spare[send.itemID] or 0
+            if left > 0 then
+                send.count = send.count + left
+                spare[send.itemID] = 0
+            end
         end
     end
     table.sort(sends, function(a, b)
@@ -5062,22 +5074,57 @@ end)
 function OfferMailSends(force)
     if (settings.mailSend or "ask") == "off" and not force then return end
     if mailJob or (InCombatLockdown and InCombatLockdown()) then return end
-    local sends = FindMailSends()
+    local sends = FindMailSends(settings.mailAll)
     if #sends == 0 then
         if force then Print("Nothing your other characters' bars need that you have spare.") end
         return
     end
     if not (StaticPopupDialogs and StaticPopup_Show) then return end
+    local function Text(list)
+        -- The blank line at the end makes room for the checkbox.
+        return ("BarTab: your other characters' bars need things you have spare.\n\n%s\n\nMail them?\n\n "):format(
+            DescribeMailSends(list))
+    end
     StaticPopupDialogs.BARTAB_MAIL_SEND = StaticPopupDialogs.BARTAB_MAIL_SEND or {
-        text = "BarTab: your other characters' bars need things you have spare.\n\n%s\n\nMail them?",
+        text = "%s",
         button1 = "Mail",
         button2 = NO or "No",
-        OnAccept = function(_, data) SendMailNow(data) end,
+        OnAccept = function(self, data) SendMailNow((self and self.data) or data) end,
+        -- "Mail all I have of each": all you have spare, not just what's short.
+        OnShow = function(self)
+            local check = self.barTabMailAll
+            if not check then
+                check = CreateFrame("CheckButton", nil, self, "UICheckButtonTemplate")
+                check:SetSize(24, 24)
+                if type(check.Text) == "table" then check.Text:SetText("") end
+                check.label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                check.label:SetPoint("LEFT", check, "RIGHT", 2, 0)
+                check.label:SetText("Mail all I have of each, not just what's needed")
+                self.barTabMailAll = check
+            end
+            check:ClearAllPoints()
+            check:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 24, 44)
+            check:SetChecked(settings.mailAll and true or false)
+            check:SetScript("OnClick", function(box)
+                settings.mailAll = box:GetChecked() and true or nil
+                local list = FindMailSends(settings.mailAll)
+                self.data = list
+                if self.text or self.Text then
+                    (self.text or self.Text):SetText(OfferMailText(list))
+                end
+                if StaticPopup_Resize then pcall(StaticPopup_Resize, self, self.which) end
+            end)
+            check:Show()
+        end,
+        OnHide = function(self)
+            if self.barTabMailAll then self.barTabMailAll:Hide() end
+        end,
         timeout = 0,
         whileDead = false,
         hideOnEscape = true,
     }
-    StaticPopup_Show("BARTAB_MAIL_SEND", DescribeMailSends(sends), nil, sends)
+    OfferMailText = Text
+    StaticPopup_Show("BARTAB_MAIL_SEND", Text(sends), nil, sends)
 end
 
 mailWatcher = CreateFrame("Frame")
