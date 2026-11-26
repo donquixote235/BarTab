@@ -442,17 +442,38 @@ function CurrentModifier()
     return "click"
 end
 
+-- "Can't craft Minor Mana Potion: missing Empty Vial (0 / 1, sold by
+-- vendors)." when one craft's ingredients aren't all in your bags.
+function MissingMaterialsText(recipeID)
+    local parts = {}
+    for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
+        if reagent.have < reagent.need then
+            local vendor = reagent.itemID and VendorBuyPrice and VendorBuyPrice(reagent.itemID)
+            parts[#parts + 1] = ("%s (%d / %d%s)"):format(reagent.name, reagent.have, reagent.need,
+                vendor and ", sold by vendors" or "")
+        end
+    end
+    if #parts == 0 then return nil end
+    local name = (GetRecipeName and GetRecipeName(recipeID)) or "this recipe"
+    return ("Can't craft %s: missing %s."):format(name, table.concat(parts, ", "))
+end
+
 -- How many to craft for an action; nil plus a message when there's nothing to do.
 function ResolveCraftAmount(item, action)
     if action == "one" then
         return 1
     elseif action == "max" then
         local amount = GetCraftableCount(item.recipeID) or 0
-        if amount < 1 then return nil, "You don't have the materials to craft this recipe." end
+        if amount < 1 then
+            return nil, MissingMaterialsText(item.recipeID) or "You don't have the materials to craft this recipe."
+        end
         return amount
     elseif action == "fit" then
         local amount = GetBarCraftCount(item)
         if not amount then return nil, "Couldn't work out how many fit the bar." end
+        if amount < 1 and (GetCraftableCount(item.recipeID) or 1) < 1 then
+            return nil, MissingMaterialsText(item.recipeID) or "You don't have the materials to craft this recipe."
+        end
         if amount < 1 then return nil, "Nothing to craft within this bar." end
         return amount
     end

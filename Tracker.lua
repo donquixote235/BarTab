@@ -376,7 +376,11 @@ function UpdateSegments(bar, item, count, craftable)
         if range <= 0 or not width or width <= 0 or count <= 0 then return end
         local used = 0
         if item.recBar then
+            -- What you can really craft (vials and other uncounted
+            -- ingredients included): the rest shows orange.
             local _, needed, have, planned = RecipeBarCounts(item)
+            local craftable = GetCraftableCount(item.forRecipe)
+            if craftable then have = math.min(have, craftable) end
             used = math.floor(needed * math.min(have, planned) / planned)
         else
             for _, recipe in ipairs(MaterialRecipes(item)) do

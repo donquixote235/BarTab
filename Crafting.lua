@@ -5076,6 +5076,10 @@ function AddRecipeBarTooltip(item)
     if craftable then
         GameTooltip:AddDoubleLine("You can craft now", tostring(craftable), 0.9, 0.9, 0.9, 1, 1, 1)
     end
+    if craftable and craftable < 1 then
+        local why = MissingMaterialsText(item.forRecipe)
+        if why then GameTooltip:AddLine(why, 1, 0.5, 0.25, true) end
+    end
     GameTooltip:AddLine("Click, Shift-click, Alt-click: craft, as for any recipe bar", 0.7, 0.7, 0.7)
     GameTooltip:AddLine("Right-click: the recipe's options", 0.7, 0.7, 0.7)
     GameTooltip:Show()
