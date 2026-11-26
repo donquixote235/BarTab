@@ -35,6 +35,7 @@ HELP_TOPICS = {
         "  Right-click a bar to also track how to make its material (one craft; Alt-click for all you're short).",
         "  " .. cmd("/bartab favorites") .. " (profession open) tracks your starred recipes.",
         "  At a trainer, Alt-Shift-click a recipe to track it before you learn it.",
+        "  " .. cmd("/bartab make 52") .. " (recipe selected) crafts it until you have 52; or the BarTab button by the star.",
         "  " .. cmd("/bartab appearances on") .. " tracks recipes for appearances you haven't collected (" .. cmd("scan") .. " asks again).",
     },
     shopping = {
@@ -427,6 +428,12 @@ SlashCmdList.BARTAB = function(message)
                 .. ". Use /bartab window auto||on||off||reset||lock||unlock.")
         end
 
+    elseif command == "refresh" then
+        Safe("refresh", SnapshotTracker)("refresh, before")
+        Safe("refresh", RefreshTracker)()
+        C_Timer.After(1, function() Safe("refresh", SnapshotTracker)("refresh, after") end)
+        Print("Redrew the tracker sections. Details are saved for bug reports at your next /reload.")
+
     elseif command == "errors" then
         local log = settings.errorLog or {}
         if string.lower(args) == "clear" then
@@ -461,6 +468,9 @@ SlashCmdList.BARTAB = function(message)
         else
             ScanForContainers(filter)
         end
+
+    elseif command == "make" then
+        Safe("make", MakeUntil)(GetSelectedRecipeID(), args:match("%d+"))
 
     elseif command == "trainer" then
         if GetTrainerSelectionIndex and GetTrainerSelectionIndex() and GetTrainerSelectionIndex() > 0 then
@@ -507,7 +517,7 @@ SlashCmdList.BARTAB = function(message)
             .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, item, autoitems on||off, favorites, trainer, appearances on||off")
+        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, item, autoitems on||off, favorites, trainer, make <count>, appearances on||off")
         Print("Type /bartab help for a quick guide with examples.")
     end
 end
@@ -604,7 +614,9 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         end
     elseif event:find("^UNIT_SPELLCAST_") then
         -- Follow our craft so the silently loaded profession isn't closed under it.
-        if arg1 == "player" then
+        -- Only casts that could be crafts: not combat abilities.
+        if arg1 == "player" and (crafting or (arg3 and IsTrackedRecipe(arg3))
+            or ProfessionsOpen()) then
             CraftLog(event:gsub("UNIT_SPELLCAST_", "cast ") .. " " .. tostring(arg3))
             if crafting then crafting.last = GetTime() end
             if event == "UNIT_SPELLCAST_SUCCEEDED" and arg3 then
@@ -645,6 +657,7 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     else
         if event == "BAG_UPDATE_DELAYED" or event == "BAG_UPDATE" then
             RunPendingAfterCraft()
+            C_Timer.After(0.1, function() Safe("make", CheckMakeTargets)() end)
             Safe("names", FixPlaceholderNames)()
         end
         RequestUpdate(0.2)

@@ -994,11 +994,15 @@ function TrySetUpTracker(attempt)
 end
 
 -- /bartab debug tracker: how BarTab is showing its bars, for bug reports.
-function DebugTracker()
-    settings.debugLog = { "BarTab debug tracker" }
+function DebugTracker(quiet)
+    local lines = {}
+    if not quiet then
+        settings.debugLog = { "BarTab debug tracker" }
+        lines = settings.debugLog
+    end
     local function Line(text)
-        Print(text)
-        table.insert(settings.debugLog, text)
+        if not quiet then Print(text) end
+        table.insert(lines, text)
     end
     local tracker = ObjectiveTrackerFrame
     Line(("mode setting=%s; own window=%s; tracker sections=%s (after %d tries); hidden tracker=%s"):format(
@@ -1010,6 +1014,19 @@ function DebugTracker()
             tostring(tracker.GetHeight and math.floor(tracker:GetHeight())),
             tostring(ObjectiveTrackerManager ~= nil),
             tostring(ObjectiveTrackerManager and ObjectiveTrackerManager.SetModuleContainer ~= nil)))
+        local flags = {}
+        for _, field in ipairs({ "isUpdating", "isDirty", "isCollapsed", "needsUpdate" }) do
+            if tracker[field] ~= nil then flags[#flags + 1] = field .. "=" .. tostring(tracker[field]) end
+        end
+        if type(tracker.modules) == "table" then
+            local count, shown = 0, 0
+            for _, module in pairs(tracker.modules) do
+                count = count + 1
+                if module.IsShown and module:IsShown() then shown = shown + 1 end
+            end
+            flags[#flags + 1] = ("sections=%d shown=%d"):format(count, shown)
+        end
+        if #flags > 0 then Line("tracker state: " .. table.concat(flags, " ")) end
     else
         Line("tracker: ObjectiveTrackerFrame missing")
     end
@@ -1040,8 +1057,39 @@ function DebugTracker()
         if barID:sub(1, 11) == "standalone\0" and bar:IsShown() then standalone = standalone + 1 end
     end
     Line("plain-list bars showing: " .. standalone .. "; sections put back this session: " .. (reattachCount or 0))
-    Line("Saved for bug reports with /reload.")
+    if not quiet then Line("Saved for bug reports with /reload.") end
+    return lines
 end
+
+-- Quiet snapshots of the tracker (around level-ups and /bartab refresh),
+-- kept in the saved variables for bug reports: the last few only.
+function SnapshotTracker(reason)
+    settings.trackerSnapshots = settings.trackerSnapshots or {}
+    local lines = DebugTracker(true)
+    table.insert(lines, 1, ("%s %s; level %s; in combat=%s"):format(
+        date and date("%Y-%m-%d %H:%M:%S") or "", reason,
+        tostring(UnitLevel and UnitLevel("player")), tostring(InCombatLockdown())))
+    table.insert(settings.trackerSnapshots, 1, lines)
+    while #settings.trackerSnapshots > 6 do table.remove(settings.trackerSnapshots) end
+end
+
+-- Puts back any section the tracker dropped and redraws every bar.
+function RefreshTracker()
+    if trackerAvailable and not panelActive then ReattachLostSections() end
+    UpdateBars()
+end
+
+-- The tracker has stopped updating after a level-up a few times. Note how it
+-- looks shortly after one, then redraw BarTab's sections as a precaution.
+levelWatcher = CreateFrame("Frame")
+pcall(levelWatcher.RegisterEvent, levelWatcher, "PLAYER_LEVEL_UP")
+levelWatcher:SetScript("OnEvent", function()
+    C_Timer.After(3, function() Safe("level-up", SnapshotTracker)("level-up +3s") end)
+    C_Timer.After(15, function()
+        Safe("level-up", SnapshotTracker)("level-up +15s, before redraw")
+        Safe("level-up", RefreshTracker)()
+    end)
+end)
 
 -- Retry a section that couldn't be made: soon, and again once combat ends.
 sectionRetry = CreateFrame("Frame")

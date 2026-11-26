@@ -29,7 +29,8 @@ function CraftLog(message)
 end
 
 function ProfessionsOpen()
-    return ProfessionsFrame ~= nil and ProfessionsFrame:IsShown()
+    return ProfessionsFrame ~= nil and ProfessionsFrame.IsShown ~= nil
+        and ProfessionsFrame:IsShown() and true or false
 end
 
 -- Name and ID of the profession the game has loaded, if any.
@@ -286,10 +287,23 @@ function CraftItem(itemKey, action)
     end
 
     -- What this click does is chosen in the settings window.
-    local amount, problem = ResolveCraftAmount(item, action or GetClickAction(CurrentModifier()))
+    local chosen = action or GetClickAction(CurrentModifier())
+    local amount, problem = ResolveCraftAmount(item, chosen)
     if not amount then
         if problem then Print(problem) end
         return
+    end
+    -- A bar for what the recipe makes: craft only what's still missing.
+    if IsOutputBar(item) then
+        local crafts = CraftsToTarget(item)
+        if crafts <= 0 then
+            Print(("You already have %d %s."):format(CountItem(item), item.name))
+            return
+        end
+        if chosen ~= "one" then
+            local craftable = GetCraftableCount(item.recipeID)
+            amount = craftable and math.min(craftable, crafts) or crafts
+        end
     end
 
     -- Say what's missing rather than letting the game quietly refuse.
@@ -460,15 +474,25 @@ function AfterCraftDone(recipeID, reason)
     if restart then RestartCountdown(recipeID) end
 end
 
--- Right-click submenu for a recipe bar.
-function AfterCraftMenuEntry(item)
+-- Right-click submenu for a recipe bar. allBars (from the profession
+-- window's BarTab button): set it on every bar of the recipe.
+function AfterCraftMenuEntry(item, allBars)
     local current = item.afterCraft or "keep"
     local choices = {}
     for _, mode in ipairs(AFTER_CRAFT_MODES) do
         choices[#choices + 1] = {
             mode.name,
             function()
-                item.afterCraft = (mode.key ~= "keep") and mode.key or nil
+                local value = (mode.key ~= "keep") and mode.key or nil
+                if allBars then
+                    for _, other in pairs(trackedItems) do
+                        if other.recipeID == item.recipeID and not other.container then
+                            other.afterCraft = value
+                        end
+                    end
+                else
+                    item.afterCraft = value
+                end
                 Print(DisplayName(item) .. ": after crafting, " .. mode.phrase .. ".")
             end,
             selected = current == mode.key,
@@ -529,6 +553,7 @@ pendingCountdown = {} -- recipeID -> crafts not yet counted down
 
 function CountsDown(item)
     if item.container or not item.recipeID then return false end
+    if item.skillGoal then return false end -- sized by skill instead
     if item.countDown ~= nil then return item.countDown end
     return settings.countDownDefault and true or false
 end
@@ -614,6 +639,7 @@ function SizeRecipeBars(recipeID, crafts)
             if need and need > 0 then
                 item.goal = (item.start or 0) + need * crafts
                 item.countFrom, item.countDone = nil, nil
+                item.skillGoal = nil -- a size you picked replaces the skill sizing
                 -- A size you just picked isn't a goal you just reached: no alert.
                 goalReached[key] = nil
                 name = name or DisplayName(item)
@@ -696,6 +722,7 @@ function CountdownMenuEntry(item)
 end
 
 function OnCraftSucceeded(spellID)
+    lastCraftRecipe = spellID
     CraftLog("craft succeeded " .. tostring(spellID) .. (crafting and (" (" .. (crafting.done + 1) .. " of " .. crafting.amount .. ")") or " (not BarTab's)"))
     if spellID and IsTrackedRecipe(spellID) then
         for _, item in pairs(trackedItems) do
@@ -835,8 +862,56 @@ function ShowNextStopPrompt()
     StaticPopup_Show("BARTAB_STOP_ASK", ask.reason, nil, ask)
 end
 
+-- Stops a batch of the recipe in progress (from a bar, or the profession
+-- window's Create All), if there is one.
+function StopCraftingRecipe(recipeID, label, reason)
+    local ours = crafting and crafting.id == recipeID
+    local repeating = false
+    if lastCraftRecipe == recipeID and C_TradeSkillUI and C_TradeSkillUI.IsRecipeRepeating then
+        local ok, value = pcall(C_TradeSkillUI.IsRecipeRepeating)
+        repeating = ok and value and true or false
+    end
+    if not (ours or repeating) then return end
+    if C_TradeSkillUI and C_TradeSkillUI.StopRecipeRepeat then
+        pcall(C_TradeSkillUI.StopRecipeRepeat)
+    end
+    crafting = nil
+    CraftLog("stopped repeating " .. tostring(recipeID) .. " (" .. (reason or "stop rule") .. ")")
+    Print("Stopped crafting " .. (label or "it") .. ": " .. (reason or "its stop rule was reached") .. ".")
+end
+
+-- Bars from "Make until I reach...": one craft's worth per skill point still
+-- needed, so a craft that gives a point shrinks them and one that doesn't
+-- leaves them as they are.
+function ResizeSkillGoalBars()
+    local changed = false
+    for key, item in pairs(trackedItems) do
+        if item.skillGoal and item.recipeID and not item.container then
+            local skill = GetProfessionSkill(item)
+            local need = skill and GetReagentQuantity(item.recipeID, item.name)
+            if need and need > 0 then
+                local crafts = math.max(1, item.skillGoal - skill)
+                local goal = (item.start or 0) + need * crafts
+                if goal ~= item.goal then
+                    item.goal = goal
+                    goalReached[key] = nil -- resized, not reached: no alert
+                    changed = true
+                end
+            end
+        end
+    end
+    if changed then UpdateBars() end
+end
+
+function IsRepeatingCraft()
+    if not (C_TradeSkillUI and C_TradeSkillUI.IsRecipeRepeating) then return false end
+    local ok, repeating = pcall(C_TradeSkillUI.IsRecipeRepeating)
+    return ok and repeating and true or false
+end
+
 function CheckSkillLimits()
-    local messages, colorCache, asks = {}, {}, {}
+    Safe("skill", ResizeSkillGoalBars)()
+    local messages, colorCache, asks, stopped = {}, {}, {}, {}
     for key, item in pairs(trackedItems) do
         if item.recipeID and not item.container
             and (item.untilSkill or item.untilColor) then
@@ -847,11 +922,13 @@ function CheckSkillLimits()
                     local done = ("%s reached %d; stopped tracking %s."):format(
                         profession, item.untilSkill, label)
                     if item.stopAsk then
+                        stopped[item.recipeID] = label
                         asks[item.recipeID] = asks[item.recipeID] or { recipeID = item.recipeID,
                             label = label, done = done,
                             reason = ("%s reached %s %d."):format(label, profession, item.untilSkill) }
                     else
                         trackedItems[key] = nil
+                        stopped[item.recipeID] = label
                         messages[label] = done
                     end
                 end
@@ -865,17 +942,21 @@ function CheckSkillLimits()
                     local done = ("%s turned %s; stopped tracking it."):format(
                         label, ColorText(color))
                     if item.stopAsk then
+                        stopped[item.recipeID] = label
                         asks[item.recipeID] = asks[item.recipeID] or { recipeID = item.recipeID,
                             label = label, done = done,
                             reason = ("%s is now %s."):format(label, ColorText(color)) }
                     else
                         trackedItems[key] = nil
+                        stopped[item.recipeID] = label
                         messages[label] = done
                     end
                 end
             end
         end
     end
+    -- A batch of a recipe whose stop rule was just reached stops too.
+    for recipeID, label in pairs(stopped) do StopCraftingRecipe(recipeID, label) end
     local any = false
     for _, message in pairs(messages) do
         any = true
@@ -989,6 +1070,17 @@ end
 
 -- Tooltip line: "Stops at Leatherworking 125 (now 118)" or
 -- "Stops when it turns gray (now green)".
+-- Tooltip line for "Make until I reach..." bars: "At least 14 crafts to
+-- Leatherworking 75" (at least: not every craft gives a point).
+function SkillGoalLine(item)
+    if not item.skillGoal then return nil end
+    local rank, profession = GetProfessionSkill(item)
+    if not rank or rank >= item.skillGoal then return nil end
+    local crafts = item.skillGoal - rank
+    return ("At least %d %s to %s %d"):format(crafts, crafts == 1 and "craft" or "crafts",
+        profession or item.profession or "skill", item.skillGoal)
+end
+
 function SkillLimitLine(item)
     if item.untilSkill then
         local rank, profession = GetProfessionSkill(item)
@@ -1012,7 +1104,15 @@ for _, skillEvent in ipairs({ "SKILL_LINES_CHANGED", "CHAT_MSG_SKILL", "PLAYER_E
 end
 skillCheckPending = false
 skillWatcher:SetScript("OnEvent", function(_, event)
-    if event == "CHAT_MSG_SKILL" or event == "SKILL_LINES_CHANGED" then CraftLog("skill event " .. event) end
+    if event == "CHAT_MSG_SKILL" or event == "SKILL_LINES_CHANGED" then
+        CraftLog("skill event " .. event)
+        -- Right away too while a batch is running, so a stop rule halts it
+        -- before its next craft. (Not otherwise: a level-up sends a burst
+        -- of these, one per weapon and defense skill.)
+        if crafting or IsRepeatingCraft() then
+            Safe("skill", CheckSkillLimits)()
+        end
+    end
     -- Skill info can lag the event a moment; many events come in a burst.
     if skillCheckPending then return end
     skillCheckPending = true
@@ -1333,7 +1433,7 @@ end
 -- (a set of indexes), else every ingredient (which = "all") or the main one.
 -- Bars go to Inactive when settings.appearanceInactive is on. Returns the
 -- recipe's name, or nil.
-function TrackRecipeForAppearance(recipeID, outputID, profession, skillLineID, picks, which, kind)
+function TrackRecipeForAppearance(recipeID, outputID, profession, skillLineID, picks, which, kind, crafts)
     local forAppearance = kind == nil or kind == "appearance"
     local reagents = GetRecipeReagents(recipeID)
     if not reagents or #reagents == 0 then return nil end
@@ -1353,7 +1453,7 @@ function TrackRecipeForAppearance(recipeID, outputID, profession, skillLineID, p
                 name = reagent.name,
                 itemID = reagent.itemID,
                 start = 0,
-                goal = reagent.need,
+                goal = reagent.need * (crafts or 1),
                 recipeID = recipeID,
                 profession = profession,
                 skillLineID = skillLineID,
@@ -1759,10 +1859,10 @@ function CreateAppearancePrompt()
     frame:SetScript("OnHide", function(self)
         if self.answered then self.answered = nil return end
         if self.entry then
-            local favorite = self.entry.kind == "favorite"
+            local appearance = self.entry.kind == nil or self.entry.kind == "appearance"
             self.entry = nil
             for i = #appearanceQueue, 1, -1 do appearanceQueue[i] = nil end
-            if not favorite then
+            if appearance then
                 appearanceSnoozed = true
                 Print("BarTab will ask again next time you log in, or now with /bartab appearances scan.")
             end
@@ -1802,10 +1902,14 @@ function ShowAppearancePrompt()
     end
     frame.entry, frame.reagents = entry, reagents
     local recipeName = GetRecipeName(entry.recipeID) or GetItemNameByID(entry.outputID) or "This recipe"
-    frame.text:SetText(recipeName .. (entry.kind == "favorite" and " is a favorite recipe."
+    frame.text:SetText(recipeName .. (entry.kind == "skill" and (" until " .. (entry.profession or "skill") .. " "
+            .. entry.level .. " (at least " .. entry.crafts .. (entry.crafts == 1 and " craft" or " crafts")
+            .. "). Track ingredients for that many:")
+        or entry.kind == "favorite" and " is a favorite recipe."
         or entry.kind == "trainer" and (entry.notLearned and (" (not learned yet"
             .. (entry.needSkill and ("; needs " .. entry.needSkill) or "") .. ").") or ".")
-        or " makes an appearance you haven't collected.") .. " Track one craft's worth of:")
+        or " makes an appearance you haven't collected.")
+        .. (entry.kind == "skill" and "" or " Track one craft's worth of:"))
     local textHeight = frame.text:GetStringHeight() or 24
     local y = -36 - textHeight
     local main = MainReagentIndex(reagents)
@@ -1814,7 +1918,7 @@ function ShowAppearancePrompt()
         if reagent then
             check:ClearAllPoints()
             check:SetPoint("TOPLEFT", 16, y)
-            check.label:SetText(reagent.need .. " " .. reagent.name)
+            check.label:SetText((reagent.need * (entry.crafts or 1)) .. " " .. reagent.name)
             check:SetChecked(i == main or settings.appearanceBars == "all")
             check:Show()
             y = y - 24
@@ -1845,8 +1949,18 @@ function AnswerAppearancePrompt(answer)
         end
         if next(picks) then
             local name = TrackRecipeForAppearance(entry.recipeID, entry.outputID,
-                entry.profession, entry.skillLineID, picks, nil, entry.kind)
-            if name and entry.kind == "trainer" then
+                entry.profession, entry.skillLineID, picks, nil, entry.kind, entry.crafts)
+            if name and entry.kind == "skill" then
+                SetStopRule(entry.recipeID, entry.level, nil, true)
+                for _, item in pairs(trackedItems) do
+                    if item.recipeID == entry.recipeID and not item.container then
+                        item.skillGoal = entry.level
+                    end
+                end
+                UpdateBars()
+                Print(("Tracking %s until %s %d (at least %d %s). Click a bar to craft; it stops when you get there."):format(
+                    name, entry.profession or "skill", entry.level, entry.crafts, entry.crafts == 1 and "craft" or "crafts"))
+            elseif name and entry.kind == "trainer" then
                 MarkTrainerBars(entry, name)
             elseif name then
                 AnnounceAppearanceBars({ name }, entry.kind)
@@ -2065,6 +2179,197 @@ function TrackRecipeItem(itemName)
         recipeName = recipeName, notLearned = not IsRecipeLearned(recipe.recipeID) or nil }
     ShowAppearancePrompt()
     return true
+end
+
+-- Make until you have N ---------------------------------------------------------
+-- A bar for what a recipe makes ("Handful of Copper Bolts 12/52"). Its clicks
+-- craft only what's still missing, and a batch (Create All in the profession
+-- window too) stops once you have that many. Made from the profession
+-- window's BarTab button ("Make until I have...") or /bartab make <count>.
+
+function IsOutputBar(item)
+    if not (item and item.recipeID) or item.container then return false end
+    local outputID = GetRecipeOutput(item.recipeID)
+    if not outputID then return false end
+    if item.itemID and item.itemID == outputID then return true end
+    local name = GetItemNameByID(outputID)
+    return name ~= nil and string.lower(name) == string.lower(item.name)
+end
+
+-- Crafts it takes to reach the bar's target (rounded up: one craft can make
+-- several).
+function CraftsToTarget(item)
+    local _, perCraft = GetRecipeOutput(item.recipeID)
+    local missing = (item.goal or 0) - CountItem(item)
+    if missing <= 0 then return 0 end
+    return math.ceil(missing / math.max(1, perCraft or 1))
+end
+
+function MakeUntil(recipeID, goal)
+    goal = tonumber(goal)
+    if not recipeID then
+        Print("Select the recipe in your profession window first.")
+        return
+    end
+    if not goal or goal < 1 then
+        Print("Give the number you want, e.g. /bartab make 52.")
+        return
+    end
+    local outputID, perCraft = GetRecipeOutput(recipeID)
+    local name = outputID and GetItemNameByID(outputID)
+    if not name then
+        Print("Couldn't tell what that recipe makes.")
+        return
+    end
+    local profession, skillLineID = LoadedProfession()
+    if not profession then profession, skillLineID = RecipeProfession(recipeID) end
+    local key = RecipeKey(name, recipeID)
+    local item = trackedItems[key]
+    if item then
+        item.start, item.goal, item.countFrom, item.countDone = 0, goal, nil, nil
+        item.inactive = nil
+    else
+        item = { name = name, itemID = outputID, start = 0, goal = goal, recipeID = recipeID,
+            profession = profession, skillLineID = skillLineID,
+            label = GetRecipeName(recipeID) or name, order = NextOrder() }
+        trackedItems[key] = item
+    end
+    goalReached[key] = nil
+    UpdateBars()
+    local have = CountItem(item)
+    local crafts = CraftsToTarget(item)
+    Print(("Crafting %s until you have %d (you have %d%s)."):format(name, goal, have,
+        crafts > 0 and ("; " .. crafts .. (crafts == 1 and " craft" or " crafts") .. " to go") or ""))
+end
+
+function AskMakeGoal(recipeID, current)
+    if not (StaticPopupDialogs and StaticPopup_Show) then return end
+    local outputID = GetRecipeOutput(recipeID)
+    local name = outputID and GetItemNameByID(outputID) or GetRecipeName(recipeID) or "it"
+    StaticPopupDialogs.BARTAB_MAKE_GOAL = StaticPopupDialogs.BARTAB_MAKE_GOAL or {
+        text = "Craft %s until you have how many?",
+        button1 = OKAY or "OK",
+        button2 = CANCEL or "Cancel",
+        hasEditBox = true,
+        maxLetters = 5,
+        OnShow = function(self, data)
+            local box = self.editBox or self.EditBox
+            if box then
+                box:SetText(data.current and tostring(data.current) or "")
+                box:HighlightText()
+                box:SetFocus()
+            end
+        end,
+        OnAccept = function(self, data)
+            local box = self.editBox or self.EditBox
+            MakeUntil(data.recipeID, box and box:GetText())
+        end,
+        EditBoxOnEnterPressed = function(box, data)
+            local parent = box:GetParent()
+            data = data or parent.data
+            MakeUntil(data.recipeID, box:GetText())
+            parent:Hide()
+        end,
+        EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("BARTAB_MAKE_GOAL", name, nil, { recipeID = recipeID, current = current })
+end
+
+-- Make until you reach a skill level: the recipe's ingredient bars (sized for
+-- the fewest crafts it could take, one point a craft), a "stop at skill" rule
+-- that ends the batch and clears the bars at that level, and a batch of as
+-- many as your materials allow, started right away.
+function CraftUntilSkill(recipeID, level)
+    level = tonumber(level)
+    if not recipeID then
+        Print("Select the recipe in your profession window first.")
+        return
+    end
+    local profession, skillLineID = LoadedProfession()
+    if not profession then profession, skillLineID = RecipeProfession(recipeID) end
+    local skill, _, cap = GetProfessionSkill({ recipeID = recipeID, profession = profession, skillLineID = skillLineID })
+    if not level or level < 1 then
+        Print("Give the skill level to reach, e.g. 165.")
+        return
+    end
+    if cap and cap > 0 and level > cap then
+        Print(("%s can only go to %d for now (train to raise it)."):format(profession or "This profession", cap))
+        return
+    end
+    if skill and skill >= level then
+        Print(("Your %s is already %d."):format(profession or "skill", skill))
+        return
+    end
+    local reagents = GetRecipeReagents(recipeID)
+    if not reagents or #reagents == 0 then
+        Print("Couldn't read this recipe's ingredients.")
+        return
+    end
+    local crafts = math.max(1, level - (skill or 0))
+    if (appearanceSummary and appearanceSummary:IsShown()) or #appearanceQueue > 0 then
+        Print("Finish the BarTab window that's open first.")
+        return
+    end
+    -- Which ingredients to track: the usual window, main one ticked.
+    appearanceQueue[1] = { recipeID = recipeID, outputID = GetRecipeOutput(recipeID),
+        profession = profession, skillLineID = skillLineID, kind = "skill",
+        level = level, crafts = crafts }
+    ShowAppearancePrompt()
+end
+
+function AskSkillGoal(recipeID)
+    if not (StaticPopupDialogs and StaticPopup_Show) then return end
+    local profession = LoadedProfession() or "your profession"
+    local skill = GetProfessionSkill({ recipeID = recipeID, profession = profession })
+    StaticPopupDialogs.BARTAB_SKILL_GOAL = StaticPopupDialogs.BARTAB_SKILL_GOAL or {
+        text = "Craft %s until %s reaches skill level:",
+        button1 = OKAY or "OK",
+        button2 = CANCEL or "Cancel",
+        hasEditBox = true,
+        maxLetters = 4,
+        OnShow = function(self, data)
+            local box = self.editBox or self.EditBox
+            if box then
+                box:SetText(data.default and tostring(data.default) or "")
+                box:HighlightText()
+                box:SetFocus()
+            end
+        end,
+        OnAccept = function(self, data)
+            local box = self.editBox or self.EditBox
+            CraftUntilSkill(data.recipeID, box and box:GetText())
+        end,
+        EditBoxOnEnterPressed = function(box, data)
+            local parent = box:GetParent()
+            data = data or parent.data
+            CraftUntilSkill(data.recipeID, box:GetText())
+            parent:Hide()
+        end,
+        EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    local default = skill and (math.floor(skill / 5) + 1) * 5 or nil
+    StaticPopup_Show("BARTAB_SKILL_GOAL", GetRecipeName(recipeID) or "this recipe", profession,
+        { recipeID = recipeID, default = default })
+end
+
+-- After each bag update: a batch of a recipe whose output bar has reached
+-- its target stops.
+function CheckMakeTargets()
+    local recipeID = (crafting and crafting.id) or lastCraftRecipe
+    if not recipeID then return end
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.inactive and IsOutputBar(item)
+            and CountItem(item) >= item.goal then
+            StopCraftingRecipe(recipeID, item.name, ("you have %d"):format(CountItem(item)))
+            return
+        end
+    end
 end
 
 -- Favorite recipes ------------------------------------------------------------

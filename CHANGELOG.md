@@ -1,6 +1,18 @@
 # Changelog
 
-## 1.6
+## 1.60.1.2
+
+BarTab's version now follows WoW Forever's (1.60.1), plus a number for BarTab's own releases. 1.6 was the first public release (1.60.1.1).
+
+- Make until you reach a skill level: "Make until I reach..." on the profession window's BarTab button asks for a level (the next multiple of 5 by default), then which ingredients to track (the main one ticked; tick the rest for all of them), sized at one craft per skill point still needed. The bars get "Stop tracking at skill" at that level; click one to craft, and the batch stops and the bars clear themselves when you get there. The bars resize with your skill rather than counting down: a craft that gives a skill point shrinks them by one craft, and one that doesn't leaves them as they are. Picking a size from the Crafts submenu switches them back to normal bars.
+- Make until you have N: "Make until I have..." on the profession window's BarTab button (or `/bartab make 52` with the recipe selected) adds a bar for what the recipe makes, e.g. "Handful of Copper Bolts 12/52". Shift-click and Alt-click on it craft only what's still missing, and a Create All batch from the profession window stops once you have that many. Right-click the bar to change the number.
+- Fixed: with "Stop tracking at skill N", reaching the skill in the middle of a batch (an Alt-click, or Create All in the profession window) removed the bars but the game kept crafting. BarTab now stops the batch when the rule is reached, and says so. Skill-ups are also checked right away, so the batch stops before its next craft.
+- `/bartab refresh` redraws BarTab's tracker sections if they stop updating, without a /reload. It also saves how the tracker looked before and after, for bug reports. BarTab saves the same details shortly after each level-up and then redraws its sections as a precaution, since the tracker has stopped updating after a level-up a few times.
+- A level-up no longer runs BarTab's skill checks once for every weapon and defense skill that changes at the same moment; it checks once, a second later. Your combat abilities are no longer treated as possible crafts or written to the craft log.
+- The profession window's BarTab button now has the recipe settings from a bar's right-click menu once the selected recipe has bars: Crafts, After crafting, Count down as you craft, Stop tracking, and "Untrack this recipe" (all of its bars at once). After crafting set from there applies to every bar of the recipe. The button shows a check mark while the selected recipe has bars.
+- Bars from "Make until I reach..." say how many crafts are left in their tooltip: "At least 14 crafts to Leatherworking 75".
+
+## 1.6 (1.60.1.1, first public release)
 
 - "Crafts" on a recipe bar's right-click menu sizes all of the recipe's bars at once: 1, 5 or 10 crafts, or the crafts it takes to reach the next multiple of 5 in the profession ("To Leatherworking 165 (3 crafts)" at 162), or "Use all your Heavy Leather" (37 at 8 a craft: 4 crafts). Resizing never sets off a goal alert.
 - Recipe items: a pattern, recipe, plans, formula or schematic for one of your professions that you haven't learned says "BarTab: Alt-Shift-click to add this recipe to your Inactive list" in its tooltip (at a vendor or in your bags; not in the auction house window, where that click opens the item's listings). Alt-Shift-clicking it tracks the recipe like the trainer does: in Inactive, marked not learned, active once you learn it. Works once you've opened that profession with this version.

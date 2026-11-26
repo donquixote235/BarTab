@@ -334,6 +334,8 @@ function ShowBarTooltip(owner)
     end
     local skillLine = SkillLimitLine(item)
     if skillLine then GameTooltip:AddLine(skillLine, 0.8, 0.8, 0.8) end
+    local goalLine = SkillGoalLine(item)
+    if goalLine then GameTooltip:AddLine(goalLine, 1, 1, 1) end
     if item.notLearned then
         GameTooltip:AddLine("Not learned yet" .. (item.needSkill and (" (needs " .. item.needSkill .. ")") or "")
             .. "; becomes active when you learn it", 1, 0.82, 0, true)

@@ -378,8 +378,15 @@ ShowItemMenu = function(owner, itemKey)
         entries[#entries + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
         local craftsEntry = CraftsMenuEntry(item)
         if craftsEntry then entries[#entries + 1] = craftsEntry end
+        if IsOutputBar(item) then
+            entries[#entries + 1] = { "Change target... (now " .. item.goal .. ")", function()
+                AskMakeGoal(item.recipeID, item.goal)
+            end }
+        end
         entries[#entries + 1] = AfterCraftMenuEntry(item)
-        entries[#entries + 1] = CountdownMenuEntry(item)
+        if not IsOutputBar(item) then
+            entries[#entries + 1] = CountdownMenuEntry(item)
+        end
         entries[#entries + 1] = StopMenuEntry(item)
     end
     if item.recipeID then
@@ -537,6 +544,16 @@ end
 -- selected recipe's ingredients; picking one tracks it for that recipe, the
 -- same as /bartab assign.
 
+-- How many bars a recipe has (fill-up items aside).
+function RecipeBarCount(recipeID)
+    if not recipeID then return 0 end
+    local count = 0
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container then count = count + 1 end
+    end
+    return count
+end
+
 function ShowProfessionMenu(owner)
     local recipeID = GetSelectedRecipeID()
     if not recipeID then
@@ -550,6 +567,17 @@ function ShowProfessionMenu(owner)
     end
 
     local entries = {}
+    local outputID = GetRecipeOutput(recipeID)
+    local outputName = outputID and GetItemNameByID(outputID)
+    if outputName then
+        local bar = trackedItems[RecipeKey(outputName, recipeID)]
+        entries[#entries + 1] = { "Make until I have... (" .. outputName .. ")", function()
+            AskMakeGoal(recipeID, bar and bar.goal)
+        end }
+    end
+    entries[#entries + 1] = { "Make until I reach... (skill level)", function()
+        AskSkillGoal(recipeID)
+    end }
     for _, reagent in ipairs(reagents) do
         local tracked = trackedItems[RecipeKey(reagent.name, recipeID)] ~= nil
         entries[#entries + 1] = {
@@ -562,6 +590,44 @@ function ShowProfessionMenu(owner)
             for _, reagent in ipairs(reagents) do
                 AssignMaterial(reagent.name, recipeID)
             end
+        end }
+    end
+
+    -- Once the recipe has bars: the same recipe settings as a bar's
+    -- right-click menu, for all of its bars.
+    local barKeys, main = {}, nil
+    for key, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container then
+            barKeys[#barKeys + 1] = key
+            if not IsOutputBar(item) and (not main or (item.order or 0) < (main.order or 0)) then
+                main = item
+            end
+        end
+    end
+    if #barKeys > 0 then
+        local item = main or trackedItems[barKeys[1]]
+        if main then
+            local craftsEntry = CraftsMenuEntry(main)
+            if craftsEntry then entries[#entries + 1] = craftsEntry end
+        end
+        entries[#entries + 1] = AfterCraftMenuEntry(item, true)
+        if main then
+            entries[#entries + 1] = CountdownMenuEntry(main)
+        end
+        entries[#entries + 1] = StopMenuEntry(item)
+        entries[#entries + 1] = { ("Untrack this recipe (%d %s)"):format(#barKeys,
+            #barKeys == 1 and "bar" or "bars"), function()
+            local removed = {}
+            for _, key in ipairs(barKeys) do
+                if trackedItems[key] then
+                    removed[#removed + 1] = trackedItems[key]
+                    trackedItems[key] = nil
+                end
+            end
+            NoteUntrackedContainers(removed)
+            UpdateBars()
+            Print(("Stopped tracking %s (%d %s)."):format(GetRecipeName(recipeID) or "the recipe",
+                #removed, #removed == 1 and "bar" or "bars"))
         end }
     end
     ShowMenu(owner, "Track in BarTab: " .. (GetRecipeName(recipeID) or "this recipe"), entries)
@@ -592,8 +658,31 @@ do
         button:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText("Track in BarTab")
-            GameTooltip:AddLine("Pick one of this recipe's ingredients to track as a bar.", 1, 1, 1, true)
+            local count = RecipeBarCount(GetSelectedRecipeID())
+            if count > 0 then
+                GameTooltip:AddLine(("Tracked: %d %s. Click for its settings."):format(count,
+                    count == 1 and "bar" or "bars"), 0.4, 1, 0.4, true)
+            else
+                GameTooltip:AddLine("Pick one of this recipe's ingredients to track as a bar.", 1, 1, 1, true)
+            end
             GameTooltip:Show()
+        end)
+
+        -- A check mark on the button while the selected recipe has bars
+        -- (checked a few times a second while the window is open).
+        local mark = button:CreateTexture(nil, "OVERLAY")
+        mark:SetSize(14, 14)
+        mark:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 4, -4)
+        mark:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+        mark:Hide()
+        button.trackedMark = mark
+        local elapsedSince = 1
+        button:SetScript("OnUpdate", function(_, elapsed)
+            elapsedSince = elapsedSince + (elapsed or 0)
+            if elapsedSince < 0.25 then return end
+            elapsedSince = 0
+            local ok, count = pcall(RecipeBarCount, GetSelectedRecipeID())
+            mark:SetShown(ok and count > 0)
         end)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
