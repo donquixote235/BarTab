@@ -13,7 +13,12 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.8") .. "\n\n"
+        text = H("New in 1.60.1.9: your other characters") .. "\n\n"
+            .. B .. "The profit window includes recipes your other characters know (marked with who), counts their gathering skills, and has a Profession dropdown for any profession your characters know.\n"
+            .. B .. "\"Missing\" messages and bar tooltips say which character can make a material and who has some.\n"
+            .. B .. "At a mailbox, BarTab offers to mail your other characters what their bars need and you have spare (" .. C("/bartab mail") .. ").\n"
+            .. B .. "The profit and what-to-craft-next lists update as soon as you change a setting.\n\n"
+            .. H("New in 1.60.1.8") .. "\n\n"
             .. B .. "This guide (" .. C("/bartab guide") .. "), with a section for each part of BarTab.\n"
             .. B .. "Recipe difficulty next to bar names: the profession window's skill-up arrows, or the name in the recipe's color (Display settings).\n"
             .. B .. "The profession window's Track Recipe checkbox can open BarTab's Track with settings window instead of the game's own tracking (Recipes settings).\n"
@@ -91,6 +96,8 @@ GUIDE_PAGES = {
             .. B .. "Sort by profit per craft, per hour, or in total for what you can make now.\n"
             .. B .. "Hover a row for its cost breakdown; click to show the recipe; Shift-click to search for it at the auction house; right-click to track it, or to count one of its materials as your own or as bought.\n\n"
             .. "Auction prices come from your auction addon, if you use one, as of your last scan.\n\n"
+            .. H("Your other characters") .. "\n\n"
+            .. "With \"Include my other characters\" ticked, the list adds recipes your other characters know, marked with who knows them, and counts their gathering skills too. The Profession dropdown shows any profession your characters know, not just the open one. BarTab learns a character's recipes when you open their professions.\n\n"
             .. H("What to craft next") .. "\n\n"
             .. C("/bartab next") .. " ranks your recipes by what a skill point costs after selling what you make (or by how long a point takes). Recipe colors give the odds of a point: orange every craft, yellow about 3 in 4, green about 1 in 4.",
     },
@@ -124,7 +131,7 @@ GUIDE_PAGES = {
             .. H("Undo") .. "\n\n"
             .. "Bars removed by a rule, a goal or Untrack are remembered. " .. C("/bartab undo") .. " brings back the last ones, " .. C("/bartab undo list") .. " shows the last 10, and the BarTab button has Recently removed too.\n\n"
             .. H("Characters and sharing") .. "\n\n"
-            .. "Each character has its own bars. " .. C("/bartab copy <character>") .. " copies another character's; " .. C("/bartab share") .. " and " .. C("/bartab import") .. " pass bars as text to a friend or another account.\n\n"
+            .. "Each character has its own bars, and BarTab remembers what each one has and can make: \"missing\" messages name the character who can make a material or has some, and at a mailbox BarTab offers to mail them what their bars need. " .. C("/bartab copy <character>") .. " copies another character's; " .. C("/bartab share") .. " and " .. C("/bartab import") .. " pass bars as text to a friend or another account.\n\n"
             .. H("Its own window") .. "\n\n"
             .. "If another addon hides the objective tracker, BarTab shows its sections in its own window (" .. C("/bartab window") .. ").",
     },
