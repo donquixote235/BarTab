@@ -5343,8 +5343,9 @@ end
 function CraftNextReady()
     for _, key in ipairs(GetSortedKeys()) do
         local item = trackedItems[key]
+        -- Hidden ingredient bars behind a material bar count too.
         if item.recipeID and not item.container and not item.inactive
-            and IsShown(item) and BarCraftable(item) >= 1 then
+            and (IsShown(item) or IsMaterialModeBar(item)) and BarCraftable(item) >= 1 then
             CraftItem(key, GetClickAction("click"))
             return true
         end

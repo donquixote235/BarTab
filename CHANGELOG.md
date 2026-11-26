@@ -2,7 +2,7 @@
 
 ## 1.60.1.11
 
-- One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules and countdowns work as before.
+- One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules, countdowns and the craft-next key (`/bartab craft`) work as before.
 - Examples in the guide, help, settings and changelog use placeholder names ([Alt]) instead of real characters'.
 
 ## 1.60.1.10
