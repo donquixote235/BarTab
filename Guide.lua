@@ -13,7 +13,10 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.9: your other characters") .. "\n\n"
+        text = H("New in 1.60.1.10: shopping for your other characters") .. "\n\n"
+            .. B .. "Tick \"Show what my other characters need\" (Shopping settings) for bars of what your other characters' bars are short of and this character can get (" .. C("Copper Ore for Vespera") .. "). At login, BarTab says what you're already carrying for them; mail it at a mailbox.\n"
+            .. B .. "The profit window fills itself in while item details arrive, and says whose gathering skill makes a material free (" .. C("from Padoo's Mining") .. ").\n\n"
+            .. H("New in 1.60.1.9: your other characters") .. "\n\n"
             .. B .. "The profit window includes recipes your other characters know (marked with who), counts their gathering skills, and has a Profession dropdown for any profession your characters know.\n"
             .. B .. "\"Missing\" messages and bar tooltips say which character can make a material and who has some.\n"
             .. B .. "At a mailbox, BarTab offers to mail your other characters what their bars need and you have spare (" .. C("/bartab mail") .. ").\n"

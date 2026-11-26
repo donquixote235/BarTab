@@ -1,16 +1,12 @@
-# BarTab 1.60.1.9: your other characters
+# BarTab 1.60.1.10: shopping for your other characters
 
 A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **Mail your other characters what they need:** at a mailbox, BarTab offers to mail your other characters (same realm and faction) what their bars are short of and you have spare. It attaches exact amounts, addresses each letter, and you click Send. `/bartab mail` asks again.
-- **Alts in the profit window:** recipes your other characters know are added (marked with who knows them), their gathering skills count too, and a Profession dropdown shows any profession your characters know, not just the open one.
-- **Alts in "missing" messages:** when you can't craft something, BarTab says which character can make a missing material and who has some ("Vespera can make it; Padoo has 40").
+- **Shopping for your other characters (optional):** tick "Show what my other characters need" (Shopping tab in `/bartab config`) for a "For your other characters" subsection with a bar for each material your other characters' bars are short of, limited to what this character can get: gather with its own skills, make with its own recipes, or already has some of ("Copper Ore for Vespera"). Your own bars claim what you carry first. At login, BarTab tells you what you're already carrying for them, and the mailbox prompt offers to send it. Right-click a bar to hide it.
 
 ## Improved
 
-- The profit and what-to-craft-next lists update as soon as you change a setting.
-- The user's guide covers the new features.
-
-BarTab learns each character's recipes, bags and bank when you play them, so log in to each one (and open their professions) once.
+- The profit window fills itself in while item details are still arriving from the game (common the first time you view an alt's profession), instead of asking you to search again.
+- Free gathered materials say whose skill it is: "from Padoo's Mining" for another character's, "from your Skinning" for your own.
