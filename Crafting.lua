@@ -1173,6 +1173,182 @@ function StopCraftingRecipe(recipeID, label, reason)
     Print("Stopped crafting " .. (label or "it") .. ": " .. (reason or "its stop rule was reached") .. ".")
 end
 
+-- Recently removed bars ------------------------------------------------------------
+-- Bars that leave the list (a stop rule or goal reached, Untrack, a bar
+-- replaced by another) are remembered so they can be brought back:
+-- /bartab undo, or "Recently removed..." on the profession window's BarTab
+-- button. They're found by comparing the list before and after each
+-- refresh, so every way a bar can go is covered. Fill-up item bars (crates)
+-- aren't kept: they come and go with the item. Per character, newest first,
+-- in settings.removedBars; each entry is the bars that went together.
+REMOVED_KEEP = 10
+removedShadow = { items = {} }
+
+-- Seconds since 1970 (the game's time()); 0 if there's no clock.
+function Now()
+    return (time and time()) or 0
+end
+
+function DeepCopy(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local copy = {}
+    seen[value] = copy
+    for k, v in pairs(value) do copy[DeepCopy(k, seen)] = DeepCopy(v, seen) end
+    return copy
+end
+
+function RemovedBars()
+    settings.removedBars = settings.removedBars or {}
+    local key = CharacterKey()
+    settings.removedBars[key] = settings.removedBars[key] or {}
+    return settings.removedBars[key]
+end
+
+-- "Thick Leather", "Fine Thread for Hillman's Cloak", "Hillman's Cloak (3
+-- bars)", "Thick Leather and 2 more".
+function RemovedLabel(entry)
+    local first = entry.bars[1].item
+    local label = DisplayName(first)
+    local same = true
+    for _, bar in ipairs(entry.bars) do
+        if DisplayName(bar.item) ~= label then same = false end
+    end
+    if #entry.bars == 1 then
+        -- One material bar of a recipe: "Fine Thread for Hillman's Cloak".
+        if first.label and first.name and first.label ~= first.name then
+            return first.name .. " for " .. first.label
+        end
+        return label
+    end
+    if same then return ("%s (%d bars)"):format(label, #entry.bars) end
+    return ("%s and %d more"):format(label, #entry.bars - 1)
+end
+
+function AgoText(when)
+    local minutes = math.floor((Now() - (when or Now())) / 60)
+    if minutes < 1 then return "just now" end
+    if minutes < 60 then return minutes .. " min ago" end
+    local hours = math.floor(minutes / 60)
+    if hours < 24 then return hours .. (hours == 1 and " hour ago" or " hours ago") end
+    local days = math.floor(hours / 24)
+    return days .. (days == 1 and " day ago" or " days ago")
+end
+
+-- Runs after every refresh: anything in the last snapshot that's gone now
+-- (and wasn't just renamed to another key) was removed.
+function NoteRemovedBars()
+    local shadow = removedShadow
+    if shadow.list == trackedItems then
+        local still = {}
+        for _, item in pairs(trackedItems) do still[item] = true end
+        local gone = {}
+        for key, saved in pairs(shadow.items) do
+            if not trackedItems[key] and not still[saved.ref] then
+                gone[#gone + 1] = { key = key, item = saved.copy }
+            end
+        end
+        local added = false
+        for key, item in pairs(trackedItems) do
+            if not item.container and not shadow.items[key] then added = true end
+        end
+        if #gone > 0 then
+            table.sort(gone, function(a, b) return (a.item.order or 0) < (b.item.order or 0) end)
+            local entry = { bars = gone, time = Now() }
+            local list = RemovedBars()
+            table.insert(list, 1, entry)
+            while #list > REMOVED_KEEP do table.remove(list) end
+            -- A bar replaced by another (a goal bar for ingredient bars)
+            -- isn't news; otherwise say how to get it back, after whatever
+            -- message the removal printed.
+            if not added then
+                local label = RemovedLabel(entry)
+                C_Timer.After(0, function()
+                    Print("Type /bartab undo to bring back " .. label .. ".")
+                end)
+            end
+        end
+    end
+    -- Snapshot for next time. A different list (logging in) starts fresh.
+    local items = {}
+    for key, item in pairs(trackedItems) do
+        if not item.container then items[key] = { ref = item, copy = DeepCopy(item) } end
+    end
+    shadow.list, shadow.items = trackedItems, items
+end
+
+-- Brings back a group of removed bars (index into the list; 1 = newest).
+-- A stop rule that's already been met is cleared, or it would take the bar
+-- away again straight away.
+function RestoreRemoved(index)
+    index = index or 1
+    local list = RemovedBars()
+    local entry = list[index]
+    if not entry then
+        Print("Nothing to bring back: no bars have been removed lately.")
+        return
+    end
+    table.remove(list, index)
+    local back, already, cleared = 0, 0, {}
+    for _, bar in ipairs(entry.bars) do
+        if trackedItems[bar.key] then
+            already = already + 1
+        else
+            local item = DeepCopy(bar.item)
+            if item.untilSkill then
+                local rank = GetProfessionSkill(item)
+                if rank and rank >= item.untilSkill then
+                    cleared[#cleared + 1] = "stop at skill " .. item.untilSkill
+                    item.untilSkill = nil
+                end
+            end
+            if item.untilColor and item.recipeID then
+                local color = GetRecipeColor(item.recipeID)
+                if color and COLOR_RANK[color] >= (COLOR_RANK[item.untilColor] or 9) then
+                    cleared[#cleared + 1] = "stop when " .. item.untilColor
+                    item.untilColor = nil
+                end
+            end
+            trackedItems[bar.key] = item
+            goalReached[bar.key] = nil
+            back = back + 1
+        end
+    end
+    UpdateBars()
+    local label = RemovedLabel(entry)
+    if back == 0 then
+        Print(label .. " is already back.")
+        return
+    end
+    local text = "Brought back " .. label
+    if already > 0 then text = text .. (" (%d already tracked)"):format(already) end
+    if #cleared > 0 then
+        text = text .. "; cleared its " .. cleared[1] .. ", since that's already been reached"
+    end
+    Print(text .. ".")
+end
+
+-- The profession window's "Recently removed..." list.
+function ShowRemovedMenu(owner)
+    local list = RemovedBars()
+    if #list == 0 then
+        Print("No bars have been removed lately.")
+        return
+    end
+    local entries = {}
+    for index, entry in ipairs(list) do
+        entries[#entries + 1] = { RemovedLabel(entry) .. "  |cff999999" .. AgoText(entry.time) .. "|r",
+            function() RestoreRemoved(index) end }
+    end
+    entries[#entries + 1] = { divider = true }
+    entries[#entries + 1] = { "Clear the list", function()
+        for i = #list, 1, -1 do list[i] = nil end
+        Print("Cleared the list of removed bars.")
+    end }
+    ShowMenu(owner, "Bring back a removed bar", entries)
+end
+
 -- Bars from "Make until I reach...": one craft's worth per skill point still
 -- needed, so a craft that gives a point shrinks them and one that doesn't
 -- leaves them as they are.
@@ -1413,6 +1589,7 @@ skillWatcher:SetScript("OnEvent", function(_, event)
     C_Timer.After(1, function()
         skillCheckPending = false
         CheckSkillLimits()
+        Safe("training", CheckTraining)()
         RequestUpdate(0) -- skill levels on the profession headings
     end)
 end)
@@ -2974,6 +3151,197 @@ function CheckMakeTargets()
     end
 end
 
+-- Training reminders -----------------------------------------------------------
+-- Two nudges to visit a trainer (settings.trainingReminders, on by default):
+--  * a profession reaching its current limit (75, 150, 225), once per limit;
+--  * recipes you saw at a trainer that you couldn't learn yet, once your
+--    skill (and level) is high enough. Each trainer visit notes what it
+--    teaches; learned ones drop off. Kept per character in settings.training.
+PROFESSION_NAMES = {
+    alchemy = true, blacksmithing = true, enchanting = true, engineering = true,
+    herbalism = true, leatherworking = true, mining = true, skinning = true,
+    tailoring = true, jewelcrafting = true, inscription = true,
+    cooking = true, ["first aid"] = true, fishing = true,
+}
+PROFESSION_TOP = 300 -- the highest limit; nothing to train past it
+NEXT_RANKS = { [75] = { "Journeyman", 10 }, [150] = { "Expert", 20 }, [225] = { "Artisan", 35 } }
+
+function TrainingData()
+    settings.training = settings.training or {}
+    local key = CharacterKey()
+    settings.training[key] = settings.training[key] or {}
+    local data = settings.training[key]
+    data.capped = data.capped or {}
+    data.recipes = data.recipes or {}
+    return data
+end
+
+-- { { name=, rank=, rankMax= }, ... } for every profession you have.
+function AllProfessionSkills()
+    local list = {}
+    if GetProfessions and GetProfessionInfo then
+        local indexes = { GetProfessions() }
+        for i = 1, 6 do
+            if indexes[i] then
+                local ok, name, _, rank, rankMax = pcall(GetProfessionInfo, indexes[i])
+                if ok and name then
+                    list[#list + 1] = { name = name, rank = tonumber(rank) or 0, rankMax = tonumber(rankMax) or 0 }
+                end
+            end
+        end
+        if #list > 0 then return list end
+    end
+    if GetNumSkillLines and GetSkillLineInfo then
+        for index = 1, GetNumSkillLines() do
+            local name, header, _, rank, _, _, rankMax = GetSkillLineInfo(index)
+            if name and not header and PROFESSION_NAMES[string.lower(name)] then
+                list[#list + 1] = { name = name, rank = tonumber(rank) or 0, rankMax = tonumber(rankMax) or 0 }
+            end
+        end
+    end
+    return list
+end
+
+function PlayerLevel()
+    return (UnitLevel and UnitLevel("player")) or 0
+end
+
+-- "A, B and C", or "A, B, C and 4 more" for long lists.
+function JoinNames(names, most)
+    most = most or 4
+    if #names <= 1 then return names[1] or "" end
+    if #names > most then
+        return table.concat(names, ", ", 1, most - 1) .. (" and %d more"):format(#names - most + 1)
+    end
+    return table.concat(names, ", ", 1, #names - 1) .. " and " .. names[#names]
+end
+
+function CheckSkillCaps()
+    local data = TrainingData()
+    for _, skill in ipairs(AllProfessionSkills()) do
+        local lower = string.lower(skill.name)
+        if skill.rankMax > 0 and skill.rankMax < PROFESSION_TOP and skill.rank >= skill.rankMax then
+            if data.capped[lower] ~= skill.rankMax then
+                data.capped[lower] = skill.rankMax
+                local nextRank = NEXT_RANKS[skill.rankMax]
+                local text = ("%s is at its limit (%d/%d): learn %s to keep gaining skill."):format(
+                    skill.name, skill.rank, skill.rankMax,
+                    nextRank and (nextRank[1] .. " " .. skill.name) or "the next rank")
+                if nextRank and PlayerLevel() > 0 and PlayerLevel() < nextRank[2] then
+                    text = text .. (" (Needs level %d.)"):format(nextRank[2])
+                end
+                PlayGoalAlert(text)
+            end
+        elseif data.capped[lower] and skill.rankMax > data.capped[lower] then
+            data.capped[lower] = nil -- trained: remind again at the next limit
+        end
+    end
+end
+
+-- Recipes noted at a trainer that you've now reached, grouped by trainer.
+function CheckTrainerRecipes()
+    local data = TrainingData()
+    local level = PlayerLevel()
+    local ranks = {}
+    for _, skill in ipairs(AllProfessionSkills()) do ranks[string.lower(skill.name)] = skill.rank end
+    local byTrainer, order = {}, {}
+    for profession, recipes in pairs(data.recipes) do
+        local rank = ranks[profession]
+        if rank then
+            for name, recipe in pairs(recipes) do
+                if not recipe.told and rank >= (recipe.skill or 0) and level >= (recipe.level or 0) then
+                    recipe.told = true
+                    local where = recipe.trainer or "your trainer"
+                    if recipe.zone and recipe.zone ~= "" then where = where .. " (" .. recipe.zone .. ")" end
+                    if not byTrainer[where] then
+                        byTrainer[where] = { names = {}, profession = recipe.professionName or profession }
+                        order[#order + 1] = where
+                    end
+                    table.insert(byTrainer[where].names, name)
+                end
+            end
+        end
+    end
+    table.sort(order)
+    for _, where in ipairs(order) do
+        local group = byTrainer[where]
+        table.sort(group.names)
+        PlayGoalAlert(("%d new %s %s to learn at %s: %s."):format(#group.names, group.profession,
+            #group.names == 1 and "recipe" or "recipes", where, JoinNames(group.names)))
+    end
+end
+
+function CheckTraining()
+    if settings.trainingReminders == false then return end
+    CheckSkillCaps()
+    CheckTrainerRecipes()
+end
+
+-- At a profession trainer: note what it teaches and what each needs. Every
+-- type filter is turned on for the read (recipes you can't learn yet are
+-- hidden by default), then put back as it was.
+function ScanTrainer()
+    if not (GetNumTrainerServices and GetTrainerServiceInfo and GetTrainerServiceSkillReq) then return end
+    if IsTradeskillTrainer and not IsTradeskillTrainer() then return end
+    local saved
+    if GetTrainerServiceTypeFilter and SetTrainerServiceTypeFilter then
+        saved = {}
+        for _, kind in ipairs({ "available", "unavailable", "used" }) do
+            local value = GetTrainerServiceTypeFilter(kind)
+            saved[kind] = (value and value ~= 0) and 1 or 0
+            if saved[kind] == 0 then SetTrainerServiceTypeFilter(kind, 1) end
+        end
+    end
+    local data = TrainingData()
+    local trainer = UnitName and UnitName("npc")
+    local zone = GetZoneText and GetZoneText()
+    local ok, err = pcall(function()
+        for index = 1, GetNumTrainerServices() do
+            local name, status = GetTrainerServiceInfo(index)
+            if name and status ~= "header" then
+                local skillName, skillRank = GetTrainerServiceSkillReq(index)
+                if skillName and skillName ~= "" then
+                    local profession = string.lower(skillName)
+                    data.recipes[profession] = data.recipes[profession] or {}
+                    local recipes = data.recipes[profession]
+                    if status == "used" then
+                        recipes[name] = nil
+                    else
+                        local level = GetTrainerServiceLevelReq and GetTrainerServiceLevelReq(index)
+                        local old = recipes[name]
+                        recipes[name] = {
+                            skill = tonumber(skillRank) or 0, level = tonumber(level) or 0,
+                            trainer = trainer, zone = zone, professionName = skillName,
+                            -- What you can learn now is in front of you already.
+                            told = status == "available" or (old and old.told) or nil,
+                        }
+                    end
+                end
+            end
+        end
+    end)
+    if saved then
+        for kind, value in pairs(saved) do
+            if value == 0 then SetTrainerServiceTypeFilter(kind, 0) end
+        end
+    end
+    if not ok then error(err) end
+end
+
+trainingWatcher = CreateFrame("Frame")
+trainingWatcher.barTabOwn = true
+for _, trainingEvent in ipairs({ "TRAINER_SHOW", "PLAYER_LEVEL_UP" }) do
+    pcall(trainingWatcher.RegisterEvent, trainingWatcher, trainingEvent)
+end
+trainingWatcher:SetScript("OnEvent", function(_, event)
+    if event == "TRAINER_SHOW" then
+        -- A moment for the trainer's list to fill.
+        C_Timer.After(0.2, function() Safe("training", ScanTrainer)() end)
+    else
+        C_Timer.After(1, function() Safe("training", CheckTraining)() end)
+    end
+end)
+
 -- Favorite recipes ------------------------------------------------------------
 -- /bartab favorites (or the settings button) tracks the loaded profession's
 -- starred recipes that have no bars yet, through the same windows as
@@ -3486,6 +3854,16 @@ function AuctionPrice(itemID)
     end
 end
 
+-- How many days ago your auction addon last saw the item listed (0: today),
+-- or nil if it can't say.
+function AuctionAge(itemID)
+    local api = AuctionAddonAPI()
+    if api and api.GetAuctionAgeByItemID then
+        local ok, days = pcall(api.GetAuctionAgeByItemID, "BarTab", itemID)
+        if ok and tonumber(days) then return tonumber(days) end
+    end
+end
+
 -- What a vendor pays for the item: copper, 0 if it can't be sold, or nil
 -- while the item's data is still loading.
 function VendorSellPrice(itemID)
@@ -3705,6 +4083,11 @@ _G.BarTab_CraftNext = function() CraftNextReady() end
 -- are short of, each with a Search button that runs the auction house's own
 -- search. settings.auctionList (on by default); settings.auctionPanelOpen
 -- remembers whether it was open.
+
+function AuctionHouseOpen()
+    local frame = AuctionHouseFrame or AuctionFrame
+    return frame and frame.IsShown and frame:IsShown() and true or false
+end
 
 function SearchAuctionHouse(name)
     local frame = AuctionHouseFrame

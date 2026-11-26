@@ -1,5 +1,6 @@
 -- BarTab: the profit window (/bartab profit). Which of the open profession's
--- recipes earn the most when you sell what they make to a vendor, with your
+-- recipes earn the most when you sell what they make, to a vendor or at the
+-- auction house, with your
 -- choice of how to count materials you have and ones you'd have to get.
 -- Shares BarTab's private namespace; see the top of BarTab.lua.
 local _, ns = ...
@@ -19,8 +20,30 @@ PROFIT_SORTS = {
     { key = "craft", name = "profit per craft" },
     { key = "hour", name = "profit per hour" },
     { key = "total", name = "total you can make" },
+    { key = "point", name = "cheapest skill-up" },
+    { key = "pointtime", name = "fastest skill-up" },
+}
+-- Leveling: skill points a craft gives, on average, by the recipe's color.
+-- Orange always gives one (some give more); yellow about 3 crafts in 4,
+-- green about 1 in 4 (the chance falls as the recipe nears gray); gray none.
+SKILL_CHANCE = { orange = 1, yellow = 0.75, green = 0.25, gray = 0 }
+SKILL_CHANCE_TEXT = {
+    orange = "every craft gives a point",
+    yellow = "about 3 crafts in 4 give a point",
+    green = "about 1 craft in 4 gives a point",
+    gray = "no more points",
+}
+
+function IsLevelingSort(sort)
+    return sort == "point" or sort == "pointtime"
+end
+PROFIT_SELL = {
+    { key = "best", name = "whichever pays more" },
+    { key = "vendor", name = "a vendor" },
+    { key = "auction", name = "the auction house" },
 }
 PROFIT_ROWS = 14
+AUCTION_CUT = 0.05 -- the auction house keeps 5% of the sale
 
 -- The window's choices, kept between sessions (settings.profitWindow).
 function ProfitOptions()
@@ -29,6 +52,7 @@ function ProfitOptions()
     options.mine = options.mine or "free"
     options.missing = options.missing or "make"
     options.sort = options.sort or "craft"
+    options.sell = options.sell or "best"
     if options.gray == nil then options.gray = true end
     if options.gather == nil then options.gather = true end
     -- Materials you've asked to always price, even when you have them
@@ -118,15 +142,29 @@ function CanGather(itemID, itemName, skills)
 end
 
 -- One recipe under the window's options: a row, "loading", or nil plus why
--- it was left out ("unpriced" or "skipped").
+-- it was left out ("unpriced", "skipped" or "noauction").
 function ProfitRow(recipeID, options, state)
     local outputID, made = GetRecipeOutput(recipeID)
     if not outputID then return nil end
     local sell = VendorSellPrice(outputID)
     if sell == nil then return "loading" end
-    if sell <= 0 then return nil end
     made = made or 1
-    local income = sell * made
+    -- What it fetches: from a vendor, and at auction after the house's cut.
+    local vendorIncome = sell > 0 and sell * made or nil
+    local auctionEach = AuctionPrice(outputID)
+    local auctionIncome = auctionEach and auctionEach * made * (1 - AUCTION_CUT) or nil
+    local income, soldAt
+    if options.sell == "vendor" then
+        income, soldAt = vendorIncome, "vendor"
+    elseif options.sell == "auction" then
+        income, soldAt = auctionIncome, "auction"
+        if not income and vendorIncome then return nil, "noauction" end
+    elseif auctionIncome and (not vendorIncome or auctionIncome > vendorIncome) then
+        income, soldAt = auctionIncome, "auction"
+    else
+        income, soldAt = vendorIncome, "vendor"
+    end
+    if not income then return nil end
     local cost, lines = 0, {}
     local leftOut
     state.visiting[outputID] = true
@@ -172,13 +210,27 @@ function ProfitRow(recipeID, options, state)
     if leftOut then return nil, leftOut end
     local profit = income - cost
     local seconds = CraftSeconds(recipeID)
+    -- Leveling: points a craft gives on average, and what a point costs
+    -- (after selling what you make; negative: it earns) and takes.
+    local color = GetRecipeColor(recipeID)
+    local points = color and SKILL_CHANCE[color] or nil
+    if points and color == "orange" and C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo then
+        local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        local ups = ok and type(info) == "table" and tonumber(info.numSkillUps)
+        if ups and ups > 1 then points = ups end
+    end
     local canMake = GetCraftableCount(recipeID) or 0
     return {
-        recipeID = recipeID,
+        recipeID = recipeID, outputID = outputID,
         name = GetRecipeName(recipeID) or GetItemNameByID(outputID) or ("recipe " .. recipeID),
         made = made, income = income, cost = cost, profit = profit, lines = lines,
+        vendorIncome = vendorIncome, auctionIncome = auctionIncome, soldAt = soldAt,
+        auctionAge = auctionIncome and AuctionAge(outputID) or nil,
         perHour = (seconds and seconds > 0) and (profit * 3600 / seconds) or nil,
         canMake = canMake, total = profit * canMake, seconds = seconds,
+        color = color, points = points,
+        perPoint = (points and points > 0) and (-profit / points) or nil,
+        secondsPerPoint = (points and points > 0 and seconds) and (seconds / points) or nil,
     }
 end
 
@@ -202,7 +254,7 @@ function RunProfitSearch(keepOffset)
             return CanGather(itemID, itemName, state.skills)
         end
     end
-    local results, loading, unpriced, skipped = {}, 0, 0, 0
+    local results, loading, unpriced, skipped, noAuction = {}, 0, 0, 0, 0
     for _, recipeID in ipairs(C_TradeSkillUI.GetAllRecipeIDs() or {}) do
         local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
         if ok and type(info) == "table" and info.learned
@@ -211,20 +263,32 @@ function RunProfitSearch(keepOffset)
             if row == "loading" then
                 loading = loading + 1
             elseif row then
-                if not options.canCraft or row.canMake >= 1 then results[#results + 1] = row end
+                local wanted = not options.canCraft or row.canMake >= 1
+                -- Leveling: only recipes that can still give a point.
+                if IsLevelingSort(options.sort) and not (row.points and row.points > 0) then wanted = false end
+                if wanted then results[#results + 1] = row end
             elseif why == "unpriced" then
                 unpriced = unpriced + 1
             elseif why == "skipped" then
                 skipped = skipped + 1
+            elseif why == "noauction" then
+                noAuction = noAuction + 1
             end
         end
     end
     local function Key(row)
         if options.sort == "hour" then return row.perHour or -math.huge end
         if options.sort == "total" then return row.total end
+        if options.sort == "point" then return -(row.perPoint or math.huge) end
+        if options.sort == "pointtime" then return -(row.secondsPerPoint or math.huge) end
         return row.profit
     end
-    table.sort(results, function(a, b) return Key(a) > Key(b) end)
+    table.sort(results, function(a, b)
+        local ka, kb = Key(a), Key(b)
+        if ka ~= kb then return ka > kb end
+        return a.profit > b.profit
+    end)
+    frame.sortUsed = options.sort
     frame.results, frame.offset = results, keepOffset and frame.offset or 0
     -- Keep the recipe you last picked in view, wherever a change moved it.
     if keepOffset and frame.selected then
@@ -243,6 +307,7 @@ function RunProfitSearch(keepOffset)
     local notes = { #results .. (#results == 1 and " recipe" or " recipes") }
     if unpriced > 0 then notes[#notes + 1] = unpriced .. " left out (no auction price for an ingredient)" end
     if skipped > 0 then notes[#notes + 1] = skipped .. " left out (missing materials)" end
+    if noAuction > 0 then notes[#notes + 1] = noAuction .. " with no auction price yet" end
     if loading > 0 then notes[#notes + 1] = loading .. " still loading: search again in a moment" end
     frame.status:SetText(table.concat(notes, "  ·  "))
     RefreshProfitRows()
@@ -258,8 +323,18 @@ function RefreshProfitRows()
         local result = results[frame.offset + index]
         row.result = result
         if result then
-            row.cells.name:SetText(result.name .. (result.made > 1 and (" (x" .. result.made .. ")") or ""))
-            row.cells.sells:SetText(ProfitMoney(result.income))
+            -- Named in the recipe's color (orange, yellow, green, gray).
+            local name = result.name .. (result.made > 1 and (" (x" .. result.made .. ")") or "")
+            if result.color and COLOR_CODES[result.color] then
+                name = "|c" .. COLOR_CODES[result.color] .. name .. "|r"
+            end
+            row.cells.name:SetText(name)
+            row.cells.vendor:SetText(result.vendorIncome and ProfitMoney(result.vendorIncome) or "—")
+            row.cells.auction:SetText(result.auctionIncome and ProfitMoney(result.auctionIncome) or "—")
+            -- The price the profit uses is bright; the other is dimmed.
+            local vendorUsed = result.soldAt == "vendor"
+            row.cells.vendor:SetTextColor(vendorUsed and 1 or 0.5, vendorUsed and 1 or 0.5, vendorUsed and 1 or 0.5)
+            row.cells.auction:SetTextColor(vendorUsed and 0.5 or 1, vendorUsed and 0.5 or 1, vendorUsed and 0.5 or 1)
             row.cells.cost:SetText(ProfitMoney(result.cost))
             row.cells.profit:SetText(ProfitMoney(result.profit))
             if result.profit >= 0 then
@@ -267,13 +342,30 @@ function RefreshProfitRows()
             else
                 row.cells.profit:SetTextColor(1, 0.35, 0.35)
             end
-            row.cells.hour:SetText(result.perHour and ProfitMoney(result.perHour) or "")
+            if frame.sortUsed == "point" then
+                -- What a skill point costs; green "+" when it earns.
+                if not result.perPoint then
+                    row.cells.hour:SetText("")
+                elseif result.perPoint > 0 then
+                    row.cells.hour:SetText(ProfitMoney(result.perPoint))
+                else
+                    row.cells.hour:SetText("|cff4dff4d+" .. ProfitMoney(-result.perPoint) .. "|r")
+                end
+            elseif frame.sortUsed == "pointtime" then
+                row.cells.hour:SetText(result.secondsPerPoint
+                    and (FormatDuration(result.secondsPerPoint):gsub("^about ", "")) or "")
+            else
+                row.cells.hour:SetText(result.perHour and ProfitMoney(result.perHour) or "")
+            end
             row.cells.make:SetText(tostring(result.canMake))
             row.picked:SetShown(result.recipeID == frame.selected)
             row:Show()
         else
             row:Hide()
         end
+    end
+    if frame.hourHeader then
+        frame.hourHeader:SetText(IsLevelingSort(frame.sortUsed) and "A point" or "An hour")
     end
     if #results > PROFIT_ROWS then
         frame.pageText:SetText(("%d-%d of %d"):format(frame.offset + 1,
@@ -295,19 +387,49 @@ function ShowProfitRowTooltip(row)
     if not result then return end
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:SetText(result.name)
-    GameTooltip:AddDoubleLine("Sells to a vendor for", ProfitMoney(result.income), 0.8, 0.8, 0.8, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Sells to a vendor for",
+        result.vendorIncome and ProfitMoney(result.vendorIncome) or "can't be sold", 0.8, 0.8, 0.8, 1, 1, 1)
+    if result.auctionIncome then
+        GameTooltip:AddDoubleLine("At auction, after the 5% cut", ProfitMoney(result.auctionIncome),
+            0.8, 0.8, 0.8, 1, 1, 1)
+        local age = result.auctionAge
+        if age then
+            GameTooltip:AddLine(age == 0 and "Auction price seen today"
+                or ("Auction price last seen %d day%s ago"):format(age, age == 1 and "" or "s"), 0.6, 0.6, 0.6)
+        end
+    else
+        GameTooltip:AddDoubleLine("At auction", "no price yet", 0.8, 0.8, 0.8, 0.6, 0.6, 0.6)
+    end
     for _, line in ipairs(result.lines) do
         GameTooltip:AddDoubleLine(("%d %s (%s)"):format(line.need, line.name, line.how),
             line.cost > 0 and ("-" .. ProfitMoney(line.cost)) or "free", 0.8, 0.8, 0.8, 1, 1, 1)
     end
     local good = result.profit >= 0
-    GameTooltip:AddDoubleLine("Profit a craft", ProfitMoney(result.profit), 1, 0.82, 0,
+    GameTooltip:AddDoubleLine(result.soldAt == "auction" and "Profit a craft, at auction"
+        or "Profit a craft, at a vendor", ProfitMoney(result.profit), 1, 0.82, 0,
         good and 0.3 or 1, good and 1 or 0.35, good and 0.3 or 0.35)
     if result.seconds then
         local takes = FormatDuration(result.seconds):gsub("^about ", "")
         GameTooltip:AddDoubleLine("A craft takes", takes, 0.8, 0.8, 0.8, 1, 1, 1)
     end
+    if result.color then
+        local chance = SKILL_CHANCE_TEXT[result.color] or ""
+        if result.color == "orange" and result.points and result.points > 1 then
+            chance = ("every craft gives %d points"):format(result.points)
+        end
+        GameTooltip:AddDoubleLine("Skill-ups (" .. result.color .. ")", chance, 0.8, 0.8, 0.8, 1, 1, 1)
+        if result.perPoint then
+            GameTooltip:AddDoubleLine("A skill point costs",
+                result.perPoint > 0 and ProfitMoney(result.perPoint) or ("nothing (earns " .. ProfitMoney(-result.perPoint) .. ")"),
+                0.8, 0.8, 0.8, 1, 1, 1)
+        end
+        if result.secondsPerPoint then
+            GameTooltip:AddDoubleLine("A skill point takes",
+                (FormatDuration(result.secondsPerPoint):gsub("^about ", "")), 0.8, 0.8, 0.8, 1, 1, 1)
+        end
+    end
     GameTooltip:AddLine("Click: show it in the profession window", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Shift-click: search for it at the auction house", 0.7, 0.7, 0.7)
     GameTooltip:AddLine("Right-click: track it, or choose how to count its materials", 0.7, 0.7, 0.7)
     GameTooltip:Show()
 end
@@ -383,6 +505,7 @@ function ProfitRowClicked(row, button)
         local entries = {
             { "Track with settings...", function() TrackWithOptions(result.recipeID) end },
             { "Make until I have...", function() AskMakeGoal(result.recipeID) end },
+            { "Make until I reach a skill level...", function() AskSkillGoal(result.recipeID) end },
         }
         -- Materials that aren't vendor items: how to count each one, here
         -- and in every other recipe; the list updates straight away.
@@ -397,6 +520,15 @@ function ProfitRowClicked(row, button)
             { entries = entries },
             { heading = "Count materials as", entries = materials },
         }))
+    elseif IsShiftKeyDown() then
+        -- Look the item up at the auction house, to check the going price.
+        local name = (result.outputID and GetItemNameByID(result.outputID))
+            or (result.name:gsub(" %(x%d+%)$", ""))
+        if AuctionHouseOpen() then
+            SearchAuctionHouse(name)
+        else
+            Print("Open the auction house first, then Shift-click to search for " .. name .. ".")
+        end
     elseif ProfessionsOpen() then
         SelectRecipeInWindow(result.recipeID)
     elseif C_TradeSkillUI and C_TradeSkillUI.OpenRecipe then
@@ -420,7 +552,7 @@ function CreateProfitWindow()
         local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
         close:SetPoint("TOPRIGHT", -4, -4)
     end
-    frame:SetSize(620, 516)
+    frame:SetSize(680, 526)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
     frame:SetFrameStrata("DIALOG")
     frame:SetToplevel(true)
@@ -447,6 +579,7 @@ function CreateProfitWindow()
             Label()
         end)
         Label()
+        button.Refresh = Label
         return button
     end
     local function Check(x, y, label, field)
@@ -461,15 +594,16 @@ function CreateProfitWindow()
         check:SetScript("OnClick", function(self) options[field] = self:GetChecked() and true or false end)
         return check
     end
-    frame.mineButton = Cycle(14, -32, 290, "Your materials", PROFIT_MINE, "mine")
-    frame.missingButton = Cycle(314, -32, 290, "Missing", PROFIT_MISSING, "missing")
-    frame.sortButton = Cycle(14, -58, 290, "Sort by", PROFIT_SORTS, "sort")
-    frame.canCheck = Check(314, -57, "Only recipes I can craft now", "canCraft")
-    frame.grayCheck = Check(314, -80, "Include gray recipes", "gray")
+    frame.mineButton = Cycle(14, -32, 320, "Your materials", PROFIT_MINE, "mine")
+    frame.missingButton = Cycle(14, -58, 320, "Missing", PROFIT_MISSING, "missing")
+    frame.sortButton = Cycle(14, -84, 320, "Sort by", PROFIT_SORTS, "sort")
+    frame.sellButton = Cycle(346, -32, 320, "Sell to", PROFIT_SELL, "sell")
+    frame.canCheck = Check(346, -57, "Only recipes I can craft now", "canCraft")
+    frame.grayCheck = Check(346, -80, "Include gray recipes", "gray")
 
     local search = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     search:SetSize(120, 24)
-    search:SetPoint("TOPLEFT", 14, -86)
+    search:SetPoint("TOPLEFT", 14, -112)
     search:SetText("Search")
     search:SetScript("OnClick", function() Safe("profit", RunProfitSearch)() end)
     frame.searchButton = search
@@ -479,36 +613,38 @@ function CreateProfitWindow()
     choices:SetPoint("LEFT", search, "RIGHT", 8, 0)
     choices:SetScript("OnClick", function(self) Safe("profit", ShowMaterialChoices)(self) end)
     frame.choicesButton = choices
-    frame.gatherCheck = Check(314, -103, "Free: items from my gathering skills", "gather")
+    frame.gatherCheck = Check(346, -103, "Free: items from my gathering skills", "gather")
 
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    frame.status:SetPoint("TOPLEFT", 16, -132)
+    frame.status:SetPoint("TOPLEFT", 16, -142)
     frame.status:SetPoint("RIGHT", -16, 0)
     frame.status:SetJustifyH("LEFT")
     frame.status:SetText("Choose how to count materials, then click Search.")
 
     -- Columns: name, then money columns right-aligned.
     local COLUMNS = {
-        { key = "name", label = "Recipe", x = 18, width = 214, justify = "LEFT" },
-        { key = "sells", label = "Sells for", x = 236, width = 72, justify = "RIGHT" },
-        { key = "cost", label = "Cost", x = 312, width = 72, justify = "RIGHT" },
-        { key = "profit", label = "Profit", x = 388, width = 72, justify = "RIGHT" },
-        { key = "hour", label = "An hour", x = 464, width = 80, justify = "RIGHT" },
-        { key = "make", label = "Can make", x = 548, width = 54, justify = "RIGHT" },
+        { key = "name", label = "Recipe", x = 18, width = 196, justify = "LEFT" },
+        { key = "vendor", label = "Vendor for", x = 216, width = 66, justify = "RIGHT" },
+        { key = "auction", label = "Auction for", x = 286, width = 66, justify = "RIGHT" },
+        { key = "cost", label = "Cost", x = 356, width = 66, justify = "RIGHT" },
+        { key = "profit", label = "Profit", x = 426, width = 72, justify = "RIGHT" },
+        { key = "hour", label = "An hour", x = 502, width = 80, justify = "RIGHT" },
+        { key = "make", label = "Can make", x = 590, width = 72, justify = "RIGHT" },
     }
     for _, column in ipairs(COLUMNS) do
         local header = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        header:SetPoint("TOPLEFT", column.x, -152)
+        header:SetPoint("TOPLEFT", column.x, -162)
         header:SetWidth(column.width)
         header:SetJustifyH(column.justify)
         header:SetText(column.label)
+        if column.key == "hour" then frame.hourHeader = header end
     end
 
     frame.rows = {}
     for index = 1, PROFIT_ROWS do
         local row = CreateFrame("Button", nil, frame)
-        row:SetSize(592, 22)
-        row:SetPoint("TOPLEFT", 14, -166 - (index - 1) * 22)
+        row:SetSize(652, 22)
+        row:SetPoint("TOPLEFT", 14, -176 - (index - 1) * 22)
         row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         local highlight = row:CreateTexture(nil, "HIGHLIGHT")
         highlight:SetAllPoints()
@@ -544,13 +680,98 @@ function CreateProfitWindow()
     frame.pageText:SetPoint("BOTTOMRIGHT", -18, 14)
     local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 18, 14)
-    hint:SetText("Scroll for more. Vendor items are priced once seen at a vendor.")
+    hint:SetText("Scroll for more. Vendor items are priced once seen at a vendor; auction prices are from your last scan.")
     frame:EnableMouseWheel(true)
     frame:SetScript("OnMouseWheel", function(_, delta) ScrollProfitRows(delta) end)
 
     frame.results, frame.offset = {}, 0
     frame:Hide()
     return frame
+end
+
+-- Your professions that have recipes: { { name=, skillLine= }, ... }.
+NO_RECIPES = { herbalism = true, skinning = true, fishing = true }
+function CraftingProfessions()
+    local list = {}
+    if GetProfessions and GetProfessionInfo then
+        local indexes = { GetProfessions() }
+        for i = 1, 6 do
+            if indexes[i] then
+                local ok, name, _, _, _, _, _, skillLine = pcall(GetProfessionInfo, indexes[i])
+                if ok and name and skillLine and not NO_RECIPES[string.lower(name)] then
+                    list[#list + 1] = { name = name, skillLine = skillLine }
+                end
+            end
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+-- Opens a profession's window, then runs then() once it has loaded.
+function OpenProfessionThen(profession, andThen)
+    if InCombatLockdown and InCombatLockdown() then
+        Print("Can't open " .. profession.name .. " in combat.")
+        return
+    end
+    if not (C_TradeSkillUI and C_TradeSkillUI.OpenTradeSkill)
+        or not pcall(C_TradeSkillUI.OpenTradeSkill, profession.skillLine) then
+        Print("Couldn't open " .. profession.name .. ". Open it yourself, then try again.")
+        return
+    end
+    local tries = 0
+    local function Wait()
+        tries = tries + 1
+        local loaded = LoadedProfession()
+        if loaded and string.lower(loaded) == string.lower(profession.name) then
+            andThen()
+        elseif tries < 20 then
+            C_Timer.After(0.2, Wait)
+        end
+    end
+    C_Timer.After(0.2, Wait)
+end
+
+-- "What to craft next": the profit window sorted by what a skill point
+-- costs, searched straight away. With no profession open, opens yours
+-- (asking which, if you have several; /bartab next <profession> picks).
+function ShowCraftNext(which)
+    local function Run()
+        ShowProfitWindow()
+        local options = ProfitOptions()
+        if not IsLevelingSort(options.sort) then options.sort = "point" end
+        if profitWindow.sortButton.Refresh then profitWindow.sortButton.Refresh() end
+        RunProfitSearch()
+    end
+    local loaded = LoadedProfession()
+    which = which and which ~= "" and string.lower(which) or nil
+    if loaded and (not which or string.lower(loaded):find(which, 1, true)) then
+        Run()
+        return
+    end
+    local professions, matches = CraftingProfessions(), {}
+    for _, profession in ipairs(professions) do
+        if not which or string.lower(profession.name):find(which, 1, true) then
+            matches[#matches + 1] = profession
+        end
+    end
+    if #matches == 0 then
+        if which then
+            Print("You don't have a profession called " .. which .. " with recipes.")
+        else
+            Print("Open a profession window first: BarTab checks the recipes of the profession that's open.")
+        end
+        return
+    end
+    if #matches == 1 then
+        OpenProfessionThen(matches[1], Run)
+        return
+    end
+    local entries = {}
+    for _, profession in ipairs(matches) do
+        entries[#entries + 1] = { profession.name, function() OpenProfessionThen(profession, Run) end }
+    end
+    ShowMenu(UIParent, "What to craft next: which profession?", entries)
 end
 
 function ShowProfitWindow()

@@ -781,6 +781,10 @@ function SetGroupHeaderText(header, section, group, count, collapsed)
         local rank, _, rankMax = GetProfessionSkill({ profession = group })
         if rank then
             skillText = (rankMax and rankMax > 0) and (rank .. "/" .. rankMax) or tostring(rank)
+            -- At the limit with more to train: orange, as a reminder.
+            if rankMax and rankMax > 0 and rank >= rankMax and rankMax < PROFESSION_TOP then
+                skillText = "|cffff9933" .. skillText .. "|r"
+            end
         end
     end
     header.skill:SetText(skillText)
@@ -1828,6 +1832,15 @@ do
         inner(...)
         perf.updates = perf.updates + 1
         if started then perf.ms = perf.ms + (PerfClock() - started) end
+    end
+end
+
+-- Remember bars that leave the list, for /bartab undo.
+do
+    local inner = UpdateBars
+    UpdateBars = function(...)
+        inner(...)
+        Safe("undo", NoteRemovedBars)()
     end
 end
 

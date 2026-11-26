@@ -300,6 +300,11 @@ function BuildConfigFrame()
         function() return settings.countDownDefault end,
         function(v) settings.countDownDefault = v or nil end)
 
+    y = AddCheck(page, y, "Training reminders",
+        "Tells you when a profession reaches its limit (75, 150, 225) and needs the next rank, and when recipes you saw at a trainer but couldn't learn yet are within reach. A profession at its limit also shows its skill in orange.",
+        function() return settings.trainingReminders ~= false end,
+        function(v) settings.trainingReminders = v end)
+
     y = AddCheck(page, y, "Mark tracked recipes in the profession window",
         "A check mark beside each recipe you have bars for, in the profession window's recipe list.",
         function() return settings.recipeListMarks ~= false end,

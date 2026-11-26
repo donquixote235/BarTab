@@ -486,6 +486,24 @@ SlashCmdList.BARTAB = function(message)
             Print("Open a profession trainer and select a recipe first (or Alt-Shift-click it).")
         end
 
+    elseif command == "undo" then
+        local list = RemovedBars()
+        if string.lower(args) == "list" then
+            if #list == 0 then
+                Print("No bars have been removed lately.")
+            else
+                Print("Recently removed (/bartab undo <number> brings one back):")
+                for index, entry in ipairs(list) do
+                    Print(("  %d. %s, %s"):format(index, RemovedLabel(entry), AgoText(entry.time)))
+                end
+            end
+        else
+            RestoreRemoved(tonumber(args) or 1)
+        end
+
+    elseif command == "next" then
+        Safe("profit", ShowCraftNext)(args)
+
     elseif command == "profit" then
         if string.lower(args) == "list" then
             Safe("profit", ShowProfitList)()
@@ -531,7 +549,7 @@ SlashCmdList.BARTAB = function(message)
             .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, item, autoitems on||off, favorites, trainer, make <count>, profit, appearances on||off")
+        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], appearances on||off")
         Print("Type /bartab help for a quick guide with examples.")
     end
 end

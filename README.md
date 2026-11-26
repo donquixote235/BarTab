@@ -102,11 +102,13 @@ unless another addon (such as an action bar addon) already uses it.
 | `/bartab assign <item> [min-max]` | Track a material for the recipe selected in your profession window |
 | `/bartab unassign <name>` | Remove a bar's recipe |
 | `/bartab untrack <name>` | Remove a bar (asks for the recipe name if several match) |
+| `/bartab undo` | Bring back the bars removed last (by a stop rule, a goal, or Untrack). `/bartab undo list` shows the last 10; `/bartab undo 3` brings back the third |
 | `/bartab refresh` | Redraw BarTab's tracker sections if they stop updating (saves details for bug reports) |
 | `/bartab errors [clear]` | Show (or clear) the last few errors BarTab caught, for bug reports |
 | `/bartab copy <character>` | Copy another character's bars to this one |
 | `/bartab item <name>` | Add a fill-up item (like a Waylaid Crate) by hand |
 | `/bartab profit` | The profit window: with a profession open, which recipes earn the most sold to a vendor, counting your materials and missing ones the way you choose (`/bartab profit list` prints the short version in chat) |
+| `/bartab next` | What to craft next: the profit window sorted by what a skill point costs (after selling what you make), for the open profession. With none open, it opens yours (asks which if you have several; `/bartab next first aid` picks one) |
 | `/bartab make <count>` | Craft the selected recipe until you have that many (adds a bar for what it makes) |
 | `/bartab trainer` | At a profession trainer: track the selected recipe (waits in Inactive until learned) |
 | `/bartab favorites` | Track the open profession's favorite (starred) recipes |

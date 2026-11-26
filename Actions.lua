@@ -752,7 +752,13 @@ function ShowProfessionMenu(owner)
                 #removed, #removed == 1 and "bar" or "bars"))
         end }
     end
+    more[#more + 1] = { "What to craft next...", function() ShowCraftNext() end }
     more[#more + 1] = { "Profit calculator...", function() ShowProfitWindow() end }
+    local removedCount = #RemovedBars()
+    if removedCount > 0 then
+        more[#more + 1] = { ("Recently removed (%d)..."):format(removedCount),
+            function() ShowRemovedMenu(owner) end }
+    end
 
     local entries = GroupedEntries({
         { heading = "Track", entries = track },
