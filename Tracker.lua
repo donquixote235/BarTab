@@ -147,6 +147,8 @@ function IsShown(item)
     -- tracked (for shopping, rules and crafting) but the material bars stand
     -- in for them on screen.
     if IsMaterialModeBar(item) then return false end
+    -- Vendor-bought ingredients (vials, thread), unless settings say show them.
+    if HidesVendorMaterial(item) then return false end
     -- Fill-up bars only show while you have the item they fill.
     if item.container then
         -- "Focus on" one material hides the crate's other bars.
@@ -366,14 +368,20 @@ function UpdateSegments(bar, item, count, craftable)
     end
 
     -- Material bars: blue for what your ready crafts would use, orange for
-    -- what you have that's waiting on another ingredient.
-    if item.matBar then
+    -- what you have that's waiting on another ingredient. Recipe bars: blue
+    -- for the materials of whole crafts you have, orange for the rest.
+    if item.matBar or item.recBar then
         local range = item.goal - item.start
         local width = bar:GetWidth()
         if range <= 0 or not width or width <= 0 or count <= 0 then return end
         local used = 0
-        for _, recipe in ipairs(MaterialRecipes(item)) do
-            used = used + (recipe.ready or 0) * (recipe.perCraft or 0)
+        if item.recBar then
+            local _, needed, have, planned = RecipeBarCounts(item)
+            used = math.floor(needed * math.min(have, planned) / planned)
+        else
+            for _, recipe in ipairs(MaterialRecipes(item)) do
+                used = used + (recipe.ready or 0) * (recipe.perCraft or 0)
+            end
         end
         local have = math.min(count, item.goal)
         used = math.min(used, have)
@@ -727,13 +735,13 @@ function AddSharedLines(item)
 end
 
 function RefreshBar(bar, item, includeName)
-    UpdateSessionStats(item.name)
+    if not item.virtual then UpdateSessionStats(item.name) end
     local count = GetBarCount(item)
     bar:SetMinMaxValues(item.start, item.goal)
     bar:SetValue(math.max(item.start, math.min(count, item.goal)))
 
     local craftText = ""
-    local craftable = GetCraftableCount(item.recipeID)
+    local craftable = GetCraftableCount(item.recipeID or item.forRecipe)
     -- With a shared material, crafts are limited to this bar's share of it.
     if craftable and count < CountItem(item) then
         local perCraft = GetReagentQuantity(item.recipeID, item.name)

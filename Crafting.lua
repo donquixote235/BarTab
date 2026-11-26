@@ -4849,20 +4849,73 @@ function IsMaterialModeBar(item)
     return MaterialMode(GetGroup(item)) ~= "ingredient"
 end
 
--- Crafts the materials you carry cover, and crafts the bars are sized for.
+-- Vendor-bought materials (vials, thread) are left off recipe bars unless
+-- settings.showVendorMats: you buy them as you go, so they'd only clutter.
+vendorMatCache = {}
+-- The item ID of a recipe's ingredient, from the recipe itself.
+function ReagentItemID(recipeID, itemName)
+    if not (recipeID and itemName and C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic) then return nil end
+    local ok, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
+    if not ok or type(schematic) ~= "table" or type(schematic.reagentSlotSchematics) ~= "table" then return nil end
+    local wanted = string.lower(itemName)
+    for _, slot in ipairs(schematic.reagentSlotSchematics) do
+        for _, reagent in ipairs(slot.reagents or {}) do
+            local name = reagent.itemID and GetItemNameByID(reagent.itemID)
+            if name and string.lower(name) == wanted then return reagent.itemID end
+        end
+    end
+end
+
+function IsVendorMaterial(item)
+    local id = ItemIDFor(item)
+    if not id and item.recipeID then
+        id = ReagentItemID(item.recipeID, item.name)
+        if id then item.itemID = id end
+    end
+    if not id then return false end
+    if vendorMatCache[id] then return true end
+    if VendorBuyPrice(id) then
+        vendorMatCache[id] = true
+        return true
+    end
+    return false
+end
+
+-- An ingredient bar hidden for being vendor-bought (unless its recipe has
+-- nothing else to show).
+function HidesVendorMaterial(item)
+    if settings.showVendorMats or not item.recipeID or item.container or item.virtual or item.altNeed then
+        return false
+    end
+    if IsOutputBar(item) or not IsVendorMaterial(item) then return false end
+    for _, other in pairs(trackedItems) do
+        if other ~= item and other.recipeID == item.recipeID and not other.virtual and not other.altNeed
+            and not other.container and not IsOutputBar(other) and not IsVendorMaterial(other) then
+            return true
+        end
+    end
+    return false
+end
+
+-- A recipe bar's materials: units you have (each ingredient counted up to
+-- what it needs, so 1 of 1 Peacebloom and 0 of 2 Earthroot fills a third),
+-- units needed, crafts your materials cover, and crafts planned.
 function RecipeBarCounts(item)
-    local have, planned
+    local units, needed, have, planned = 0, 0, nil, nil
     for _, key in ipairs(item.recipes or {}) do
         local bar = trackedItems[key]
-        local perCraft = bar and GetReagentQuantity(bar.recipeID, bar.name)
+        local perCraft = bar and not HidesVendorMaterial(bar) and GetReagentQuantity(bar.recipeID, bar.name)
         if perCraft and perCraft > 0 then
-            local covers = math.floor(CountItem(bar) / perCraft)
+            local count, goal = CountItem(bar), bar.goal or 0
+            units = units + math.min(count, goal)
+            needed = needed + goal
+            local covers = math.floor(count / perCraft)
             if not have or covers < have then have = covers end
-            local size = math.ceil((bar.goal or 0) / perCraft)
+            local size = math.ceil(goal / perCraft)
             if not planned or size > planned then planned = size end
         end
     end
-    return have or 0, math.max(1, planned or 1)
+    return units, math.max(1, needed), have or 0, math.max(1, planned or 1)
 end
 
 function SyncMaterialBars()
@@ -4878,7 +4931,7 @@ function SyncMaterialBars()
             end
             entry.recipes[#entry.recipes + 1] = key
             if (item.order or 0) < entry.order then entry.order = item.order or 0 end
-        elseif IsMaterialModeBar(item) then
+        elseif IsMaterialModeBar(item) and not HidesVendorMaterial(item) then
             local group = GetGroup(item)
             local id = ItemIDFor(item)
             local matKey = "mat:" .. group .. ":" .. tostring(id or string.lower(item.name))
@@ -4908,10 +4961,10 @@ function SyncMaterialBars()
         item.recipes = entry.recipes
         item.profession, item.order = entry.profession, entry.order
         if entry.recipe then
-            -- Counted in crafts: "1 / 3 crafts", headed with the recipe.
-            item.forRecipe, item.label, item.name = entry.recipeID, entry.name, "crafts"
-            local _, planned = RecipeBarCounts(item)
-            item.goal = planned
+            -- Counted in materials: "1 / 3 materials", headed with the recipe.
+            item.forRecipe, item.label, item.name = entry.recipeID, entry.name, "materials"
+            local _, needed = RecipeBarCounts(item)
+            item.goal = needed
         else
             item.name, item.itemID, item.goal = entry.name, entry.itemID, entry.goal
         end
@@ -4926,17 +4979,23 @@ end
 
 function AddRecipeBarTooltip(item)
     GameTooltip:SetText(item.label or "Recipe")
-    local have, planned = RecipeBarCounts(item)
-    GameTooltip:AddLine(("Your materials cover %d of %d planned %s."):format(have, planned,
-        planned == 1 and "craft" or "crafts"), 1, 1, 1, true)
+    local units, needed, have, planned = RecipeBarCounts(item)
+    GameTooltip:AddLine(("You have %d of %d materials; enough for %d of %d planned %s."):format(units, needed,
+        have, planned, planned == 1 and "craft" or "crafts"), 1, 1, 1, true)
+    local bought = {}
     for _, key in ipairs(item.recipes or {}) do
         local bar = trackedItems[key]
-        if bar then
+        if bar and HidesVendorMaterial(bar) then
+            bought[#bought + 1] = bar.name
+        elseif bar then
             local count = CountItem(bar)
             local done = count >= bar.goal
             GameTooltip:AddDoubleLine(bar.name, ("%d / %d"):format(count, bar.goal), 0.9, 0.9, 0.9,
                 done and 0.3 or 1, done and 1 or 0.5, done and 0.3 or 0.25)
         end
+    end
+    if #bought > 0 then
+        GameTooltip:AddLine("Bought from vendors (not counted): " .. table.concat(bought, ", "), 0.7, 0.7, 0.7, true)
     end
     local craftable = GetCraftableCount(item.forRecipe)
     if craftable then
@@ -5486,7 +5545,7 @@ function CraftNextReady()
         local item = trackedItems[key]
         -- Hidden ingredient bars behind a material bar count too.
         if item.recipeID and not item.container and not item.inactive
-            and (IsShown(item) or IsMaterialModeBar(item)) and BarCraftable(item) >= 1 then
+            and (IsShown(item) or IsMaterialModeBar(item) or HidesVendorMaterial(item)) and BarCraftable(item) >= 1 then
             CraftItem(key, GetClickAction("click"))
             return true
         end

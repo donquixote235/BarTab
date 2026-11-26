@@ -611,7 +611,7 @@ function BuildConfigFrame()
     y = y - 30
 
     local materialButton = AddButton(page, 24, y, 350, "",
-        "How recipe bars show: a bar for each ingredient of each recipe; one bar per material for all of a profession's tracked recipes (\"Peacebloom 2 / 3\"; click it to pick a recipe to craft, Shift-click for the first that's ready, Alt-click for everything ready); or one bar per recipe, counting crafts (\"Minor Mana Potion: 1 / 3 crafts\"). This is the default; right-click a profession's heading to choose for that profession.",
+        "How recipe bars show: a bar for each ingredient of each recipe; one bar per material for all of a profession's tracked recipes (\"Peacebloom 2 / 3\"; click it to pick a recipe to craft, Shift-click for the first that's ready, Alt-click for everything ready); or one bar per recipe (\"Minor Mana Potion: 1 / 3 materials\", filling as you gather any of them). This is the default; right-click a profession's heading to choose for that profession.",
         function()
             local current, index = MaterialMode("default-profession"), 1
             for i, mode in ipairs(BAR_MODES) do
@@ -629,6 +629,15 @@ function BuildConfigFrame()
         end
     end)
     y = y - 30
+
+    y = AddCheck(page, y, "Show vendor-bought materials on recipe bars",
+        "Off: ingredients you buy from vendors (vials, thread, flux) get no bar of their own and aren't counted on material or recipe bars. BarTab still buys them for you at vendors, and crafting still needs them.",
+        function() return settings.showVendorMats end,
+        function(on)
+            settings.showVendorMats = on or nil
+            UpdateBars()
+            Safe("material bars", RefreshTracker)(true)
+        end)
 
     local markButton = AddButton(page, 24, y, 350, "",
         "How a recipe bar's name shows the recipe's difficulty: skill-up arrows like the profession window (3 orange, 2 yellow, 1 green, none gray), the name in the recipe's color, or no marking.",
