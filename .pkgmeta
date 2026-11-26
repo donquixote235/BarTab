@@ -1,0 +1,15 @@
+# What the packager puts in the zip (see .github/workflows/release.yml).
+package-as: BarTab
+
+# The text shown as the file's changelog on CurseForge: this release's notes.
+manual-changelog:
+  filename: RELEASE_NOTES.md
+  markup-type: markdown
+
+ignore:
+  - .github
+  - .gitignore
+  - .pkgmeta
+  - RELEASE_NOTES.md
+  - "Claude Outputs"
+  - "*.zip"

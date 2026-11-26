@@ -1,0 +1,32 @@
+# Builds the addon zip and uploads it to CurseForge (and a GitHub release)
+# whenever a version tag like v1.60.1.10 is pushed. Uses the BigWigs
+# packager: https://github.com/BigWigsMods/packager
+#
+# Needs one repository secret: CF_API_KEY, a CurseForge API token
+# (Settings > Secrets and variables > Actions).
+# A tag with "alpha" or "beta" in it (v1.60.1.10-beta1) uploads as that
+# release type instead of a full release.
+name: Package and release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # for the GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the packager reads the tags
+
+      - name: Package and upload
+        uses: BigWigsMods/packager@v2
