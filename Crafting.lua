@@ -4753,7 +4753,8 @@ function MailStep()
     letter.address = letter.address or ((fullName and fullName ~= letter.to) and fullName or letter.to)
     if nameBox and nameBox.SetText then nameBox:SetText(letter.address) end
     if subjectBox and subjectBox.SetText then subjectBox:SetText("BarTab: materials") end
-    if bodyBox and bodyBox.SetText then bodyBox:SetText("Sent by BarTab for your bars.") end
+    -- No body text: a letter with text can't be deleted in one click once emptied.
+    if bodyBox and bodyBox.SetText then bodyBox:SetText("") end
     if SendMailFrame_Update then pcall(SendMailFrame_Update) end
     local left = #job.letters - job.index
     Print(("Letter to %s is ready: click Send%s."):format(letter.address,
