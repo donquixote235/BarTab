@@ -1,0 +1,19 @@
+## Interface: 16001
+## Title: BarTab
+## Notes: Progress bars in the objective tracker for crafting materials, quest items and fill-up crates
+## Author: Quixotic Software
+## Version: 1.5
+## Category: Professions
+## X-License: MIT
+## IconTexture: Interface\AddOns\BarTab\Media\icon
+## AddonCompartmentFunc: BarTab_OnAddonCompartmentClick
+## SavedVariables: BarTabDB, BarTabSettings
+
+BarTab.lua
+QuestItems.lua
+Crafting.lua
+Tracker.lua
+Actions.lua
+Quests.lua
+Settings.lua
+Commands.lua

@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="BARTAB_CRAFT_NEXT" header="BARTAB" category="ADDONS">
+        BarTab_CraftNext()
+    </Binding>
+</Bindings>

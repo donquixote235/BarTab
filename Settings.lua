@@ -1,0 +1,601 @@
+-- BarTab: settings window and minimap button.
+-- Shares BarTab's private namespace; see the top of BarTab.lua.
+local _, ns = ...
+setfenv(1, ns)
+
+do
+-- Settings window (/bt config) -------------------------------------------------
+
+configRefreshers = {}
+
+function RefreshConfig()
+    for _, refresh in ipairs(configRefreshers) do refresh() end
+end
+
+function AddTooltip(widget, title, text)
+    if not text then return end
+    widget:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(title, 1, 1, 1)
+        GameTooltip:AddLine(text, nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    widget:HookScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- A gray explanatory line (wraps), returns the next y.
+function AddNote(parent, y, text)
+    local note = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    note:SetPoint("TOPLEFT", 24, y)
+    note:SetWidth(350)
+    note:SetJustifyH("LEFT")
+    note:SetTextColor(0.7, 0.7, 0.7)
+    note:SetText(text)
+    local height = note:GetStringHeight()
+    if not height or height < 12 then height = 24 end
+    return y - height - 6
+end
+
+function AddHeading(parent, y, text)
+    local heading = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    heading:SetPoint("TOPLEFT", 16, y)
+    heading:SetText(text)
+    return y - 20
+end
+
+function AddCheck(parent, y, label, tooltip, get, set)
+    local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    check:SetSize(24, 24)
+    check:SetPoint("TOPLEFT", 20, y)
+    if type(check.Text) == "table" then check.Text:SetText("") end
+    local text = check:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("LEFT", check, "RIGHT", 4, 0)
+    text:SetText(label)
+    check:SetScript("OnClick", function(self)
+        set(self:GetChecked() and true or false)
+        RefreshConfig()
+    end)
+    AddTooltip(check, label, tooltip)
+    table.insert(configRefreshers, function() check:SetChecked(get() and true or false) end)
+    return y - 26
+end
+
+function AddStepper(parent, y, label, tooltip, minValue, maxValue, get, set, step)
+    step = step or 1
+    local text = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("TOPLEFT", 24, y - 4)
+    text:SetText(label)
+
+    local minus = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    minus:SetSize(24, 22)
+    minus:SetPoint("TOPLEFT", 190, y)
+    minus:SetText("-")
+    local value = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    value:SetPoint("LEFT", minus, "RIGHT", 6, 0)
+    value:SetWidth(28)
+    local plus = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    plus:SetSize(24, 22)
+    plus:SetPoint("LEFT", value, "RIGHT", 6, 0)
+    plus:SetText("+")
+
+    minus:SetScript("OnClick", function()
+        set(math.max(minValue, get() - step)); RefreshConfig()
+    end)
+    plus:SetScript("OnClick", function()
+        set(math.min(maxValue, get() + step)); RefreshConfig()
+    end)
+    AddTooltip(minus, label, tooltip)
+    AddTooltip(plus, label, tooltip)
+    table.insert(configRefreshers, function() value:SetText(tostring(get())) end)
+    return y - 28
+end
+
+function AddButton(parent, x, y, width, label, tooltip, onClick)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(width, 22)
+    button:SetPoint("TOPLEFT", x, y)
+    button:SetText(label)
+    button:SetScript("OnClick", onClick)
+    AddTooltip(button, label, tooltip)
+    return button
+end
+
+function SetSectionShown(section, shown)
+    settings.hiddenSections = settings.hiddenSections or {}
+    settings.hiddenSections[section] = (not shown) or nil
+    UpdateBars()
+end
+
+function BuildConfigFrame()
+    local ok, frame = pcall(CreateFrame, "Frame", "BarTabConfigFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    if not ok or not frame then
+        frame = CreateFrame("Frame", "BarTabConfigFrame", UIParent, "BackdropTemplate")
+        frame:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+            tile = true, tileSize = 32, edgeSize = 32,
+            insets = { left = 8, right = 8, top = 8, bottom = 8 },
+        })
+        local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", -4, -4)
+    end
+    frame:SetSize(460, 560)
+    frame:SetPoint("CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetClampedToScreen(true)
+    frame:Hide()
+    tinsert(UISpecialFrames, "BarTabConfigFrame") -- Escape closes it
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    title:SetPoint("TOP", 0, -6)
+    title:SetText("BarTab Settings")
+
+    -- Tabs along the top; each shows one page of settings.
+    local TABS = {
+        { key = "general", name = "General" },
+        { key = "crafting", name = "Crafting" },
+        { key = "quests", name = "Quests & Items" },
+        { key = "display", name = "Display" },
+    }
+    local pages, tabButtons = {}, {}
+    local function ShowTab(key)
+        if not pages[key] then key = "general" end
+        for pageKey, tabPage in pairs(pages) do tabPage:SetShown(pageKey == key) end
+        for _, button in ipairs(tabButtons) do
+            if button.key == key then button:LockHighlight() else button:UnlockHighlight() end
+        end
+        settings.configTab = key
+    end
+    for index, tab in ipairs(TABS) do
+        local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        button:SetSize(104, 22)
+        button:SetPoint("TOPLEFT", 16 + (index - 1) * 107, -30)
+        button:SetText(tab.name)
+        button.key = tab.key
+        button:SetScript("OnClick", function() ShowTab(tab.key) end)
+        tabButtons[index] = button
+        local tabPage = CreateFrame("Frame", nil, frame)
+        tabPage:SetPoint("TOPLEFT", 0, -56)
+        tabPage:SetSize(460, 500)
+        tabPage:Hide()
+        pages[tab.key] = tabPage
+    end
+    local divider = frame:CreateTexture(nil, "ARTWORK")
+    divider:SetColorTexture(1, 0.82, 0, 0.35)
+    divider:SetHeight(1)
+    divider:SetPoint("TOPLEFT", 16, -56)
+    divider:SetPoint("TOPRIGHT", -16, -56)
+
+    local page, y
+
+    -- General ------------------------------------------------------------
+    page, y = pages.general, -4
+    y = AddHeading(page, y - 6, "Sections")
+    y = AddNote(page, y, "A section only appears in the objective tracker when it has "
+        .. "something to show. For example, BarTab: Quests stays hidden until a quest "
+        .. "item is tracked, and BarTab: Items until a fill-up item is in your bags.")
+    y = AddCheck(page, y, "Show BarTab: Quests", "Quest item bars.",
+        function() return not settings.hiddenSections[QUEST_SECTION] end,
+        function(v) SetSectionShown(QUEST_SECTION, v) end)
+    y = AddCheck(page, y, "Show BarTab: Crafting", "Material and recipe bars.",
+        function() return not settings.hiddenSections[CRAFT_SECTION] end,
+        function(v) SetSectionShown(CRAFT_SECTION, v) end)
+    y = AddCheck(page, y, "Show BarTab: Items", "Fill-up items such as Waylaid Crates.",
+        function() return not settings.hiddenSections[ITEM_SECTION] end,
+        function(v) SetSectionShown(ITEM_SECTION, v) end)
+
+
+    y = AddHeading(page, y - 6, "Behavior")
+    y = AddCheck(page, y, "Inactive areas start collapsed",
+        "Applies until you expand or collapse an Inactive area yourself.",
+        function() return settings.inactiveCollapsed ~= false end,
+        function(v) settings.inactiveCollapsed = v; UpdateBars() end)
+    y = AddCheck(page, y, "Show bank and alt counts in tooltips",
+        "Adds where else you have a bar's item: your bank, Warband bank, and other characters (once you've logged into them).",
+        function() return settings.storageCounts ~= false end,
+        function(v) settings.storageCounts = v end)
+    y = AddCheck(page, y, "Show minimap button",
+        "A BarTab button on the edge of the minimap: click to open these settings, drag to move it around the minimap.",
+        function() return settings.minimapButton ~= false end,
+        function(v) settings.minimapButton = v; UpdateMinimapButton() end)
+
+
+    y = AddHeading(page, y - 6, "Alerts")
+    y = AddCheck(page, y, "Alert when a bar reaches its goal",
+        "A chat message when a material bar fills, a crate bundle is ready, or a quest has all its items.",
+        function() return settings.goalAlerts ~= false end,
+        function(v) settings.goalAlerts = v end)
+    y = AddCheck(page, y, "Play a sound",
+        "Plays a short chime with the alert.",
+        function() return settings.alertSound ~= false end,
+        function(v) settings.alertSound = v end)
+    -- On-screen style: cycles Off -> Top of screen -> Raid warning.
+    local styles = {
+        { key = "top", name = "Top of screen" },
+        { key = "raid", name = "Raid warning (large, center)" },
+        { key = "off", name = "Off (chat only)" },
+    }
+    local function CurrentStyle()
+        return settings.alertStyle or (settings.alertScreen == false and "off" or "top")
+    end
+    local styleButton = AddButton(page, 24, y, 350, "",
+        "Click to switch how the alert shows on screen.", function()
+            local index = 1
+            for i, style in ipairs(styles) do
+                if style.key == CurrentStyle() then index = i end
+            end
+            settings.alertStyle = styles[index % #styles + 1].key
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        for _, style in ipairs(styles) do
+            if style.key == CurrentStyle() then
+                styleButton:SetText("On screen: " .. style.name)
+            end
+        end
+    end)
+    y = y - 30
+    AddButton(page, 24, y, 112, "Test alert", "Plays an example alert with your current choices.", function()
+        PlayGoalAlert("Light Leather: 20 / 20, goal reached (test)")
+    end)
+    y = y - 30
+
+
+    y = AddHeading(page, y - 6, "Data")
+    AddButton(page, 24, y, 112, "Reset sections", "Expands every section and subsection again.", function()
+        settings.collapsed = {}
+        for _, module in pairs(sectionModules) do
+            if module.SetCollapsed then pcall(module.SetCollapsed, module, false) end
+        end
+        UpdateBars()
+        Print("Section collapse states reset.")
+    end)
+    AddButton(page, 142, y, 112, "Untrack all", "Removes every bar (asks first).", function()
+        local keys = {}
+        for key in pairs(trackedItems) do keys[#keys + 1] = key end
+        ConfirmUntrackKeys(keys, "BarTab")
+    end)
+    y = y - 30
+    AddButton(page, 24, y, 112, "Share bars", "A text string of all your bars, to paste to a friend or another account.", function()
+        ShareAll()
+    end)
+    AddButton(page, 142, y, 112, "Import bars", "Add bars from a string someone shared.", function()
+        ShowShareWindow(nil)
+    end)
+
+
+    -- Crafting -----------------------------------------------------------
+    page, y = pages.crafting, -4
+    y = AddHeading(page, y - 6, "Clicking a recipe bar")
+    for _, modifier in ipairs(CLICK_MODIFIERS) do
+        local button = AddButton(page, 24, y, 350, "", "Click to change what this does.", function()
+            local current, index = GetClickAction(modifier.key), 1
+            for i, action in ipairs(CLICK_ACTIONS) do
+                if action.key == current then index = i end
+            end
+            settings.clickActions = settings.clickActions or {}
+            settings.clickActions[modifier.key] = CLICK_ACTIONS[index % #CLICK_ACTIONS + 1].key
+            RefreshConfig()
+        end)
+        table.insert(configRefreshers, function()
+            local current = GetClickAction(modifier.key)
+            for _, action in ipairs(CLICK_ACTIONS) do
+                if action.key == current then
+                    button:SetText(modifier.label .. ": " .. action.name)
+                end
+            end
+        end)
+        y = y - 26
+    end
+    y = y - 4
+
+
+    y = AddHeading(page, y - 6, "Shared materials")
+    local sharedModes = {
+        { key = "share", name = "Share out in list order" },
+        { key = "warn", name = "Count all, warn in tooltip" },
+        { key = "off", name = "Count all, no warning" },
+    }
+    local sharedButton = AddButton(page, 24, y, 350, "",
+        "When several bars count the same material: share it out (bars higher in the list claim it first), or let each bar count all of it.",
+        function()
+            local current, index = settings.sharedMaterials or "share", 1
+            for i, mode in ipairs(sharedModes) do
+                if mode.key == current then index = i end
+            end
+            settings.sharedMaterials = sharedModes[index % #sharedModes + 1].key
+            UpdateBars()
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.sharedMaterials or "share"
+        for _, mode in ipairs(sharedModes) do
+            if mode.key == current then sharedButton:SetText("Shared: " .. mode.name) end
+        end
+    end)
+    y = y - 30
+
+
+    y = AddHeading(page, y - 6, "Vendors")
+    local vendorButton = AddButton(page, 24, y, 350, "",
+        "At a vendor that sells something your Crafting bars are short of (thread, dye, vials...): ask with a list and the cost, buy it straight away, or do nothing.",
+        function()
+            local current, index = settings.vendorBuy or "ask", 1
+            for i, mode in ipairs(VENDOR_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.vendorBuy = VENDOR_MODES[index % #VENDOR_MODES + 1].key
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.vendorBuy or "ask"
+        for _, mode in ipairs(VENDOR_MODES) do
+            if mode.key == current then vendorButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+
+    -- Most BarTab will spend at one vendor visit (asking or not).
+    local limitLabel = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    limitLabel:SetPoint("TOPLEFT", 24, y - 4)
+    limitLabel:SetText("Spend at most, per visit:")
+    local limitBox = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
+    limitBox:SetSize(80, 20)
+    limitBox:SetPoint("LEFT", limitLabel, "RIGHT", 12, 0)
+    limitBox:SetAutoFocus(false)
+    limitBox:SetMaxLetters(14)
+    local function saveLimit(self)
+        local copper = ParseMoney(self:GetText())
+        if copper and copper > 0 then
+            settings.vendorLimit = copper
+        elseif Trim(self:GetText()) == "" then
+            settings.vendorLimit = nil -- back to the default
+        else
+            Print("Enter an amount like 1g, 50s or 2g 50s.")
+        end
+        self:SetText(MoneyText(GetVendorLimit()))
+        self:ClearFocus()
+    end
+    limitBox:SetScript("OnEnterPressed", saveLimit)
+    limitBox:SetScript("OnEditFocusLost", function(self)
+        if self:GetText() ~= MoneyText(GetVendorLimit()) then saveLimit(self) end
+    end)
+    limitBox:SetScript("OnEscapePressed", function(self)
+        self:SetText(MoneyText(GetVendorLimit()))
+        self:ClearFocus()
+    end)
+    AddTooltip(limitBox, "Spend limit",
+        "The most BarTab will spend at one vendor visit, even if you click Buy. Anything over it is left out, and BarTab says what. Type an amount like 1g, 50s or 2g 50s; empty for the default (1g).")
+    table.insert(configRefreshers, function()
+        if not limitBox:HasFocus() then limitBox:SetText(MoneyText(GetVendorLimit())) end
+    end)
+    y = y - 30
+
+
+    -- Quests & Items -----------------------------------------------------
+    page, y = pages.quests, -4
+    y = AddHeading(page, y - 6, "Quests")
+    y = AddCheck(page, y, "Track quest items when accepting a quest",
+        "Adds bars for a quest's \"collect\" objectives when you accept it. (/bt auto)",
+        function() return settings.autoQuests end,
+        function(v) settings.autoQuests = v end)
+    y = AddCheck(page, y, "Show quest bars under their quests (experimental)",
+        "Puts quest bars inside Blizzard's quest tracker instead of the BarTab: Quests section. This works inside Blizzard's own layout and can stop other quests in the tracker from updating; turn it off if they do. (/bt inline)",
+        function() return settings.inlineQuests end,
+        function(v) SetInlineQuests(v) end)
+    y = AddCheck(page, y, "Only show quests with an item to use",
+        "Hides quests until they have something to click: the quest's own item, or one that combines (pages into a book).",
+        function() return settings.questsUsableOnly ~= false end,
+        function(v) settings.questsUsableOnly = v; UpdateBars() end)
+
+
+    y = AddHeading(page, y - 6, "Items")
+    y = AddCheck(page, y, "Track fill-up items automatically",
+        "Adds bars when an item like a Waylaid Crate reaches your bags. (/bt autoitems)",
+        function() return settings.autoItems end,
+        function(v) settings.autoItems = v end)
+    y = AddCheck(page, y, "Combine stacks automatically",
+        "Merges split stacks so one click can fill the crate.",
+        function() return settings.autoStack ~= false end,
+        function(v) settings.autoStack = v end)
+
+
+    -- Display ------------------------------------------------------------
+    page, y = pages.display, -4
+    y = AddHeading(page, y - 6, "Look")
+    y = AddStepper(page, y, "Bar height", "Height of every bar, in pixels.", 12, 32,
+        function() return settings.barHeight or 20 end,
+        function(v) settings.barHeight = v; UpdateBars() end)
+    y = AddStepper(page, y, "Bar text size", "Size of the text on the bars.", 8, 18,
+        function() return settings.textSize or 12 end,
+        function(v) settings.textSize = v; UpdateBars() end)
+
+    local colors = AddButton(page, 24, y, 350, "", "Click to switch color sets.", function()
+        local index = 1
+        for i, palette in ipairs(PALETTES) do
+            if palette.key == settings.palette then index = i end
+        end
+        local nextPalette = PALETTES[index % #PALETTES + 1]
+        settings.palette = nextPalette.key
+        ApplyPalette(nextPalette.key)
+        UpdateBars()
+        RefreshConfig()
+    end)
+    table.insert(configRefreshers, function()
+        local name = "?"
+        for _, palette in ipairs(PALETTES) do
+            if palette.key == settings.palette then name = palette.name end
+        end
+        colors:SetText("Colors: " .. name)
+    end)
+    y = y - 30
+
+    y = AddCheck(page, y, "Show BarTab lines on item tooltips",
+        "Hovering an item you track (in bags, the auction house, loot, chat links...) adds lines like \"BarTab: 4/5 for Hillman's Cloak\".",
+        function() return settings.itemTooltips ~= false end,
+        function(v) settings.itemTooltips = v end)
+
+
+    y = AddHeading(page, y - 6, "BarTab window")
+    -- Where the bars show: the objective tracker, or BarTab's own window
+    -- (needed when another addon such as Questie replaces the tracker).
+    local displayButton = AddButton(page, 24, y, 350, "",
+        "Some addons replace the objective tracker with their own and hide it, along with BarTab's sections. "
+        .. "The first choice shows BarTab in its own window whenever the objective tracker is hidden. Drag a section heading to move the window.",
+        function()
+            local current, index = settings.displayMode or "auto", 1
+            for i, mode in ipairs(DISPLAY_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.displayMode = DISPLAY_MODES[index % #DISPLAY_MODES + 1].key
+            UpdateBars()
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.displayMode or "auto"
+        for _, mode in ipairs(DISPLAY_MODES) do
+            if mode.key == current then displayButton:SetText("Show in: " .. mode.name) end
+        end
+    end)
+    y = y - 26
+    AddButton(page, 24, y, 170, "Reset window position",
+        "Puts BarTab's own window back at its starting spot.",
+        function() ResetPanelPosition() end)
+    -- Lock: a checkbox on the same row as the Reset button.
+    local lock = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+    lock:SetSize(24, 24)
+    lock:SetPoint("TOPLEFT", 206, y + 1)
+    if type(lock.Text) == "table" then lock.Text:SetText("") end
+    local lockText = lock:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    lockText:SetPoint("LEFT", lock, "RIGHT", 4, 0)
+    lockText:SetText("Lock window")
+    lock:SetScript("OnClick", function(self)
+        settings.panelLocked = self:GetChecked() and true or nil
+    end)
+    AddTooltip(lock, "Lock window", "Stops BarTab's own window from being dragged by its section headings.")
+    table.insert(configRefreshers, function() lock:SetChecked(settings.panelLocked and true or false) end)
+    y = y - 30
+    y = AddStepper(page, y, "Window width", "Width of BarTab's own window, in pixels.",
+        PANEL_WIDTH_MIN, PANEL_WIDTH_MAX,
+        function() return PanelWidth() end,
+        function(v) settings.panelWidth = v; UpdateBars() end, 10)
+
+
+    ShowTab(settings.configTab or "general")
+
+    frame:SetScript("OnShow", RefreshConfig)
+    return frame
+end
+
+ToggleConfig = function()
+    configFrame = configFrame or BuildConfigFrame()
+    configFrame:SetShown(not configFrame:IsShown())
+end
+
+-- Also listed under Options -> AddOns, with a button that opens the window.
+RegisterOptionsPage = function()
+    if not (Settings and Settings.RegisterCanvasLayoutCategory) then return end
+    local page = CreateFrame("Frame")
+    page.name = "BarTab"
+    local text = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("TOPLEFT", 16, -16)
+    text:SetText("BarTab's settings open in their own window (also /bt config).")
+    local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
+    button:SetSize(180, 24)
+    button:SetPoint("TOPLEFT", 16, -40)
+    button:SetText("Open BarTab Settings")
+    button:SetScript("OnClick", function()
+        if SettingsPanel and SettingsPanel:IsShown() then HideUIPanel(SettingsPanel) end
+        configFrame = configFrame or BuildConfigFrame()
+        configFrame:Show()
+    end)
+    local ok, category = pcall(Settings.RegisterCanvasLayoutCategory, page, "BarTab")
+    if ok and category then
+        pcall(Settings.RegisterAddOnCategory, category)
+    end
+end
+
+-- The addon button by the minimap (named in BarTab.toc).
+-- Minimap button ------------------------------------------------------------
+
+
+function PositionMinimapButton()
+    local angle = math.rad(settings.minimapAngle or 225)
+    local radius = (Minimap:GetWidth() / 2) + 5
+    minimapButton:ClearAllPoints()
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER",
+        math.cos(angle) * radius, math.sin(angle) * radius)
+end
+
+function CreateMinimapButton()
+    local button = CreateFrame("Button", "BarTabMinimapButton", Minimap)
+    button:SetSize(31, 31)
+    button:SetFrameStrata("MEDIUM")
+    button:SetFrameLevel(8)
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    button:RegisterForDrag("LeftButton")
+    button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+
+    local background = button:CreateTexture(nil, "BACKGROUND")
+    background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    background:SetSize(20, 20)
+    background:SetPoint("TOPLEFT", 7, -5)
+
+    local icon = button:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture("Interface\\AddOns\\BarTab\\Media\\icon")
+    icon:SetSize(20, 20)
+    icon:SetPoint("TOPLEFT", 7, -5)
+
+    local border = button:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT")
+
+    button:SetScript("OnClick", function() ToggleConfig() end)
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText("BarTab")
+        GameTooltip:AddLine("Click: settings", 1, 1, 1)
+        GameTooltip:AddLine("Drag: move around the minimap", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Dragging moves it around the minimap's edge.
+    button:SetScript("OnDragStart", function(self)
+        self:SetScript("OnUpdate", function()
+            local scale = Minimap:GetEffectiveScale()
+            local cx, cy = GetCursorPosition()
+            local mx, my = Minimap:GetCenter()
+            settings.minimapAngle = math.deg(math.atan2(cy / scale - my, cx / scale - mx))
+            PositionMinimapButton()
+        end)
+    end)
+    button:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    minimapButton = button
+    PositionMinimapButton()
+end
+
+UpdateMinimapButton = function()
+    if not Minimap then return end
+    if settings.minimapButton == false then
+        if minimapButton then minimapButton:Hide() end
+        return
+    end
+    if not minimapButton then CreateMinimapButton() end
+    minimapButton:Show()
+end
+
+_G.BarTab_OnAddonCompartmentClick = function()
+    ToggleConfig()
+end
+end
