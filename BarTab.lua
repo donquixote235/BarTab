@@ -662,7 +662,8 @@ function RecordInventory()
         end
     end
     local _, class = UnitClass("player")
-    store[key] = { bags = counts, bank = bank, names = names, class = class,
+    local faction = UnitFactionGroup and UnitFactionGroup("player")
+    store[key] = { bags = counts, bank = bank, names = names, class = class, faction = faction,
         fullName = FullCharacterName(), updated = time and time() }
 end
 

@@ -100,6 +100,8 @@ GUIDE_PAGES = {
             .. "At a vendor that sells something your Crafting bars are short of (thread, dye, vials), BarTab lists it with the cost and offers to buy it. It never spends more than your per-visit limit (1g unless you change it). Untick \"Buy materials at vendors\" on a bar's right-click menu to leave that recipe out.\n\n"
             .. H("Your bank") .. "\n\n"
             .. "At your bank, BarTab offers to take out what your bars are short of, moving only as much as you need. " .. C("/bartab bank") .. " asks again while the bank is open.\n\n"
+            .. H("Your other characters") .. "\n\n"
+            .. "At a mailbox, BarTab offers to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals: ore for your blacksmith, leather for your leatherworker. It sends exact amounts, one letter per character. " .. C("/bartab mail") .. " asks again. Their needs come from their bars and their last saved bags and bank.\n\n"
             .. H("The auction house") .. "\n\n"
             .. "A BarTab tab on the auction house's right edge opens a list of what your bars are short of, each with a Search button.\n\n"
             .. "All of these can ask first, act automatically, or be turned off in the settings (Shopping tab).",
@@ -131,7 +133,7 @@ GUIDE_PAGES = {
         text = C("/bartab config") .. ", the minimap button, or Options > AddOns > BarTab. Hover any setting for a full description.\n\n"
             .. B .. H("General") .. ": which sections show, bank and alt counts, the minimap button, alerts, reset, share and import.\n"
             .. B .. H("Crafting") .. ": what each click does, making materials first, count down, shared materials.\n"
-            .. B .. H("Shopping") .. ": vendors, the bank, the auction house tab.\n"
+            .. B .. H("Shopping") .. ": vendors, the bank, the mailbox, the auction house tab.\n"
             .. B .. H("Recipes") .. ": recipe list check marks, training reminders, Track Recipe in BarTab, favorites, appearances.\n"
             .. B .. H("Items") .. ": fill-up item tracking, stack combining.\n"
             .. B .. H("Display") .. ": bar size and text, color sets (color-blind friendly), recipe difficulty marks, tooltip lines, BarTab's own window.",
@@ -148,6 +150,7 @@ GUIDE_PAGES = {
             .. B .. C("craft") .. " - craft the next ready bar\n"
             .. B .. C("profit") .. " / " .. C("next") .. " - the profit window / what to craft next\n"
             .. B .. C("bank") .. " - offer again to take materials out of the bank\n"
+            .. B .. C("mail") .. " - offer again to mail your other characters what their bars need\n"
             .. B .. C("undo [list | number]") .. " - bring back removed bars\n"
             .. B .. C("untrack <name>") .. ", " .. C("unassign <name>") .. " - by name\n"
             .. B .. C("copy <character>") .. ", " .. C("share") .. ", " .. C("import") .. " - copy and share bars\n"

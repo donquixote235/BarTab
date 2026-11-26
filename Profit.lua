@@ -53,6 +53,7 @@ function ProfitOptions()
     options.missing = options.missing or "make"
     options.sort = options.sort or "craft"
     options.sell = options.sell or "best"
+    if options.alts == nil then options.alts = true end
     if options.gray == nil then options.gray = true end
     if options.gather == nil then options.gather = true end
     -- Materials you've asked to always price, even when you have them
@@ -234,18 +235,109 @@ function ProfitRow(recipeID, options, state)
     }
 end
 
+-- Alts ------------------------------------------------------------------------
+-- Your other characters' recipes and gathering skills, from what BarTab saved
+-- when you last opened their professions (settings.producers and
+-- settings.recipeIndex, per character).
+
+-- "Vespera" from "Vespera-Realm".
+function CharacterName(key)
+    return (key and key:match("^([^%-]+)")) or key or "?"
+end
+
+-- Every profession with recipes that any of your characters knows, for the
+-- profit window's Profession choice. Lower case -> display name.
+function KnownProfessions()
+    local found = {}
+    for _, recipes in pairs(settings.producers or {}) do
+        local counts = {}
+        for _, entry in pairs(recipes) do
+            if entry.profession then counts[entry.profession] = (counts[entry.profession] or 0) + 1 end
+        end
+        for name, count in pairs(counts) do
+            if count >= 2 and not NO_RECIPES[string.lower(name)] then found[string.lower(name)] = name end
+        end
+    end
+    return found
+end
+
+-- The profession the window shows: the one you picked, else the open one.
+function ProfitProfession()
+    local options = ProfitOptions()
+    return options.profession or LoadedProfession()
+end
+
+-- The profession choices, in order: the open one (nil), then the rest.
+function ProfessionChoices()
+    local loaded = LoadedProfession()
+    local list = { { key = nil, name = (loaded or "the open one") .. (loaded and " (open)" or "") } }
+    local names = {}
+    for lower, name in pairs(KnownProfessions()) do
+        if not (loaded and lower == string.lower(loaded)) then names[#names + 1] = name end
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do list[#list + 1] = { key = name, name = name } end
+    return list
+end
+
+-- recipeID -> { who = { character keys }, live = true if the open profession
+-- (this character) } for the profession shown.
+function ProfitRecipeSources(profession, includeAlts)
+    local me = CharacterKey()
+    local sources = {}
+    local function Add(recipeID, who, live)
+        local entry = sources[recipeID] or { who = {} }
+        sources[recipeID] = entry
+        if live then entry.live = true end
+        for _, existing in ipairs(entry.who) do if existing == who then return end end
+        table.insert(entry.who, who == me and 1 or #entry.who + 1, who)
+    end
+    local loaded = LoadedProfession()
+    if loaded and string.lower(loaded) == string.lower(profession)
+        and C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs then
+        for _, recipeID in ipairs(C_TradeSkillUI.GetAllRecipeIDs() or {}) do
+            local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+            if ok and type(info) == "table" and info.learned then Add(recipeID, me, true) end
+        end
+    end
+    for character, recipes in pairs(settings.producers or {}) do
+        if character == me or includeAlts then
+            for _, entry in pairs(recipes) do
+                if entry.recipeID and entry.profession
+                    and string.lower(entry.profession) == string.lower(profession) then
+                    Add(entry.recipeID, character, false)
+                end
+            end
+        end
+    end
+    return sources
+end
+
+-- Gathering skills of every character (with "include my characters").
+function AllGatherSkills()
+    local skills = GatherSkills()
+    for _, index in pairs(settings.recipeIndex or {}) do
+        for _, entry in pairs(index) do
+            local name = entry.profession and string.lower(entry.profession)
+            if name == "mining" or name == "herbalism" or name == "skinning" then skills[name] = true end
+        end
+    end
+    return skills
+end
+
 function RunProfitSearch(keepOffset)
     local frame = profitWindow
     if not frame then return end
-    local profession = LoadedProfession()
-    if not profession or not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then
+    local options = ProfitOptions()
+    local profession = ProfitProfession()
+    if not profession or not (C_TradeSkillUI and C_TradeSkillUI.GetRecipeSchematic) then
         frame.results, frame.offset = {}, 0
-        frame.status:SetText("Open a profession window first: BarTab checks the recipes of the profession that's open.")
+        frame.status:SetText("Open a profession window, or pick a profession with the Profession button.")
         RefreshProfitRows()
         return
     end
-    local options = ProfitOptions()
-    local state = { memo = {}, visiting = {}, skills = GatherSkills() }
+    frame.searched = true
+    local state = { memo = {}, visiting = {}, skills = options.alts and AllGatherSkills() or GatherSkills() }
     if options.gather then
         state.gathered = function(itemID, itemName)
             local mode = options.itemMode[itemID]
@@ -254,16 +346,24 @@ function RunProfitSearch(keepOffset)
             return CanGather(itemID, itemName, state.skills)
         end
     end
-    local results, loading, unpriced, skipped, noAuction = {}, 0, 0, 0, 0
-    for _, recipeID in ipairs(C_TradeSkillUI.GetAllRecipeIDs() or {}) do
-        local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
-        if ok and type(info) == "table" and info.learned
-            and (options.gray or GetRecipeColor(recipeID) ~= "gray") then
+    local results, loading, unpriced, skipped, noAuction, fromAlts = {}, 0, 0, 0, 0, 0
+    local me = CharacterKey()
+    for recipeID, source in pairs(ProfitRecipeSources(profession, options.alts)) do
+        if not source.live or options.gray or GetRecipeColor(recipeID) ~= "gray" then
             local row, why = ProfitRow(recipeID, options, state)
             if row == "loading" then
                 loading = loading + 1
             elseif row then
-                local wanted = not options.canCraft or row.canMake >= 1
+                row.who, row.live = source.who, source.live
+                row.mine = source.who[1] == me
+                if not row.mine then
+                    -- Only an alt knows it: nothing to craft here.
+                    row.canMake, row.total = nil, 0
+                    fromAlts = fromAlts + 1
+                elseif not source.live then
+                    row.color, row.points, row.perPoint, row.secondsPerPoint = nil, nil, nil, nil
+                end
+                local wanted = not options.canCraft or (row.canMake or 0) >= 1
                 -- Leveling: only recipes that can still give a point.
                 if IsLevelingSort(options.sort) and not (row.points and row.points > 0) then wanted = false end
                 if wanted then results[#results + 1] = row end
@@ -304,13 +404,22 @@ function RunProfitSearch(keepOffset)
     end
     UpdateChoicesButton()
     frame.title:SetText("BarTab: profit, " .. profession)
-    local notes = { #results .. (#results == 1 and " recipe" or " recipes") }
+    local notes = { #results .. (#results == 1 and " recipe" or " recipes")
+        .. (fromAlts > 0 and (" (" .. fromAlts .. " only your other characters know)") or "") }
     if unpriced > 0 then notes[#notes + 1] = unpriced .. " left out (no auction price for an ingredient)" end
     if skipped > 0 then notes[#notes + 1] = skipped .. " left out (missing materials)" end
     if noAuction > 0 then notes[#notes + 1] = noAuction .. " with no auction price yet" end
     if loading > 0 then notes[#notes + 1] = loading .. " still loading: search again in a moment" end
     frame.status:SetText(table.concat(notes, "  ·  "))
     RefreshProfitRows()
+end
+
+-- After a setting changes: search again straight away, once there are
+-- results to update (the recipe you picked stays in view).
+function RefreshProfitSearch()
+    if profitWindow and profitWindow.searched then
+        Safe("profit", RunProfitSearch)(true)
+    end
 end
 
 function RefreshProfitRows()
@@ -327,6 +436,9 @@ function RefreshProfitRows()
             local name = result.name .. (result.made > 1 and (" (x" .. result.made .. ")") or "")
             if result.color and COLOR_CODES[result.color] then
                 name = "|c" .. COLOR_CODES[result.color] .. name .. "|r"
+            end
+            if result.who and not result.mine then
+                name = name .. " |cff999999- " .. CharacterName(result.who[1]) .. "|r"
             end
             row.cells.name:SetText(name)
             row.cells.vendor:SetText(result.vendorIncome and ProfitMoney(result.vendorIncome) or "—")
@@ -357,7 +469,7 @@ function RefreshProfitRows()
             else
                 row.cells.hour:SetText(result.perHour and ProfitMoney(result.perHour) or "")
             end
-            row.cells.make:SetText(tostring(result.canMake))
+            row.cells.make:SetText(result.canMake and tostring(result.canMake) or "—")
             row.picked:SetShown(result.recipeID == frame.selected)
             row:Show()
         else
@@ -429,6 +541,13 @@ function ShowProfitRowTooltip(row)
         end
     end
     GameTooltip:AddLine("Click: show it in the profession window", 0.7, 0.7, 0.7)
+    if result.who and #result.who > 0 and not (result.mine and #result.who == 1) then
+        local names = {}
+        for _, key in ipairs(result.who) do
+            names[#names + 1] = key == CharacterKey() and "you" or CharacterName(key)
+        end
+        GameTooltip:AddDoubleLine("Known by", table.concat(names, ", "), 0.8, 0.8, 0.8, 1, 1, 1)
+    end
     GameTooltip:AddLine("Shift-click: search for it at the auction house", 0.7, 0.7, 0.7)
     GameTooltip:AddLine("Right-click: track it, or choose how to count its materials", 0.7, 0.7, 0.7)
     GameTooltip:Show()
@@ -501,12 +620,19 @@ function ProfitRowClicked(row, button)
     if not result then return end
     profitWindow.selected = result.recipeID
     RefreshProfitRows()
+    local altOnly = result.who and not result.mine
+    if altOnly and button ~= "RightButton" and not IsShiftKeyDown() then
+        Print(("Only %s knows %s; log in to that character to craft it."):format(
+            CharacterName(result.who[1]), result.name))
+        return
+    end
     if button == "RightButton" then
         local entries = {
             { "Track with settings...", function() TrackWithOptions(result.recipeID) end },
             { "Make until I have...", function() AskMakeGoal(result.recipeID) end },
             { "Make until I reach a skill level...", function() AskSkillGoal(result.recipeID) end },
         }
+        if altOnly then entries = {} end
         -- Materials that aren't vendor items: how to count each one, here
         -- and in every other recipe; the list updates straight away.
         local materials = {}
@@ -552,7 +678,7 @@ function CreateProfitWindow()
         local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
         close:SetPoint("TOPRIGHT", -4, -4)
     end
-    frame:SetSize(680, 526)
+    frame:SetSize(680, 552)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
     frame:SetFrameStrata("DIALOG")
     frame:SetToplevel(true)
@@ -577,6 +703,7 @@ function CreateProfitWindow()
         button:SetScript("OnClick", function()
             options[field] = NextChoice(list, options[field])
             Label()
+            RefreshProfitSearch()
         end)
         Label()
         button.Refresh = Label
@@ -591,19 +718,62 @@ function CreateProfitWindow()
         text:SetPoint("LEFT", check, "RIGHT", 4, 0)
         text:SetText(label)
         check:SetChecked(options[field] and true or false)
-        check:SetScript("OnClick", function(self) options[field] = self:GetChecked() and true or false end)
+        check:SetScript("OnClick", function(self)
+            options[field] = self:GetChecked() and true or false
+            RefreshProfitSearch()
+        end)
         return check
     end
-    frame.mineButton = Cycle(14, -32, 320, "Your materials", PROFIT_MINE, "mine")
-    frame.missingButton = Cycle(14, -58, 320, "Missing", PROFIT_MISSING, "missing")
-    frame.sortButton = Cycle(14, -84, 320, "Sort by", PROFIT_SORTS, "sort")
+    -- Which profession: the open one, or any your characters know.
+    local professionButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    professionButton:SetSize(320, 22)
+    professionButton:SetPoint("TOPLEFT", 14, -32)
+    local function ProfessionLabel()
+        local current = options.profession
+        local label = current
+        if not current then
+            local loaded = LoadedProfession()
+            label = loaded and (loaded .. " (open)") or "the open one"
+        end
+        professionButton:SetText("Profession: " .. label)
+    end
+    -- A dropdown: the open profession, then every other one your
+    -- characters know, the current choice ticked.
+    local arrow = professionButton:CreateTexture(nil, "OVERLAY")
+    arrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+    arrow:SetSize(18, 18)
+    arrow:SetPoint("RIGHT", -4, 0)
+    professionButton:SetScript("OnClick", function(self)
+        local entries = {}
+        for _, choice in ipairs(ProfessionChoices()) do
+            -- Plain entries (picking one closes the menu), the current one ticked.
+            local tick = options.profession == choice.key
+                and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t " or "|TInterface\\Buttons\\UI-CheckBox-Check:14:14:0:0:32:32:0:0:0:0|t "
+            entries[#entries + 1] = { tick .. choice.name, function()
+                options.profession = choice.key
+                ProfessionLabel()
+                frame.searched = true
+                Safe("profit", RunProfitSearch)()
+            end }
+        end
+        ShowMenu(self, "Profession", entries)
+    end)
+    frame:HookScript("OnShow", ProfessionLabel)
+    ProfessionLabel()
+    frame.professionButton = professionButton
+    frame.professionLabel = ProfessionLabel
+
+    frame.mineButton = Cycle(14, -58, 320, "Your materials", PROFIT_MINE, "mine")
+    frame.missingButton = Cycle(14, -84, 320, "Missing", PROFIT_MISSING, "missing")
+    frame.sortButton = Cycle(14, -110, 320, "Sort by", PROFIT_SORTS, "sort")
     frame.sellButton = Cycle(346, -32, 320, "Sell to", PROFIT_SELL, "sell")
     frame.canCheck = Check(346, -57, "Only recipes I can craft now", "canCraft")
     frame.grayCheck = Check(346, -80, "Include gray recipes", "gray")
+    frame.altsCheck = Check(346, -126, "Include my other characters", "alts")
 
     local search = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     search:SetSize(120, 24)
-    search:SetPoint("TOPLEFT", 14, -112)
+    search:SetPoint("TOPLEFT", 14, -138)
     search:SetText("Search")
     search:SetScript("OnClick", function() Safe("profit", RunProfitSearch)() end)
     frame.searchButton = search
@@ -616,10 +786,10 @@ function CreateProfitWindow()
     frame.gatherCheck = Check(346, -103, "Free: items from my gathering skills", "gather")
 
     frame.status = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    frame.status:SetPoint("TOPLEFT", 16, -142)
+    frame.status:SetPoint("TOPLEFT", 16, -168)
     frame.status:SetPoint("RIGHT", -16, 0)
     frame.status:SetJustifyH("LEFT")
-    frame.status:SetText("Choose how to count materials, then click Search.")
+    frame.status:SetText("Choose how to count materials, then click Search. After that, the list updates as you change the settings.")
 
     -- Columns: name, then money columns right-aligned.
     local COLUMNS = {
@@ -633,7 +803,7 @@ function CreateProfitWindow()
     }
     for _, column in ipairs(COLUMNS) do
         local header = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        header:SetPoint("TOPLEFT", column.x, -162)
+        header:SetPoint("TOPLEFT", column.x, -188)
         header:SetWidth(column.width)
         header:SetJustifyH(column.justify)
         header:SetText(column.label)
@@ -644,7 +814,7 @@ function CreateProfitWindow()
     for index = 1, PROFIT_ROWS do
         local row = CreateFrame("Button", nil, frame)
         row:SetSize(652, 22)
-        row:SetPoint("TOPLEFT", 14, -176 - (index - 1) * 22)
+        row:SetPoint("TOPLEFT", 14, -202 - (index - 1) * 22)
         row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         local highlight = row:CreateTexture(nil, "HIGHLIGHT")
         highlight:SetAllPoints()
@@ -740,6 +910,9 @@ function ShowCraftNext(which)
         ShowProfitWindow()
         local options = ProfitOptions()
         if not IsLevelingSort(options.sort) then options.sort = "point" end
+        -- Leveling is about this character's open profession.
+        options.profession = nil
+        if profitWindow.professionLabel then profitWindow.professionLabel() end
         if profitWindow.sortButton.Refresh then profitWindow.sortButton.Refresh() end
         RunProfitSearch()
     end

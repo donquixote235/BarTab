@@ -54,6 +54,7 @@ HELP_TOPICS = {
         head("Shopping:"),
         "  At a vendor that sells what your recipes are short of (thread, dye, vials), BarTab asks to buy it.",
         "  At your bank, it offers to take out what your bars are short of (" .. cmd("/bartab bank") .. " asks again).",
+        "  At a mailbox, it offers to mail your other characters what their bars need and you have spare (" .. cmd("/bartab mail") .. ").",
         "  " .. cmd("/bartab config") .. " > Shopping: ask, automatic or off; a spend limit; only buy for crafts your bars cover.",
         "  At the auction house, the BarTab tab on the right edge lists what you're short of, with Search buttons.",
         "  Hover any item you track to see lines like \"BarTab: 4/5 for Hillman's Cloak\".",
@@ -517,6 +518,13 @@ SlashCmdList.BARTAB = function(message)
     elseif command == "guide" then
         Safe("guide", ShowGuide)(args)
 
+    elseif command == "mail" then
+        if mailboxOpen then
+            Safe("mail", OfferMailSends)(true)
+        else
+            Print("Open a mailbox first; BarTab then offers to mail your other characters what their bars need.")
+        end
+
     elseif command == "bank" then
         if bankWindowOpen then
             Safe("bank", OfferBankWithdrawals)(true)
@@ -572,7 +580,7 @@ SlashCmdList.BARTAB = function(message)
             .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands (after /bartab or /btab): help, guide, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], bank, appearances on||off")
+        Print("Commands (after /bartab or /btab): help, guide, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], bank, mail, appearances on||off")
         Print("Type /bartab help for a quick guide with examples.")
     end
 end

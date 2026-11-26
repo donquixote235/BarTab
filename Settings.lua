@@ -455,6 +455,25 @@ function BuildConfigFrame()
     y = y - 30
 
 
+    y = AddHeading(page, y - 6, "Mailbox")
+    local mailButton = AddButton(page, 24, y, 350, "",
+        "At a mailbox: offer to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals. Their needs come from their bars and their last saved bags and bank. /bartab mail asks again.",
+        function()
+            local current, index = settings.mailSend or "ask", 1
+            for i, mode in ipairs(MAIL_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.mailSend = MAIL_MODES[index % #MAIL_MODES + 1].key
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.mailSend or "ask"
+        for _, mode in ipairs(MAIL_MODES) do
+            if mode.key == current then mailButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+
     y = AddHeading(page, y - 6, "Auction house")
     y = AddCheck(page, y, "Add a BarTab tab beside the auction house",
         "A tab on the auction house's right edge (beside any other addons' tabs) that opens a list of what your bars are short of, each with a Search button. Stays open while you browse results.",

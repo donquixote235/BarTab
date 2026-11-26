@@ -415,7 +415,9 @@ function CraftItem(itemKey, action)
         local short = {}
         for _, reagent in ipairs(GetRecipeReagents(item.recipeID) or {}) do
             if reagent.have < reagent.need then
-                short[#short + 1] = reagent.name .. " (" .. reagent.have .. "/" .. reagent.need .. ")"
+                local okNote, note = pcall(AltNote, reagent.itemID, reagent.name)
+                short[#short + 1] = reagent.name .. " (" .. reagent.have .. "/" .. reagent.need
+                    .. ((okNote and note) and ("; " .. note) or "") .. ")"
             end
         end
         local chainText = ChainBlockedText(item)
@@ -1714,6 +1716,56 @@ function ChainFeasible(recipeID, crafts, inv, depth, visiting, steps, profession
     return feasible
 end
 
+-- Your other characters, for messages: who can make an item (from the
+-- recipes saved when you opened their professions), and who has some (their
+-- last saved bags and bank).
+function AltMakers(itemID, itemName)
+    local me, names = CharacterKey(), {}
+    local wanted = itemName and string.lower(itemName)
+    for character, recipes in pairs(settings.producers or {}) do
+        if character ~= me then
+            local found = itemID and recipes[itemID]
+            if not found and wanted then
+                for _, entry in pairs(recipes) do
+                    if entry.name and string.lower(entry.name) == wanted then found = entry break end
+                end
+            end
+            if found then names[#names + 1] = CharacterName(character) end
+        end
+    end
+    table.sort(names)
+    return names
+end
+
+function AltStock(itemID)
+    local me, list = CharacterKey(), {}
+    if not itemID then return list end
+    for character, snapshot in pairs(settings.inventory or {}) do
+        if character ~= me then
+            local count = ((snapshot.bags or {})[itemID] or 0) + ((snapshot.bank or {})[itemID] or 0)
+            if count > 0 then list[#list + 1] = { name = CharacterName(character), count = count } end
+        end
+    end
+    table.sort(list, function(a, b) return a.count > b.count end)
+    return list
+end
+
+-- "Vespera can make it; Padoo has 30", or nil.
+function AltNote(itemID, itemName)
+    local parts = {}
+    local makers = AltMakers(itemID, itemName)
+    if #makers > 0 then parts[#parts + 1] = JoinNames(makers, 3) .. " can make it" end
+    local stock = AltStock(itemID or ResolveItemID(itemName))
+    if #stock > 0 then
+        local holders = {}
+        for index = 1, math.min(2, #stock) do
+            holders[#holders + 1] = stock[index].name .. " has " .. stock[index].count
+        end
+        parts[#parts + 1] = table.concat(holders, ", ")
+    end
+    return #parts > 0 and table.concat(parts, "; ") or nil
+end
+
 -- Why one craft can't be made even making materials first: a sentence, or
 -- nil when making materials doesn't come into it (nothing makeable).
 function ChainBlockedText(item)
@@ -1738,6 +1790,8 @@ function ChainBlockedText(item)
                     .. "; turn on \"Use my other professions too\" in settings)"
             else
                 local where = VendorBuyPrice(reason.itemID) and "from a vendor" or "to get"
+                local okNote, note = pcall(AltNote, reason.itemID, reason.name)
+                if okNote and note then where = where .. "; " .. note end
                 parts[#parts + 1] = ("%s (%d/%d, %s)"):format(reason.name, reason.have, reason.need, where)
             end
         end
@@ -2121,6 +2175,13 @@ function AddChainLines(item)
     if okMake and makeable and makeable > 0 then
         GameTooltip:AddLine(("You could make %d more %s from what's in your bags%s"):format(makeable, item.name,
             (count + makeable >= item.goal) and ", enough for the rest of the bar" or ""), 0.5, 1, 0.5, true)
+    end
+    -- Only one of your other characters can make it.
+    if not ProducerFor(ItemIDFor(item), item.name) and count < item.goal then
+        local okMakers, makers = pcall(AltMakers, ItemIDFor(item), item.name)
+        if okMakers and #makers > 0 then
+            GameTooltip:AddLine(JoinNames(makers, 3) .. " can make " .. item.name .. ".", 0.5, 0.8, 1, true)
+        end
     end
     local producer = CanTrackChain(item)
     if producer and GetBarCount(item) < item.goal then
@@ -4428,6 +4489,306 @@ bankWatcher:SetScript("OnEvent", function(_, event)
     C_Timer.After(0.4, function()
         if bankWindowOpen then Safe("bank", OfferBankWithdrawals)() end
     end)
+end)
+
+-- Send to your other characters ---------------------------------------------------
+-- At a mailbox, BarTab offers to mail your other characters (same realm and
+-- faction) what their bars are short of and you have spare: ore for the
+-- blacksmith, leather for the leatherworker. Their needs come from their bars
+-- and their last saved bags and bank; "spare" is what's left after your own
+-- bars' goals. settings.mailSend: "ask" (default) or "off". /bartab mail
+-- asks again while the mailbox is open. Sent items are remembered until that
+-- character next logs in, so they aren't offered twice.
+MAIL_MODES = {
+    { key = "ask", name = "Offer to mail my other characters what they need" },
+    { key = "off", name = "Off (mail by hand)" },
+}
+MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
+mailJob = nil
+mailboxOpen = false
+
+-- item ID -> total of the goals of a bar list's active, non-crate bars.
+function BarNeeds(list)
+    local needs, names = {}, {}
+    for _, item in pairs(list or {}) do
+        if not item.container and not item.inactive and item.goal and item.goal > 0 then
+            local id = ItemIDFor(item)
+            if id then
+                needs[id] = (needs[id] or 0) + item.goal
+                names[id] = item.name
+            end
+        end
+    end
+    return needs, names
+end
+
+-- { { to = "Vespera", character = key, itemID, name, count }, ... }
+function FindMailSends()
+    local me = CharacterKey()
+    local myRealm = me:match("%-(.*)$")
+    local myFaction = UnitFactionGroup and UnitFactionGroup("player")
+    local scan = ScanBags()
+    -- What's spare here: bags less your own bars' goals.
+    local myNeeds = BarNeeds(trackedItems)
+    local spare = {}
+    for id, count in pairs(scan.byID) do
+        local left = count - (myNeeds[id] or 0)
+        if left > 0 then spare[id] = left end
+    end
+    settings.mailed = settings.mailed or {}
+    local sends = {}
+    local characters = (BarTabDB and BarTabDB.characters) or {}
+    local keys = {}
+    for key in pairs(characters) do keys[#keys + 1] = key end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        local realm = key:match("%-(.*)$")
+        local snapshot = settings.inventory and settings.inventory[key]
+        if key ~= me and realm == myRealm and snapshot
+            and not (snapshot.faction and myFaction and snapshot.faction ~= myFaction) then
+            -- Mail sent since they last logged in still counts as theirs.
+            local mailed = settings.mailed[key]
+            if mailed and snapshot.updated and mailed.time and snapshot.updated > mailed.time then
+                settings.mailed[key], mailed = nil, nil
+            end
+            local needs, names = BarNeeds(characters[key])
+            for id, need in pairs(needs) do
+                local have = ((snapshot.bags or {})[id] or 0) + ((snapshot.bank or {})[id] or 0)
+                    + ((mailed and mailed.items[id]) or 0)
+                local short = need - have
+                if short > 0 and (spare[id] or 0) > 0 then
+                    local count = math.min(short, spare[id])
+                    spare[id] = spare[id] - count
+                    sends[#sends + 1] = { to = CharacterName(key), character = key, itemID = id,
+                        name = names[id] or GetItemNameByID(id) or ("item " .. id), count = count }
+                end
+            end
+        end
+    end
+    table.sort(sends, function(a, b)
+        if a.to ~= b.to then return a.to < b.to end
+        return a.name < b.name
+    end)
+    return sends
+end
+
+function DescribeMailSends(sends)
+    local lines = {}
+    for _, send in ipairs(sends) do
+        lines[#lines + 1] = ("%d %s to %s"):format(send.count, send.name, send.to)
+    end
+    return table.concat(lines, "\n")
+end
+
+-- Sending: one recipient at a time, a stack per step (each attach locks the
+-- slot for a moment), up to 12 attachments a letter; BarTab fills in the
+-- name and subject and you click Send; the next letter follows once the
+-- game says it went.
+function SendMailNow(sends)
+    if mailJob then return end
+    if not ClickSendMailItemButton then
+        Print("Couldn't reach the mail window.")
+        return
+    end
+    for i = 1, MAIL_ATTACHMENTS do
+        if GetSendMailItem and GetSendMailItem(i) then
+            Print("Clear the items already attached to your letter first, then type /bartab mail.")
+            return
+        end
+    end
+    if MailFrameTab2 and MailFrameTab2.Click and not (SendMailFrame and SendMailFrame:IsShown()) then
+        MailFrameTab2:Click()
+    end
+    -- Letters: per recipient, items in order.
+    local letters, byTo = {}, {}
+    for _, send in ipairs(sends) do
+        send.left = send.count
+        if not byTo[send.to] then
+            byTo[send.to] = { to = send.to, character = send.character, items = {} }
+            letters[#letters + 1] = byTo[send.to]
+        end
+        table.insert(byTo[send.to].items, send)
+    end
+    mailJob = { letters = letters, index = 1, attached = 0, sent = {}, waits = 0 }
+    C_Timer.After(0.2, MailStep)
+end
+
+function FinishMailJob(problem)
+    local job = mailJob
+    mailJob = nil
+    if not job then return end
+    if #job.sent > 0 then Print("Mailed " .. JoinNames(job.sent, 8) .. ".") end
+    if problem then Print(problem) end
+end
+
+function MailStep()
+    local job = mailJob
+    if not job then return end
+    if not mailboxOpen then
+        FinishMailJob("The mailbox closed before BarTab finished.")
+        return
+    end
+    if job.waitingSend then return end -- MAIL_SEND_SUCCESS / MAIL_FAILED moves on
+    local letter = job.letters[job.index]
+    if not letter then
+        FinishMailJob()
+        return
+    end
+    -- The next item that still needs attaching.
+    local send
+    for _, item in ipairs(letter.items) do
+        if item.left > 0 then send = item break end
+    end
+    if send and job.attached < MAIL_ATTACHMENTS then
+        if CursorHasItem and CursorHasItem() then
+            FinishMailJob("Put down what's on your cursor, then type /bartab mail.")
+            return
+        end
+        -- A stack of it in your bags that isn't mid-move.
+        local fromBag, fromSlot, stack, busy
+        for bag = 0, NUM_BAG_SLOTS or 4 do
+            for slot = 1, ContainerSlots(bag) do
+                local itemID, count, locked = ContainerItem(bag, slot)
+                if itemID == send.itemID then
+                    if locked then busy = true
+                    elseif not fromBag then fromBag, fromSlot, stack = bag, slot, count end
+                end
+            end
+            if fromBag then break end
+        end
+        if not fromBag then
+            if busy and job.waits < 20 then
+                job.waits = job.waits + 1
+            else
+                send.left = 0 -- none left to send
+            end
+            C_Timer.After(0.2, MailStep)
+            return
+        end
+        job.waits = 0
+        local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
+        local split = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
+        local amount = math.min(stack, send.left)
+        if amount < stack then split(fromBag, fromSlot, amount) else pickup(fromBag, fromSlot) end
+        job.attached = job.attached + 1
+        ClickSendMailItemButton(job.attached)
+        if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+        send.left = send.left - amount
+        send.sentNow = (send.sentNow or 0) + amount
+        C_Timer.After(0.3, MailStep)
+        return
+    end
+    if job.attached == 0 then
+        -- Nothing could be attached for this one: next recipient.
+        job.index = job.index + 1
+        C_Timer.After(0.1, MailStep)
+        return
+    end
+    -- Postage.
+    local price = GetSendMailPrice and GetSendMailPrice() or 0
+    if GetMoney and GetMoney() < price then
+        FinishMailJob("Not enough money for the postage (" .. MoneyText(price) .. "); the items are still attached.")
+        return
+    end
+    job.waitingSend = true
+    job.letter = letter
+    -- Fill in the letter and let you click Send (the game only sends mail
+    -- from your own click); the next letter follows once it's gone.
+    local nameBox = _G.SendMailNameEditBox or (SendMailFrame and SendMailFrame.SendMailNameEditBox)
+    local subjectBox = _G.SendMailSubjectEditBox or (SendMailFrame and SendMailFrame.SendMailSubjectEditBox)
+    local bodyBox = _G.SendMailBodyEditBox or (SendMailFrame and SendMailFrame.SendMailBodyEditBox)
+    -- WoW Forever names have a surname ("Vespera Smyte"); address the full
+    -- name when BarTab has seen it, so it can't reach someone else's Vespera.
+    -- If the game turns that down, the first name is tried next.
+    local snapshot = settings.inventory and settings.inventory[letter.character]
+    local fullName = snapshot and snapshot.fullName
+    letter.address = letter.address or ((fullName and fullName ~= letter.to) and fullName or letter.to)
+    if nameBox and nameBox.SetText then nameBox:SetText(letter.address) end
+    if subjectBox and subjectBox.SetText then subjectBox:SetText("BarTab: materials") end
+    if bodyBox and bodyBox.SetText then bodyBox:SetText("Sent by BarTab for your bars.") end
+    if SendMailFrame_Update then pcall(SendMailFrame_Update) end
+    local left = #job.letters - job.index
+    Print(("Letter to %s is ready: click Send%s."):format(letter.address,
+        left > 0 and (" (" .. left .. " more to follow)") or ""))
+end
+
+function OnMailSent(success)
+    local job = mailJob
+    if not (job and job.waitingSend) then return end
+    job.waitingSend = false
+    local letter = job.letter
+    if not success then
+        -- Full name refused: try the first name once, on the same letter.
+        if letter.address ~= letter.to then
+            letter.address = letter.to
+            job.waitingSend = true
+            local nameBox = _G.SendMailNameEditBox or (SendMailFrame and SendMailFrame.SendMailNameEditBox)
+            if nameBox and nameBox.SetText then nameBox:SetText(letter.to) end
+            Print("The game didn't take the full name; trying " .. letter.to .. ". Click Send again.")
+            return
+        end
+        FinishMailJob("Couldn't mail " .. letter.to .. " (the game said no). The items are still attached.")
+        return
+    end
+    settings.mailed = settings.mailed or {}
+    local mailed = settings.mailed[letter.character] or { items = {} }
+    mailed.time = time and time() or 0
+    for _, item in ipairs(letter.items) do
+        if item.sentNow and item.sentNow > 0 then
+            mailed.items[item.itemID] = (mailed.items[item.itemID] or 0) + item.sentNow
+            job.sent[#job.sent + 1] = item.sentNow .. " " .. item.name .. " to " .. letter.to
+            item.sentNow = 0
+        end
+    end
+    settings.mailed[letter.character] = mailed
+    job.attached = 0
+    -- More of this letter's items (over 12 stacks)? Another letter to them.
+    local more = false
+    for _, item in ipairs(letter.items) do if item.left > 0 then more = true end end
+    if not more then job.index = job.index + 1 end
+    C_Timer.After(0.5, MailStep)
+end
+
+-- force: /bartab mail (asks even with the setting off).
+function OfferMailSends(force)
+    if (settings.mailSend or "ask") == "off" and not force then return end
+    if mailJob or (InCombatLockdown and InCombatLockdown()) then return end
+    local sends = FindMailSends()
+    if #sends == 0 then
+        if force then Print("Nothing your other characters' bars need that you have spare.") end
+        return
+    end
+    if not (StaticPopupDialogs and StaticPopup_Show) then return end
+    StaticPopupDialogs.BARTAB_MAIL_SEND = StaticPopupDialogs.BARTAB_MAIL_SEND or {
+        text = "BarTab: your other characters' bars need things you have spare.\n\n%s\n\nMail them?",
+        button1 = "Mail",
+        button2 = NO or "No",
+        OnAccept = function(_, data) SendMailNow(data) end,
+        timeout = 0,
+        whileDead = false,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("BARTAB_MAIL_SEND", DescribeMailSends(sends), nil, sends)
+end
+
+mailWatcher = CreateFrame("Frame")
+for _, mailEvent in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_SUCCESS", "MAIL_FAILED" }) do
+    pcall(mailWatcher.RegisterEvent, mailWatcher, mailEvent)
+end
+mailWatcher:SetScript("OnEvent", function(_, event)
+    if event == "MAIL_SHOW" then
+        mailboxOpen = true
+        C_Timer.After(0.5, function()
+            if mailboxOpen then Safe("mail", OfferMailSends)() end
+        end)
+    elseif event == "MAIL_CLOSED" then
+        mailboxOpen = false
+        if StaticPopup_Hide then StaticPopup_Hide("BARTAB_MAIL_SEND") end
+    elseif event == "MAIL_SEND_SUCCESS" then
+        Safe("mail", OnMailSent)(true)
+    elseif event == "MAIL_FAILED" then
+        Safe("mail", OnMailSent)(false)
+    end
 end)
 
 -- What crafts are worth at a vendor (/bartab profit) ---------------------------
