@@ -4625,7 +4625,10 @@ end
 -- slot for a moment), up to 12 attachments a letter; BarTab fills in the
 -- name and subject and you click Send; the next letter follows once the
 -- game says it went.
-function SendMailNow(sends)
+-- inClick: called from your own click or key press, which is the only time
+-- the game lets an addon send mail. With settings.mailAutoSend, the first
+-- letter is then filled and sent at once.
+function SendMailNow(sends, inClick)
     if mailJob then return end
     if not ClickSendMailItemButton then
         Print("Couldn't reach the mail window.")
@@ -4651,7 +4654,67 @@ function SendMailNow(sends)
         table.insert(byTo[send.to].items, send)
     end
     mailJob = { letters = letters, index = 1, attached = 0, sent = {}, waits = 0 }
-    C_Timer.After(0.2, MailStep)
+    if inClick and settings.mailAutoSend then
+        RunMailNow()
+    else
+        C_Timer.After(0.2, MailStep)
+    end
+end
+
+-- The next mail step: straight away while inside your click (so the letter
+-- can go out in it), otherwise after a short wait.
+function MailLater(job, delay)
+    if job.sync then
+        job.again = true
+    else
+        C_Timer.After(delay, MailStep)
+    end
+end
+
+-- Fill (and send, if it's ready) the current letter inside your click.
+function RunMailNow()
+    local job = mailJob
+    if not job then return end
+    job.sync = true
+    for _ = 1, 60 do
+        job.again = nil
+        MailStep()
+        if not (mailJob == job and job.sync and job.again) then break end
+    end
+    if mailJob == job and job.sync then
+        local pending = job.again
+        job.sync = nil
+        if pending then C_Timer.After(0.2, MailStep) end
+    end
+end
+
+-- Sends the filled-in letter, if all its items are attached. Only works
+-- inside your own click or key press.
+function TrySendLetter()
+    local job = mailJob
+    if not (job and job.waitingSend and job.letter and SendMail) then return false end
+    local attached = 0
+    for i = 1, MAIL_ATTACHMENTS do
+        if GetSendMailItem and GetSendMailItem(i) then attached = attached + 1 end
+    end
+    if attached < job.attached then return false end
+    SendMail(job.letter.address, "BarTab: materials", "")
+    return true
+end
+
+-- The craft-next key (and /bartab craft) at an open mailbox, with one-press
+-- mail on: sends the letter that's ready, or starts mailing.
+function MailKeyPress()
+    if not (mailboxOpen and settings.mailAutoSend) then return false end
+    if mailJob then
+        if not TrySendLetter() then Print("The letter isn't ready yet; press again in a moment.") end
+        return true
+    end
+    local sends = FindMailSends(settings.mailAll)
+    if #sends == 0 then return false end
+    if StaticPopup_Hide then StaticPopup_Hide("BARTAB_MAIL_SEND") end
+    SendMailNow(sends, true)
+    return true
 end
 
 function FinishMailJob(problem)
@@ -4703,6 +4766,12 @@ function MailStep()
         if not fromBag then
             if busy and job.waits < 20 then
                 job.waits = job.waits + 1
+                -- A stack still locked: carry on after a wait, outside the click.
+                if job.sync then
+                    job.sync = nil
+                    C_Timer.After(0.2, MailStep)
+                    return
+                end
             else
                 if (send.sentNow or 0) == 0 and send.left == send.count then
                     job.missing = job.missing or {}
@@ -4710,7 +4779,7 @@ function MailStep()
                 end
                 send.left = 0 -- none left to send
             end
-            C_Timer.After(0.2, MailStep)
+            MailLater(job, 0.2)
             return
         end
         job.waits = 0
@@ -4723,13 +4792,13 @@ function MailStep()
         if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
         send.left = send.left - amount
         send.sentNow = (send.sentNow or 0) + amount
-        C_Timer.After(0.3, MailStep)
+        MailLater(job, 0.3)
         return
     end
     if job.attached == 0 then
         -- Nothing could be attached for this one: next recipient.
         job.index = job.index + 1
-        C_Timer.After(0.1, MailStep)
+        MailLater(job, 0.1)
         return
     end
     -- Postage.
@@ -4757,8 +4826,13 @@ function MailStep()
     if bodyBox and bodyBox.SetText then bodyBox:SetText("") end
     if SendMailFrame_Update then pcall(SendMailFrame_Update) end
     local left = #job.letters - job.index
-    Print(("Letter to %s is ready: click Send%s."):format(letter.address,
-        left > 0 and (" (" .. left .. " more to follow)") or ""))
+    local more = left > 0 and (" (" .. left .. " more to follow)") or ""
+    if job.sync and TrySendLetter() then
+        Print(("Sending to %s%s."):format(letter.address, more))
+        return
+    end
+    Print(("Letter to %s is ready: %s%s."):format(letter.address,
+        settings.mailAutoSend and "press your BarTab craft key or click Send" or "click Send", more))
 end
 
 function OnMailSent(success)
@@ -5233,7 +5307,7 @@ function OfferMailSends(force)
         text = "%s",
         button1 = "Mail",
         button2 = NO or "No",
-        OnAccept = function(self, data) SendMailNow((self and self.data) or data) end,
+        OnAccept = function(self, data) SendMailNow((self and self.data) or data, true) end,
         -- "Mail all I have of each": all you have spare, not just what's short.
         OnShow = function(self)
             local check = self.barTabMailAll
@@ -5558,7 +5632,11 @@ end
 _G.BINDING_HEADER_BARTAB = "BarTab"
 -- Shown in Key Bindings > AddOns, where the header isn't, so it names BarTab.
 _G.BINDING_NAME_BARTAB_CRAFT_NEXT = "BarTab: Craft the next ready bar"
-_G.BarTab_CraftNext = function() CraftNextReady() end
+_G.BarTab_CraftNext = function()
+    local ok, handled = pcall(MailKeyPress)
+    if not ok then ReportError("mail", handled) elseif handled then return end
+    CraftNextReady()
+end
 
 
 -- Auction house shopping list ----------------------------------------------------

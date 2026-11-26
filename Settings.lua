@@ -474,6 +474,11 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    y = AddCheck(page, y, "Send letters in one press",
+        "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or starts mailing. The game allows one letter per click or key press, so each letter still needs one.",
+        function() return settings.mailAutoSend end,
+        function(on) settings.mailAutoSend = on or nil end)
+
     y = AddCheck(page, y, "Show what my other characters need",
         "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for [Alt]\") that this character can get: gather with its own skills, make with its own recipes, or already has some of. Bars fill as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it.",
         function() return settings.altShopping end,

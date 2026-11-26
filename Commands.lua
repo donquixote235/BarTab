@@ -428,7 +428,7 @@ SlashCmdList.BARTAB = function(message)
         end
 
     elseif command == "craft" then
-        CraftNextReady()
+        _G.BarTab_CraftNext()
 
     elseif command == "window" then
         local value = string.lower(args)
