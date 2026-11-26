@@ -372,7 +372,10 @@ function ShowBarTooltip(owner)
         elseif action == "fit" then
             return barCrafts and ("craft " .. barCrafts .. " (fits the bar" .. timed(barCrafts) .. ")") or "craft as many as fit the bar"
         elseif action == "max" then
-            return craftable and ("craft " .. craftable .. " (maximum available" .. timed(craftable) .. ")") or "craft all you can"
+            -- A goal bar's clicks only craft what's still needed.
+            local most = craftable
+            if most and outputBar then most = math.min(most, CraftsToTarget(item)) end
+            return most and ("craft " .. most .. " (maximum available" .. timed(most) .. ")") or "craft all you can"
         end
         return "nothing"
     end

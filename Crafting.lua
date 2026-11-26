@@ -768,7 +768,7 @@ function CraftsMenuEntry(item)
             choices[#choices + 1] = {
                 ("To %s %d (%d %s)"):format(profession or "skill", tier, crafts, crafts == 1 and "craft" or "crafts"),
                 function() SizeRecipeBars(item.recipeID, crafts) end,
-                selected = false,
+                selected = current == crafts,
             }
         end
     end
@@ -781,10 +781,145 @@ function CraftsMenuEntry(item)
         choices[#choices + 1] = {
             ("Use all your %s (%d %s)"):format(item.name, fromBags, fromBags == 1 and "craft" or "crafts"),
             function() SizeRecipeBars(item.recipeID, fromBags) end,
-            selected = false,
+            selected = current == fromBags,
         }
     end
+    -- A full stack of what the recipe makes (10 Heavy Armor Kits: 10 crafts).
+    local stackCrafts, stackSize = StackCrafts(item.recipeID)
+    if stackCrafts then
+        choices[#choices + 1] = {
+            stackCrafts == stackSize
+                and ("A full stack (%d crafts)"):format(stackCrafts)
+                or ("A full stack of %d (%d %s)"):format(stackSize, stackCrafts, stackCrafts == 1 and "craft" or "crafts"),
+            function() SizeRecipeBars(item.recipeID, stackCrafts) end,
+            selected = current == stackCrafts,
+        }
+    end
+    -- One dot: the first choice matching the bars' size, else "Other amount".
+    local matched = false
+    for _, choice in ipairs(choices) do
+        if choice.selected and matched then choice.selected = false end
+        if choice.selected then matched = true end
+    end
+    choices[#choices + 1] = {
+        "Other amount...",
+        function() AskCraftCount(item.recipeID, current) end,
+        selected = current ~= nil and not matched,
+    }
+    -- Change what the bars are for: a goal for what the recipe makes, or a
+    -- skill level.
+    local outputID = GetRecipeOutput(item.recipeID)
+    local outputName = outputID and GetItemNameByID(outputID)
+    if outputName then
+        choices[#choices + 1] = { "Until I have... (" .. outputName .. ")",
+            function() AskMakeGoal(item.recipeID) end, selected = false }
+    end
+    choices[#choices + 1] = { "Until I reach a skill level...",
+        function() AskSkillGoal(item.recipeID) end, selected = item.skillGoal ~= nil }
     return { "Crafts" .. (current and (" (" .. current .. ")") or ""), choices = choices }
+end
+
+-- Crafts for a "Make until I have..." bar: its target, or a different purpose.
+function GoalCraftsMenuEntry(item)
+    return { ("Crafts (until %d)"):format(item.goal), choices = {
+        { ("Change target... (now %d)"):format(item.goal),
+            function() AskMakeGoal(item.recipeID, item.goal) end, selected = true },
+        { "Until I reach a skill level...", function() AskSkillGoal(item.recipeID) end, selected = false },
+        { "Track its ingredients instead", function() GoalToIngredients(item) end, selected = false },
+    } }
+end
+
+-- The recipe's "Make until I have..." bar, if any, removed.
+function RemoveGoalBar(recipeID)
+    for key, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and IsOutputBar(item) then
+            trackedItems[key] = nil
+        end
+    end
+end
+
+-- From a goal bar back to an ingredient bar (the recipe's main ingredient),
+-- sized for the crafts still to go (at least one).
+function GoalToIngredients(item)
+    local recipeID = item.recipeID
+    local reagents = GetRecipeReagents(recipeID)
+    if not reagents or #reagents == 0 then
+        Print("Couldn't read this recipe's ingredients.")
+        return
+    end
+    local crafts = math.max(1, CraftsToTarget(item))
+    RemoveGoalBar(recipeID)
+    local main = reagents[MainReagentIndex(reagents)]
+    AssignMaterial(main.name, recipeID, 0, main.need * crafts)
+    UpdateBars()
+    Print(("%s: tracking %s for %d %s instead."):format(GetRecipeName(recipeID) or DisplayName(item),
+        main.name, crafts, crafts == 1 and "craft" or "crafts"))
+end
+
+-- How many crafts make a full stack of what the recipe makes, and the stack
+-- size; nil if it doesn't stack (or isn't known yet).
+function StackCrafts(recipeID)
+    local outputID, made = GetRecipeOutput(recipeID)
+    if not outputID then return nil end
+    local size
+    if C_Item and C_Item.GetItemMaxStackSizeByID then
+        local ok, value = pcall(C_Item.GetItemMaxStackSizeByID, outputID)
+        if ok then size = tonumber(value) end
+    end
+    if not size then
+        local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+        if getInfo then
+            local results = { pcall(getInfo, outputID) }
+            if results[1] then size = tonumber(results[9]) end
+        end
+    end
+    if not size or size <= 1 then return nil end
+    return math.ceil(size / math.max(1, made or 1)), size
+end
+
+-- "Other amount..." under Crafts: size the recipe's bars for any number.
+function AskCraftCount(recipeID, current)
+    if not (StaticPopupDialogs and StaticPopup_Show) then return end
+    StaticPopupDialogs.BARTAB_CRAFT_COUNT = StaticPopupDialogs.BARTAB_CRAFT_COUNT or {
+        text = "Size the bars of %s for how many crafts?",
+        button1 = OKAY or "OK",
+        button2 = CANCEL or "Cancel",
+        hasEditBox = true,
+        maxLetters = 4,
+        OnShow = function(self, data)
+            local box = self.editBox or self.EditBox
+            if box then
+                box:SetText(data.current and tostring(data.current) or "")
+                box:HighlightText()
+                box:SetFocus()
+            end
+        end,
+        OnAccept = function(self, data)
+            local box = self.editBox or self.EditBox
+            ApplyCraftCount(data.recipeID, box and box:GetText())
+        end,
+        EditBoxOnEnterPressed = function(box, data)
+            local parent = box:GetParent()
+            data = data or parent.data
+            ApplyCraftCount(data.recipeID, box:GetText())
+            parent:Hide()
+        end,
+        EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("BARTAB_CRAFT_COUNT", GetRecipeName(recipeID) or "this recipe", nil,
+        { recipeID = recipeID, current = current })
+end
+
+function ApplyCraftCount(recipeID, text)
+    local crafts = tonumber(text)
+    if not crafts or crafts < 1 then
+        Print("Give a number of crafts, 1 or more.")
+        return
+    end
+    SizeRecipeBars(recipeID, math.floor(crafts))
 end
 
 -- Right-click toggle for a recipe bar (all of the recipe's bars together).
@@ -819,6 +954,30 @@ end
 function OnCraftStarted(recipeID)
     NoteCraftStarted(recipeID)
     if not IsTrackedRecipe(recipeID) then return end
+    -- A "Make until I have..." goal this craft will reach (a craft always
+    -- makes its item): stop the batch now, while this is the last craft.
+    -- Checking after it finishes is too late; the next has begun by then.
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.inactive and IsOutputBar(item) then
+            local _, made = GetRecipeOutput(recipeID)
+            local have = CountItem(item)
+            if have < item.goal and have + (made or 1) >= item.goal then
+                local ours = crafting and crafting.id == recipeID
+                local batch = (ours and crafting.amount > crafting.done + 1) or IsRepeatingCraft()
+                if ours and crafting.amount > crafting.done + 1 then
+                    crafting.amount = crafting.done + 1
+                end
+                -- Always stop: harmless with no batch, and whether the game
+                -- says it's repeating isn't reliable.
+                EndBatch()
+                CraftLog("stopping after this craft of " .. tostring(recipeID) .. " (makes " .. item.goal .. ")")
+                if batch then
+                    Print(("Stopping after this %s: it makes %d."):format(item.name, item.goal))
+                end
+                return
+            end
+        end
+    end
     for _, item in pairs(trackedItems) do
         if item.recipeID == recipeID and not item.container and item.untilSkill then
             local skill, profession = GetProfessionSkill(item)
@@ -2252,6 +2411,7 @@ function CreateAppearancePrompt()
     skip:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 12)
     skip:SetText("Not this one")
     skip:SetScript("OnClick", function() AnswerAppearancePrompt("skip") end)
+    frame.skipButton = skip
 
     -- Closed without an answer (X or Escape): ask again next session.
     frame:SetScript("OnHide", function(self)
@@ -2300,6 +2460,9 @@ function ShowAppearancePrompt()
     end
     frame.entry, frame.reagents = entry, reagents
     frame.title:SetText(PROMPT_TITLES[entry.kind or "appearance"] or PROMPT_TITLES.appearance)
+    -- "Not this one" means "don't offer it again"; for something you asked
+    -- for yourself it's just Cancel.
+    frame.skipButton:SetText((entry.kind == "track" or entry.kind == "skill") and (CANCEL or "Cancel") or "Not this one")
     local recipeName = GetRecipeName(entry.recipeID) or GetItemNameByID(entry.outputID) or "This recipe"
     frame.text:SetText(recipeName .. (entry.kind == "skill" and (" until " .. (entry.profession or "skill") .. " "
             .. entry.level .. " (at least " .. entry.crafts .. (entry.crafts == 1 and " craft" or " crafts")
@@ -2369,6 +2532,7 @@ function AnswerAppearancePrompt(answer)
             local name = TrackRecipeForAppearance(entry.recipeID, entry.outputID,
                 entry.profession, entry.skillLineID, picks, nil, entry.kind, entry.crafts)
             if name and entry.kind == "skill" then
+                RemoveGoalBar(entry.recipeID)
                 SetStopRule(entry.recipeID, entry.level, nil, true)
                 ClearAppearanceRule(entry.recipeID)
                 for _, item in pairs(trackedItems) do
@@ -2656,7 +2820,24 @@ function MakeUntil(recipeID, goal)
         trackedItems[key] = item
     end
     goalReached[key] = nil
+    -- The goal bar replaces the recipe's ingredient bars: one bar, one
+    -- purpose (two bars headed with the same recipe name were confusing).
+    local replaced = {}
+    for otherKey, other in pairs(trackedItems) do
+        if otherKey ~= key and other.recipeID == recipeID and not other.container then
+            replaced[#replaced + 1] = other.name
+            trackedItems[otherKey] = nil
+        end
+    end
     UpdateBars()
+    if #replaced > 0 then
+        table.sort(replaced)
+        local list = #replaced > 1
+            and (table.concat(replaced, ", ", 1, #replaced - 1) .. " and " .. replaced[#replaced])
+            or replaced[1]
+        Print(("Replaced the %s %s for %s with the goal bar."):format(list,
+            #replaced == 1 and "bar" or "bars", GetRecipeName(recipeID) or name))
+    end
     local have = CountItem(item)
     local crafts = CraftsToTarget(item)
     Print(("Crafting %s until you have %d (you have %d%s)."):format(name, goal, have,
@@ -3332,7 +3513,7 @@ function BestCost(itemID, itemName, state, depth)
     if not key then return nil end
     local known = state.memo[key]
     if known ~= nil then
-        if known then return known.cost, known.made end
+        if known then return known.cost, known.made, known.from end
         return nil
     end
     if state.visiting[key] then return nil end
@@ -3341,28 +3522,36 @@ function BestCost(itemID, itemName, state, depth)
         state.memo[key] = { cost = vendor, made = false }
         return vendor, false
     end
-    local best, made = itemID and AuctionPrice(itemID), false
+    -- The profit window can count what you gather yourself as free.
+    if state.gathered and state.gathered(itemID, itemName) then
+        state.memo[key] = { cost = 0, made = false }
+        return 0, false
+    end
+    local best, made, from = itemID and AuctionPrice(itemID), false, nil
     if depth <= PROFIT_MAX_DEPTH then
         local mine = settings.producers and settings.producers[CharacterKey()]
         local producer = (mine and itemID and mine[itemID]) or FindProducer(itemName)
         local reagents = producer and producer.recipeID and GetRecipeReagents(producer.recipeID)
         if reagents and #reagents > 0 then
             state.visiting[key] = true
-            local total = 0
+            local total, names = 0, {}
             for _, reagent in ipairs(reagents) do
                 local each = BestCost(reagent.itemID, reagent.name, state, depth + 1)
                 if not each then total = nil break end
                 total = total + each * reagent.need
+                names[#names + 1] = reagent.name
             end
             state.visiting[key] = nil
             if total then
                 local each = total / math.max(1, producer.qty or 1)
-                if not best or each < best then best, made = each, true end
+                if not best or each < best then
+                    best, made, from = each, true, table.concat(names, " and ")
+                end
             end
         end
     end
-    state.memo[key] = best and { cost = best, made = made } or false
-    return best, made
+    state.memo[key] = best and { cost = best, made = made, from = from } or false
+    return best, made, from
 end
 
 -- One recipe's numbers, "loading", or nil if what it makes can't be vendored.

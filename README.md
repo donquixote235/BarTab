@@ -31,13 +31,15 @@ A section only appears when it has something to show.
   your bank and on your other characters.
 - When several bars use the same material, it's shared out in list order
   (configurable).
-- A BarTab button on the profession window's recipe panel tracks any of the
-  selected recipe's ingredients in one click. Once the recipe has bars, the
-  same button also has Crafts, After crafting, Count down as you craft, Stop
-  tracking, and Untrack this recipe, for all of its bars at once, and shows a
-  check mark while the selected recipe has bars. "Track with settings..." on
-  the same button picks the ingredients and sets the recipe up (crafts, After
-  crafting, Stop tracking, Count down) in one window.
+- A BarTab button on the profession window's recipe panel (with a check mark
+  while the selected recipe has bars). Its menu is grouped:
+  - Track: any of the recipe's ingredients in one click, all of them, or
+    "With settings..." to pick the ingredients and set the recipe up (crafts,
+    After crafting, Stop tracking, Count down) in one window.
+  - Goals: Make until I have... and Make until I reach....
+  - Its bars (once the recipe has some): Crafts, After crafting, Count down as
+    you craft, Stop tracking, and Untrack this recipe, for all of its bars at once.
+  - The profit calculator.
 - Tracked recipes have a check mark beside them in the profession window's
   recipe list (on/off in settings).
 - "Focus on" (right-click) shows just one ingredient of a recipe.
@@ -48,7 +50,7 @@ A section only appears when it has something to show.
 - "After crafting" (right-click) can move a recipe's bar to Inactive or untrack it once you've crafted the recipe.
 - "Count down as you craft" (right-click, or a default in settings; off unless you turn it on): each craft takes one craft's worth off the recipe's bars, so 8/32 Bolt of Linen Cloth for 8 Red Linen Bags becomes 4/28 after one craft rather than 4/32. When the count runs out, the After crafting rule applies; with "keep the bar" they move to Inactive at full size, ready for next time.
 - "Make until I reach..." (same button) sets a recipe up to craft until your skill reaches a level: pick which ingredients to track, sized at one craft per skill point still needed, with "Stop tracking at skill" at that level. The bars shrink only when a craft gives you a skill point. Click a bar to craft; the batch stops and the bars clear when you get there.
-- "Make until I have..." (the BarTab button in the profession window, or `/bartab make 52` with the recipe selected) adds a bar for what the recipe makes. Its clicks craft only what's still missing, and a Create All batch stops once you have that many.
+- "Make until I have..." (the BarTab button in the profession window, or `/bartab make 52` with the recipe selected) adds a bar for what the recipe makes, in place of the recipe's ingredient bars. Its clicks craft only what's still missing, and a Create All batch stops once you have that many. Crafts on a bar's right-click menu switches a recipe between ingredient bars, a goal for what it makes, and a skill level.
 - "Crafts" (right-click a recipe bar) sizes the recipe's bars for 1, 5 or 10 crafts, or for the crafts it takes to reach the next multiple of 5 in the profession (at 162: 3 crafts, to 165), or to use all of that bar's material you have (37 Heavy Leather at 8 a craft: 4 crafts).
 - "Stop tracking" (right-click) untracks a recipe's bars at a skill level, or when the recipe turns yellow, green or gray. Tick "Ask before removing" to be asked first.
 - Recipe items (patterns, plans, formulas...) for recipes you haven't learned can be Alt-Shift-clicked the same way, at a vendor or in your bags; their tooltip says so. (In the auction house window that click opens the item's listings instead, so the line isn't shown there.) Open each profession once so BarTab knows its recipes.
@@ -104,7 +106,7 @@ unless another addon (such as an action bar addon) already uses it.
 | `/bartab errors [clear]` | Show (or clear) the last few errors BarTab caught, for bug reports |
 | `/bartab copy <character>` | Copy another character's bars to this one |
 | `/bartab item <name>` | Add a fill-up item (like a Waylaid Crate) by hand |
-| `/bartab profit` | With a profession open: the recipes that earn the most sold to a vendor, using your own materials and buying them at auction prices |
+| `/bartab profit` | The profit window: with a profession open, which recipes earn the most sold to a vendor, counting your materials and missing ones the way you choose (`/bartab profit list` prints the short version in chat) |
 | `/bartab make <count>` | Craft the selected recipe until you have that many (adds a bar for what it makes) |
 | `/bartab trainer` | At a profession trainer: track the selected recipe (waits in Inactive until learned) |
 | `/bartab favorites` | Track the open profession's favorite (starred) recipes |

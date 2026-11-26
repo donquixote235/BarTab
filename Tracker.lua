@@ -486,7 +486,9 @@ local function BuildSharedCounts()
     local cache = { counts = {}, users = {} }
     for _, key in ipairs(GetSortedKeys()) do
         local item = trackedItems[key]
-        if not item.container and not item.inactive and IsShown(item) then
+        -- "Make until I have..." bars count everything you own and take no
+        -- share from (or give none to) bars using the item as a material.
+        if not item.container and not item.inactive and IsShown(item) and not IsOutputBar(item) then
             local material = MaterialKey(item)
             cache.users[material] = cache.users[material] or {}
             table.insert(cache.users[material], item)
@@ -649,7 +651,9 @@ function RefreshBar(bar, item, includeName)
     -- Bars labeled with what you're making also name the material counted,
     -- in slightly smaller text.
     local textSize = settings.textSize or 12
-    if item.label then
+    -- (Not when the heading already says it: a "Make until I have..." bar
+    -- for Mageweave Bandage just says "18 / 40", leaving room for the rest.)
+    if item.label and string.lower(item.label) ~= string.lower(item.name) then
         valueText = valueText .. " " .. item.name
         textSize = textSize - 2
     end

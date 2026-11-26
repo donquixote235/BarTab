@@ -487,7 +487,11 @@ SlashCmdList.BARTAB = function(message)
         end
 
     elseif command == "profit" then
-        Safe("profit", ShowProfitList)()
+        if string.lower(args) == "list" then
+            Safe("profit", ShowProfitList)()
+        else
+            Safe("profit", ShowProfitWindow)()
+        end
 
     elseif command == "favorites" or command == "favourites" or command == "favs" then
         Safe("favorites", ImportFavoriteRecipes)()

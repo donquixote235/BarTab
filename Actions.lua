@@ -222,14 +222,37 @@ end
 -- Right-click menu --------------------------------------------------------
 
 
--- Opens a right-click menu: entries are { text, function }.
+-- Builds a menu from groups: { heading, entries } in order, leaving out
+-- empty groups. A group without a heading goes under a plain line.
+function GroupedEntries(groups)
+    local entries = {}
+    for _, group in ipairs(groups) do
+        if #group.entries > 0 then
+            if group.heading then
+                entries[#entries + 1] = { heading = group.heading }
+            elseif #entries > 0 then
+                entries[#entries + 1] = { divider = true }
+            end
+            for _, entry in ipairs(group.entries) do entries[#entries + 1] = entry end
+        end
+    end
+    return entries
+end
+
+-- Opens a right-click menu: entries are { text, function }; { heading = text }
+-- starts a labeled group, { divider = true } draws a line.
 function ShowMenu(owner, title, entries)
     -- Modern menu system.
     if MenuUtil and MenuUtil.CreateContextMenu then
         MenuUtil.CreateContextMenu(owner, function(_, root)
             root:CreateTitle(title)
             for _, entry in ipairs(entries) do
-                if entry.choices then
+                if entry.heading then
+                    root:CreateDivider()
+                    root:CreateTitle(entry.heading)
+                elseif entry.divider then
+                    root:CreateDivider()
+                elseif entry.choices then
                     -- A submenu of choices, the current one marked.
                     local submenu = root:CreateButton(entry[1])
                     for _, choice in ipairs(entry.choices) do
@@ -246,7 +269,10 @@ function ShowMenu(owner, title, entries)
                                 function() choice[2]() end)
                         else
                             submenu:CreateRadio(choice[1],
-                                function() return choice.selected end,
+                                function()
+                                    if choice.isSelected then return choice.isSelected() end
+                                    return choice.selected
+                                end,
                                 function() choice[2]() end)
                         end
                     end
@@ -274,7 +300,11 @@ function ShowMenu(owner, title, entries)
                 text = title, isTitle = true, notCheckable = true
             })
             for _, entry in ipairs(entries) do
-                if entry.choices then
+                if entry.heading then
+                    UIDropDownMenu_AddButton({ text = entry.heading, isTitle = true, notCheckable = true })
+                elseif entry.divider then
+                    UIDropDownMenu_AddButton({ text = "", disabled = true, notCheckable = true })
+                elseif entry.choices then
                     -- No submenus here: list them as "Focus on: X".
                     for _, choice in ipairs(entry.choices) do
                         UIDropDownMenu_AddButton({
@@ -363,48 +393,17 @@ ShowItemMenu = function(owner, itemKey)
     -- Only offered while a profession window is open with a recipe selected.
     local selectedRecipeID = GetSelectedRecipeID()
 
-    local entries = {}
-    -- Only when the recipe selected in the profession window uses this
-    -- material and isn't already this bar's recipe.
-    if selectedRecipeID and not item.container
-        and selectedRecipeID ~= item.recipeID
-        and GetReagentQuantity(selectedRecipeID, item.name) then
-        entries[#entries + 1] = {
-            "Assign to " .. (GetRecipeName(selectedRecipeID) or "the selected recipe"),
-            function() AssignRecipe(itemKey, selectedRecipeID) end,
-        }
+    local top, crafting, rules, bar = {}, {}, {}, {}
+    if item.container then
+        top[#top + 1] = FocusMenuEntry(item.container)
+    elseif item.recipeID then
+        local focusEntry = RecipeFocusMenuEntry(item.recipeID, DisplayName(item))
+        if focusEntry then top[#top + 1] = focusEntry end
     end
     if item.recipeID and not item.container then
-        entries[#entries + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
-        local craftsEntry = CraftsMenuEntry(item)
-        if craftsEntry then entries[#entries + 1] = craftsEntry end
-        if IsOutputBar(item) then
-            entries[#entries + 1] = { "Change target... (now " .. item.goal .. ")", function()
-                AskMakeGoal(item.recipeID, item.goal)
-            end }
-        end
-        entries[#entries + 1] = AfterCraftMenuEntry(item)
-        if not IsOutputBar(item) then
-            entries[#entries + 1] = CountdownMenuEntry(item)
-        end
-        entries[#entries + 1] = StopMenuEntry(item)
-    end
-    if item.recipeID then
-        entries[#entries + 1] = { "Unassign", function()
-            UnassignRecipe(itemKey)
-        end }
-    end
-    if item.inactive then
-        entries[#entries + 1] = { "Move to Active", function()
-            SetItemActive(itemKey, true)
-        end }
-    else
-        entries[#entries + 1] = { "Move to Inactive", function()
-            SetItemActive(itemKey, false)
-        end }
-    end
-    if not item.container then
-        entries[#entries + 1] = VendorMenuEntry(item)
+        crafting[#crafting + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
+        local craftsEntry = IsOutputBar(item) and GoalCraftsMenuEntry(item) or CraftsMenuEntry(item)
+        if craftsEntry then crafting[#crafting + 1] = craftsEntry end
     end
     local producer = CanTrackChain(item)
     if producer then
@@ -412,25 +411,53 @@ ShowItemMenu = function(owner, itemKey)
         local crafts = ChainShortfallCrafts(item, producer)
         local label = "Also track how to make " .. item.name
         if crafts > 1 then label = label .. " (Alt: " .. crafts .. " crafts)" end
-        entries[#entries + 1] = { label, function()
+        crafting[#crafting + 1] = { label, function()
             TrackChain(itemKey, IsAltKeyDown())
         end }
     end
+    if item.recipeID and not item.container then
+        rules[#rules + 1] = AfterCraftMenuEntry(item)
+        if not IsOutputBar(item) then
+            rules[#rules + 1] = CountdownMenuEntry(item)
+        end
+        rules[#rules + 1] = StopMenuEntry(item)
+    end
+    if not item.container then
+        rules[#rules + 1] = VendorMenuEntry(item)
+    end
+    -- Only when the recipe selected in the profession window uses this
+    -- material and isn't already this bar's recipe.
+    if selectedRecipeID and not item.container
+        and selectedRecipeID ~= item.recipeID
+        and GetReagentQuantity(selectedRecipeID, item.name) then
+        bar[#bar + 1] = {
+            "Assign to " .. (GetRecipeName(selectedRecipeID) or "the selected recipe"),
+            function() AssignRecipe(itemKey, selectedRecipeID) end,
+        }
+    end
+    if item.recipeID then
+        bar[#bar + 1] = { "Unassign", function()
+            UnassignRecipe(itemKey)
+        end }
+    end
+    if item.inactive then
+        bar[#bar + 1] = { "Move to Active", function() SetItemActive(itemKey, true) end }
+    else
+        bar[#bar + 1] = { "Move to Inactive", function() SetItemActive(itemKey, false) end }
+    end
     if IsShareable(item) then
-        entries[#entries + 1] = { "Share this bar", function()
+        bar[#bar + 1] = { "Share this bar", function()
             ShareKeys({ itemKey }, DisplayName(item))
         end }
     end
-    entries[#entries + 1] = { "Untrack", function()
-        UntrackItem(itemKey)
-    end }
+    bar[#bar + 1] = { "Untrack", function() UntrackItem(itemKey) end }
 
-    if item.container then
-        table.insert(entries, 1, FocusMenuEntry(item.container))
-    elseif item.recipeID then
-        local focusEntry = RecipeFocusMenuEntry(item.recipeID, DisplayName(item))
-        if focusEntry then table.insert(entries, 1, focusEntry) end
-    end
+    local entries = GroupedEntries({
+        { entries = top },
+        { heading = "Crafting", entries = crafting },
+        { heading = "Rules", entries = rules },
+        { heading = "This bar", entries = bar },
+    })
     ShowMenu(owner, DisplayName(item), entries)
 end
 
@@ -659,35 +686,36 @@ function ShowProfessionMenu(owner)
         return
     end
 
-    local entries = {}
-    local outputID = GetRecipeOutput(recipeID)
-    local outputName = outputID and GetItemNameByID(outputID)
-    if outputName then
-        local bar = trackedItems[RecipeKey(outputName, recipeID)]
-        entries[#entries + 1] = { "Make until I have... (" .. outputName .. ")", function()
-            AskMakeGoal(recipeID, bar and bar.goal)
-        end }
-    end
-    entries[#entries + 1] = { "Make until I reach... (skill level)", function()
-        AskSkillGoal(recipeID)
-    end }
-    entries[#entries + 1] = { "Track with settings...", function()
-        TrackWithOptions(recipeID)
-    end }
+    local track, goals, bars, more = {}, {}, {}, {}
     for _, reagent in ipairs(reagents) do
         local tracked = trackedItems[RecipeKey(reagent.name, recipeID)] ~= nil
-        entries[#entries + 1] = {
+        track[#track + 1] = {
             reagent.name .. " (" .. reagent.need .. " per craft)" .. (tracked and "  - tracked" or ""),
             function() AssignMaterial(reagent.name, recipeID) end,
         }
     end
     if #reagents > 1 then
-        entries[#entries + 1] = { "Track all ingredients", function()
+        track[#track + 1] = { "All ingredients", function()
             for _, reagent in ipairs(reagents) do
                 AssignMaterial(reagent.name, recipeID)
             end
         end }
     end
+    track[#track + 1] = { "With settings...", function()
+        TrackWithOptions(recipeID)
+    end }
+
+    local outputID = GetRecipeOutput(recipeID)
+    local outputName = outputID and GetItemNameByID(outputID)
+    if outputName then
+        local bar = trackedItems[RecipeKey(outputName, recipeID)]
+        goals[#goals + 1] = { "Make until I have... (" .. outputName .. ")", function()
+            AskMakeGoal(recipeID, bar and bar.goal)
+        end }
+    end
+    goals[#goals + 1] = { "Make until I reach... (skill level)", function()
+        AskSkillGoal(recipeID)
+    end }
 
     -- Once the recipe has bars: the same recipe settings as a bar's
     -- right-click menu, for all of its bars.
@@ -702,16 +730,14 @@ function ShowProfessionMenu(owner)
     end
     if #barKeys > 0 then
         local item = main or trackedItems[barKeys[1]]
+        local craftsEntry = main and CraftsMenuEntry(main) or (IsOutputBar(item) and GoalCraftsMenuEntry(item))
+        if craftsEntry then bars[#bars + 1] = craftsEntry end
+        bars[#bars + 1] = AfterCraftMenuEntry(item, true)
         if main then
-            local craftsEntry = CraftsMenuEntry(main)
-            if craftsEntry then entries[#entries + 1] = craftsEntry end
+            bars[#bars + 1] = CountdownMenuEntry(main)
         end
-        entries[#entries + 1] = AfterCraftMenuEntry(item, true)
-        if main then
-            entries[#entries + 1] = CountdownMenuEntry(main)
-        end
-        entries[#entries + 1] = StopMenuEntry(item)
-        entries[#entries + 1] = { ("Untrack this recipe (%d %s)"):format(#barKeys,
+        bars[#bars + 1] = StopMenuEntry(item)
+        bars[#bars + 1] = { ("Untrack this recipe (%d %s)"):format(#barKeys,
             #barKeys == 1 and "bar" or "bars"), function()
             local removed = {}
             for _, key in ipairs(barKeys) do
@@ -726,7 +752,15 @@ function ShowProfessionMenu(owner)
                 #removed, #removed == 1 and "bar" or "bars"))
         end }
     end
-    ShowMenu(owner, "Track in BarTab: " .. (GetRecipeName(recipeID) or "this recipe"), entries)
+    more[#more + 1] = { "Profit calculator...", function() ShowProfitWindow() end }
+
+    local entries = GroupedEntries({
+        { heading = "Track", entries = track },
+        { heading = "Goals", entries = goals },
+        { heading = ("Its bars (%d)"):format(#barKeys), entries = bars },
+        { entries = more },
+    })
+    ShowMenu(owner, "BarTab: " .. (GetRecipeName(recipeID) or "this recipe"), entries)
 end
 
 do
