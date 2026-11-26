@@ -104,6 +104,7 @@ unless another addon (such as an action bar addon) already uses it.
 | `/bartab errors [clear]` | Show (or clear) the last few errors BarTab caught, for bug reports |
 | `/bartab copy <character>` | Copy another character's bars to this one |
 | `/bartab item <name>` | Add a fill-up item (like a Waylaid Crate) by hand |
+| `/bartab profit` | With a profession open: the recipes that earn the most sold to a vendor, using your own materials and buying them at auction prices |
 | `/bartab make <count>` | Craft the selected recipe until you have that many (adds a bar for what it makes) |
 | `/bartab trainer` | At a profession trainer: track the selected recipe (waits in Inactive until learned) |
 | `/bartab favorites` | Track the open profession's favorite (starred) recipes |

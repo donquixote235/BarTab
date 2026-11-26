@@ -285,6 +285,8 @@ function GetDivider(bar, index)
 end
 
 FUTURE_LINE_SHADE = 0.65
+-- How strongly the "could make" stretch on a Make-until-I-have bar shows.
+OUTPUT_STRETCH_ALPHA = 0.8
 
 -- How many crafts the recipe's other ingredients (everything but this bar's
 -- material) would allow; very large if there are none.
@@ -347,8 +349,33 @@ function UpdateSegments(bar, item, count, craftable)
             local color = READY_FILL
             local segment = GetSegment(bar, 1)
             segment:SetVertexColor(color[1], color[2], color[3])
+            segment:SetAlpha(1)
             segment:ClearAllPoints()
             segment:SetAllPoints(bar)
+            segment:Show()
+        end
+        return
+    end
+
+    -- "Make until I have..." bars: a lighter stretch after what you have,
+    -- showing how far the materials in your bags would take the bar
+    -- (2 Coarse Stone on a 0 / 51 Coarse Blasting Powder bar: 2 more).
+    if IsOutputBar(item) then
+        local range = item.goal - item.start
+        local width = bar:GetWidth()
+        if not craftable or craftable <= 0 or range <= 0 or not width or width <= 0 then return end
+        local _, perCraftMade = GetRecipeOutput(item.recipeID)
+        local from = math.max(count, item.start)
+        local to = math.min(item.goal, from + craftable * (perCraftMade or 1))
+        if to > from then
+            local color = READY_FILL
+            local segment = GetSegment(bar, 1)
+            segment:SetVertexColor(color[1], color[2], color[3])
+            segment:SetAlpha(OUTPUT_STRETCH_ALPHA)
+            segment:ClearAllPoints()
+            segment:SetPoint("TOPLEFT", bar, "TOPLEFT", (from - item.start) / range * width, 0)
+            segment:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", (from - item.start) / range * width, 0)
+            segment:SetWidth((to - from) / range * width)
             segment:Show()
         end
         return
@@ -376,6 +403,7 @@ function UpdateSegments(bar, item, count, craftable)
 
             local color = (i <= craftable) and READY_FILL or BLOCKED_FILL
             segment:SetVertexColor(color[1], color[2], color[3])
+            segment:SetAlpha(1)
             segment:ClearAllPoints()
             segment:SetPoint("TOPLEFT", bar, "TOPLEFT",
                 (low - item.start) / range * width, 0)
@@ -1108,6 +1136,25 @@ end
 -- leaves them where they were (e.g. stuck at the bottom with a gap above).
 -- Redraw them right after. Hooked once per section, as sections appear.
 collapseHooked = setmetatable({}, { __mode = "k" })
+collapseStates = setmetatable({}, { __mode = "k" })
+
+-- /bartab debug perf: how much work BarTab is doing.
+perf = { since = GetTime(), updates = 0, ms = 0, redraws = 0, redrawMs = 0, collapses = 0 }
+function PerfClock()
+    return debugprofilestop and debugprofilestop() or nil
+end
+
+-- Runs the game's tracker redraw, timed and marked as BarTab's own.
+function ForceTrackerRedraw(tracker, where)
+    local started = PerfClock()
+    forcingRedraw = true
+    local ok, err = pcall(tracker.Update, tracker)
+    forcingRedraw = false
+    perf.redraws = perf.redraws + 1
+    if started then perf.redrawMs = perf.redrawMs + (PerfClock() - started) end
+    lastForcedRedraw = GetTime()
+    if not ok then ReportError(where, err) end
+end
 function HookTrackerCollapse()
     if not hooksecurefunc then return end
     local function Hook(target)
@@ -1115,9 +1162,21 @@ function HookTrackerCollapse()
         for _, own in pairs(sectionModules) do
             if own == target then return end
         end
+        -- Only a real change, and not one made while BarTab itself is
+        -- redrawing the tracker (the redraw re-applies every section's
+        -- state; reacting to that would start the next redraw, and so on).
+        local function Changed(self)
+            if forcingRedraw then return end
+            local state = (self.collapsed or self.isCollapsed) and true or false
+            if collapseStates[self] == state then return end
+            collapseStates[self] = state
+            perf.collapses = perf.collapses + 1
+            RequestUpdate(0.05)
+        end
+        collapseStates[target] = (target.collapsed or target.isCollapsed) and true or false
         for _, method in ipairs({ "SetCollapsed", "ToggleCollapsed" }) do
             if type(target[method]) == "function" then
-                pcall(hooksecurefunc, target, method, function() RequestUpdate(0.05) end)
+                pcall(hooksecurefunc, target, method, Changed)
             end
         end
         collapseHooked[target] = true
@@ -1139,8 +1198,7 @@ function RefreshTracker(full)
     local tracker = ObjectiveTrackerFrame
     if full and trackerAvailable and not panelActive and not InCombatLockdown()
         and tracker and type(tracker.Update) == "function" then
-        local ok, err = pcall(tracker.Update, tracker)
-        if not ok then ReportError("refresh", err) end
+        ForceTrackerRedraw(tracker, "refresh")
     end
 end
 
@@ -1152,9 +1210,93 @@ levelWatcher:SetScript("OnEvent", function()
     C_Timer.After(3, function() Safe("level-up", SnapshotTracker)("level-up +3s") end)
     C_Timer.After(15, function()
         Safe("level-up", SnapshotTracker)("level-up +15s, before redraw")
-        Safe("level-up", RefreshTracker)()
+        Safe("level-up", RefreshTracker)(true)
     end)
 end)
+
+-- A section's "needs a redraw" flag (isDirty: Quests, BarTab's own) can get
+-- stuck on, most often after a level-up; then nothing redraws and the
+-- tracker freezes until a /reload. (The tracker's own "dirty" is on all the
+-- time in this client, so it says nothing.) Check every few seconds: if a
+-- section's flag is still on at the next check, run the redraw (out of
+-- combat; after combat otherwise).
+trackerStuckChecks = 0
+function AnySectionStuck(tracker)
+    if type(tracker.modules) ~= "table" then return false end
+    for _, module in pairs(tracker.modules) do
+        if module.isDirty == true and module.IsShown and module:IsShown() then return true end
+    end
+    return false
+end
+
+function CheckTrackerStuck()
+    local tracker = ObjectiveTrackerFrame
+    if not (trackerAvailable and not panelActive and tracker
+        and type(tracker.Update) == "function") then
+        trackerStuckChecks = 0
+        return
+    end
+    if not AnySectionStuck(tracker) then
+        trackerStuckChecks = 0
+        return
+    end
+    trackerStuckChecks = trackerStuckChecks + 1
+    if trackerStuckChecks < 2 then return end
+    if InCombatLockdown() then
+        pcall(trackerWatch.RegisterEvent, trackerWatch, "PLAYER_REGEN_ENABLED")
+        return
+    end
+    trackerStuckChecks = 0
+    settings.trackerUnstuck = (settings.trackerUnstuck or 0) + 1
+    Safe("tracker watch", SnapshotTracker)("stuck tracker, before redraw")
+    ForceTrackerRedraw(tracker, "tracker watch")
+end
+
+-- BarTab asks for a redraw by marking its sections; in this client the
+-- tracker doesn't always act on that (its own "needs a redraw" flag stays
+-- on, so a new request doesn't schedule anything), and new counts then wait
+-- for something else (a quest update) to redraw it. Shortly after asking,
+-- check that BarTab's sections were drawn, and draw them if not.
+function BarTabSectionsWaiting()
+    for _, module in pairs(sectionModules) do
+        if module.isDirty == true and module.IsShown and module:IsShown() then return true end
+    end
+    return false
+end
+
+function RedrawIfWaiting()
+    redrawCheckPending = false
+    local tracker = ObjectiveTrackerFrame
+    if not (trackerAvailable and not panelActive and tracker and type(tracker.Update) == "function") then return end
+    if not BarTabSectionsWaiting() then return end
+    if InCombatLockdown() then
+        pcall(trackerWatch.RegisterEvent, trackerWatch, "PLAYER_REGEN_ENABLED")
+        return
+    end
+    -- At most one forced redraw a second; a later check picks up the rest.
+    if lastForcedRedraw and GetTime() - lastForcedRedraw < 1 then
+        CheckRedrawSoon(1)
+        return
+    end
+    settings.trackerNudges = (settings.trackerNudges or 0) + 1
+    ForceTrackerRedraw(tracker, "tracker redraw")
+end
+
+function CheckRedrawSoon(delay)
+    if redrawCheckPending then return end
+    redrawCheckPending = true
+    C_Timer.After(delay or 0.3, function() Safe("tracker redraw", RedrawIfWaiting)() end)
+end
+
+trackerWatch = CreateFrame("Frame")
+trackerWatch:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    C_Timer.After(0.5, function() Safe("tracker redraw", RedrawIfWaiting)() end)
+    C_Timer.After(1, function() Safe("tracker watch", CheckTrackerStuck)() end)
+end)
+if C_Timer.NewTicker then
+    C_Timer.NewTicker(4, function() Safe("tracker watch", CheckTrackerStuck)() end)
+end
 
 -- Retry a section that couldn't be made: soon, and again once combat ends.
 sectionRetry = CreateFrame("Frame")
@@ -1577,6 +1719,7 @@ UpdateBars = function()
         for _, module in pairs(sectionModules) do
             module:MarkDirty()
         end
+        CheckRedrawSoon()
     else
         UpdateStandaloneBars()
     end
@@ -1672,6 +1815,26 @@ dragDriver:SetScript("OnUpdate", function(self)
             and bar.group == dragState.bar.group)
     end
 end)
+
+-- Time every refresh, for /bartab debug perf.
+do
+    local inner = UpdateBars
+    UpdateBars = function(...)
+        local started = PerfClock()
+        inner(...)
+        perf.updates = perf.updates + 1
+        if started then perf.ms = perf.ms + (PerfClock() - started) end
+    end
+end
+
+function DebugPerf()
+    local minutes = math.max((GetTime() - perf.since) / 60, 1 / 60)
+    local function Rate(n) return ("%.1f/min"):format(n / minutes) end
+    Print(("In the last %.0f min: %d bar refreshes (%s, %.1f ms total, %.2f ms each); %d forced tracker redraws (%s, %.1f ms total); %d section collapses noticed."):format(
+        minutes, perf.updates, Rate(perf.updates), perf.ms, perf.updates > 0 and perf.ms / perf.updates or 0,
+        perf.redraws, Rate(perf.redraws), perf.redrawMs, perf.collapses))
+    Print("Type /bartab debug perf reset to start counting again.")
+end
 
 -- Collapses bursts of bag events into a single refresh.
 function RequestUpdate(delay)

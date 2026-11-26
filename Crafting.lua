@@ -113,6 +113,65 @@ function OnTradeSkillShow()
     C_Timer.After(0, Unmute)
 end
 
+-- How long crafts take -------------------------------------------------------
+-- The time BarTab saw a recipe take last (settings.craftTimes[recipeID], in
+-- seconds), else the cast time the game gives for it. nil if unknown or
+-- instant.
+castStarts = {}
+
+function CraftSeconds(recipeID)
+    local seen = settings.craftTimes and settings.craftTimes[recipeID]
+    if seen then return seen end
+    local ms
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, recipeID)
+        if ok and type(info) == "table" then ms = info.castTime end
+    end
+    if not ms and GetSpellInfo then
+        local ok, _, _, _, castTime = pcall(GetSpellInfo, recipeID)
+        if ok then ms = castTime end
+    end
+    ms = tonumber(ms)
+    if ms and ms > 0 then return ms / 1000 end
+    return nil
+end
+
+-- "about 45 sec", "about 4 min", "about 1 h 20 min".
+function FormatDuration(seconds)
+    if seconds < 60 then
+        return ("about %d sec"):format(math.max(1, math.floor(seconds / 5 + 0.5) * 5))
+    end
+    local minutes = math.floor(seconds / 60 + 0.5)
+    if minutes < 60 then return ("about %d min"):format(minutes) end
+    local hours = math.floor(minutes / 60)
+    local rest = minutes - hours * 60
+    return rest > 0 and ("about %d h %d min"):format(hours, rest) or ("about %d h"):format(hours)
+end
+
+-- "about 4 min" for that many crafts of the recipe; nil if unknown or quick.
+function BatchTimeText(recipeID, crafts)
+    local each = CraftSeconds(recipeID)
+    if not (each and crafts and crafts > 0) then return nil end
+    local total = each * crafts
+    if total < 10 then return nil end
+    return FormatDuration(total)
+end
+
+function NoteCraftStarted(recipeID)
+    castStarts[recipeID] = GetTime()
+end
+
+function NoteCraftFinished(recipeID)
+    local started = castStarts[recipeID]
+    castStarts[recipeID] = nil
+    if not started then return end
+    local seconds = GetTime() - started
+    if seconds > 0.3 and seconds < 900 then
+        settings.craftTimes = settings.craftTimes or {}
+        settings.craftTimes[recipeID] = math.floor(seconds * 10 + 0.5) / 10
+    end
+end
+
 function CraftNow(item, amount)
     CraftLog("CraftRecipe " .. tostring(item.recipeID) .. " x" .. tostring(amount)
         .. " (craftable " .. tostring(GetCraftableCount(item.recipeID)) .. ", loaded silently: " .. tostring(silent.loaded ~= nil) .. ")")
@@ -121,6 +180,13 @@ function CraftNow(item, amount)
     if not ok then
         crafting = nil
         Print("Craft failed: " .. tostring(err))
+        return
+    end
+    -- Long batches say how long they'll take.
+    local each = CraftSeconds(item.recipeID)
+    if each and each * amount >= 30 then
+        Print(("Crafting %d %s, %s."):format(amount, GetRecipeName(item.recipeID) or DisplayName(item),
+            FormatDuration(each * amount)))
     end
 end
 
@@ -178,14 +244,29 @@ function IsMouseOverCraftBar()
     return false
 end
 
-C_Timer.NewTicker(0.5, function()
-    if crafting and GetTime() - crafting.last > 20 then
-        crafting = nil
+-- Whether you're casting right now (a craft can take a minute or more).
+function CastingNow()
+    if UnitCastingInfo and UnitCastingInfo("player") then return true end
+    if UnitChannelInfo and UnitChannelInfo("player") then return true end
+    return false
+end
+
+function CraftTick()
+    if crafting then
+        -- Gone quiet for 20 seconds: the batch has ended without telling us.
+        -- Not while a craft is still being cast or the game is repeating it.
+        if CastingNow() or IsRepeatingCraft() then
+            crafting.last = GetTime()
+        elseif GetTime() - crafting.last > 20 then
+            CraftLog("batch timed out (nothing for 20 seconds)")
+            crafting = nil
+        end
     end
     if not silent.loaded then return end
     if ProfessionsOpen() then
         silent.loaded = nil -- the visible window owns it now
-    elseif crafting or craftJob or IsMouseOverCraftBar() or InCombatLockdown() then
+    elseif crafting or craftJob or IsMouseOverCraftBar() or InCombatLockdown()
+        or CastingNow() or IsRepeatingCraft() then
         silent.idle = nil
     else
         silent.idle = (silent.idle or 0) + 0.5
@@ -197,7 +278,8 @@ C_Timer.NewTicker(0.5, function()
             end
         end
     end
-end)
+end
+C_Timer.NewTicker(0.5, function() CraftTick() end)
 
 -- Opens the profession window on the bar's recipe (Ctrl-click, or "Open
 -- recipe" on the right-click menu).
@@ -352,23 +434,30 @@ function CreateBar(key, barID)
 
     bar:EnableMouse(true)
 
-    bar:SetScript("OnEnter", function(self)
-        ShowBarTooltip(self)
-        PreloadProfession(trackedItems[self.itemKey])
-    end)
-
-    bar:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
-
-    -- Refresh the tooltip if Shift or Alt is pressed or released while hovering.
-    bar:SetScript("OnUpdate", function(self)
-        if not self:IsMouseOver() then return end
+    -- Refresh the tooltip if Shift or Alt is pressed or released while
+    -- hovering (only watched while the mouse is over the bar).
+    local function WatchModifiers(self)
+        if not self:IsMouseOver() then
+            self:SetScript("OnUpdate", nil)
+            return
+        end
         local modifiers = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0)
         if modifiers ~= self.lastModifiers then
             self.lastModifiers = modifiers
             ShowBarTooltip(self)
         end
+    end
+
+    bar:SetScript("OnEnter", function(self)
+        ShowBarTooltip(self)
+        PreloadProfession(trackedItems[self.itemKey])
+        self.lastModifiers = (IsShiftKeyDown() and 1 or 0) + (IsAltKeyDown() and 2 or 0)
+        self:SetScript("OnUpdate", WatchModifiers)
+    end)
+
+    bar:SetScript("OnLeave", function(self)
+        GameTooltip:Hide()
+        self:SetScript("OnUpdate", nil)
     end)
 
     bar:SetScript("OnMouseDown", function(self, button)
@@ -721,8 +810,39 @@ function CountdownMenuEntry(item)
     }
 end
 
+-- A craft is starting that will bring the skill to a recipe's stop level:
+-- an orange recipe always gives a point, so at one short of the level this
+-- craft gets there. Stop the batch now and let this craft finish; waiting
+-- for the skill-up would be too late, as the next craft has begun by then
+-- (and addons can't cancel a craft in progress). Yellow and green recipes
+-- don't always give a point, so those still stop on the skill-up.
+function OnCraftStarted(recipeID)
+    NoteCraftStarted(recipeID)
+    if not IsTrackedRecipe(recipeID) then return end
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container and item.untilSkill then
+            local skill, profession = GetProfessionSkill(item)
+            if skill and skill + 1 >= item.untilSkill and skill < item.untilSkill
+                and GetRecipeColor(recipeID) == "orange" then
+                local ours = crafting and crafting.id == recipeID
+                if ours and crafting.amount > crafting.done + 1 then
+                    crafting.amount = crafting.done + 1
+                end
+                if ours or IsRepeatingCraft() then
+                    EndBatch()
+                    CraftLog("stopping after this craft of " .. tostring(recipeID) .. " (reaches " .. item.untilSkill .. ")")
+                    Print(("Stopping after this %s: it brings %s to %d."):format(DisplayName(item),
+                        profession or item.profession or "your skill", item.untilSkill))
+                end
+            end
+            return
+        end
+    end
+end
+
 function OnCraftSucceeded(spellID)
     lastCraftRecipe = spellID
+    NoteCraftFinished(spellID)
     CraftLog("craft succeeded " .. tostring(spellID) .. (crafting and (" (" .. (crafting.done + 1) .. " of " .. crafting.amount .. ")") or " (not BarTab's)"))
     if spellID and IsTrackedRecipe(spellID) then
         for _, item in pairs(trackedItems) do
@@ -864,6 +984,20 @@ end
 
 -- Stops a batch of the recipe in progress (from a bar, or the profession
 -- window's Create All), if there is one.
+-- Ends the batch for good. Asking the game to stop repeating isn't always
+-- enough here, so a profession BarTab loaded in the background is closed
+-- too: that ends the batch, and the craft being cast still finishes.
+function EndBatch()
+    if C_TradeSkillUI and C_TradeSkillUI.StopRecipeRepeat then
+        pcall(C_TradeSkillUI.StopRecipeRepeat)
+    end
+    if silent.loaded and not ProfessionsOpen() then
+        silent.loaded, silent.idle = nil, nil
+        CraftLog("closing the silently loaded profession (batch stopped)")
+        if C_TradeSkillUI and C_TradeSkillUI.CloseTradeSkill then pcall(C_TradeSkillUI.CloseTradeSkill) end
+    end
+end
+
 function StopCraftingRecipe(recipeID, label, reason)
     local ours = crafting and crafting.id == recipeID
     local repeating = false
@@ -871,10 +1005,10 @@ function StopCraftingRecipe(recipeID, label, reason)
         local ok, value = pcall(C_TradeSkillUI.IsRecipeRepeating)
         repeating = ok and value and true or false
     end
-    if not (ours or repeating) then return end
-    if C_TradeSkillUI and C_TradeSkillUI.StopRecipeRepeat then
-        pcall(C_TradeSkillUI.StopRecipeRepeat)
-    end
+    -- Also a batch still being cast after BarTab lost track of it.
+    local casting = lastCraftRecipe == recipeID and CastingNow()
+    if not (ours or repeating or casting) then return end
+    EndBatch()
     crafting = nil
     CraftLog("stopped repeating " .. tostring(recipeID) .. " (" .. (reason or "stop rule") .. ")")
     Print("Stopped crafting " .. (label or "it") .. ": " .. (reason or "its stop rule was reached") .. ".")
@@ -1077,8 +1211,9 @@ function SkillGoalLine(item)
     local rank, profession = GetProfessionSkill(item)
     if not rank or rank >= item.skillGoal then return nil end
     local crafts = item.skillGoal - rank
-    return ("At least %d %s to %s %d"):format(crafts, crafts == 1 and "craft" or "crafts",
-        profession or item.profession or "skill", item.skillGoal)
+    local time = BatchTimeText(item.recipeID, crafts)
+    return ("At least %d %s to %s %d%s"):format(crafts, crafts == 1 and "craft" or "crafts",
+        profession or item.profession or "skill", item.skillGoal, time and (", " .. time) or "")
 end
 
 function SkillLimitLine(item)
@@ -1572,8 +1707,8 @@ function OfferAppearanceRecipe(entry)
 end
 
 -- Whether BarTab may ask now: not while a window is already up, and not
--- again this session after you closed one with "Later" (profession loads
--- also happen when you just hover a bar).
+-- after you closed one with "Later" until you next open a profession window
+-- yourself (profession loads also happen when you just hover a bar).
 function AppearanceAskBlocked()
     if appearanceSnoozed then return true end
     if #appearanceQueue > 0 then return true end
@@ -1581,9 +1716,10 @@ function AppearanceAskBlocked()
     return false
 end
 
--- A recipe you just learned.
+-- A recipe you just learned. Always asked about, even after you closed an
+-- earlier window: learning it is a fresh reason to ask.
 function CheckNewRecipe(recipeID, attempt)
-    if not settings.appearanceRecipes or appearanceSnoozed then return end
+    if not settings.appearanceRecipes then return end
     if appearanceSummary and appearanceSummary:IsShown() then return end
     local profession, skillLineID = RecipeProfession(recipeID)
     local result = ConsiderAppearanceRecipe(recipeID, profession, skillLineID)
@@ -1702,7 +1838,7 @@ function CreateAppearanceSummary()
         elseif self.list then
             self.list = nil
             appearanceSnoozed = true
-            Print("BarTab will ask about them again next time you log in, or now with /bartab appearances scan.")
+            Print("BarTab will ask about them again next time you open a profession window, or now with /bartab appearances scan.")
         end
     end)
 
@@ -1776,7 +1912,7 @@ function AnswerAppearanceSummary(answer)
         Print("Skipped " .. #list .. " recipes; BarTab won't offer them again. New recipes you learn will still be offered.")
     else
         appearanceSnoozed = true
-        Print("BarTab will ask about them again next time you log in, or now with /bartab appearances scan.")
+        Print("BarTab will ask about them again next time you open a profession window, or now with /bartab appearances scan.")
     end
 end
 
@@ -2005,8 +2141,21 @@ end
 
 -- After Track in the "Track with settings..." window: size and set up all of
 -- the recipe's bars (new and existing ones alike).
+-- A recipe first tracked for its appearance, now set up for something else
+-- ("Make until I reach...", "Track with settings..."): its bars become
+-- ordinary ones, no longer removed once the look is collected.
+function ClearAppearanceRule(recipeID)
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container and item.forAppearance then
+            item.forAppearance = nil
+            if item.afterCraft == "untrack" then item.afterCraft = nil end
+        end
+    end
+end
+
 function ApplyTrackOptions(entry, name)
     local recipeID, options = entry.recipeID, entry.options
+    ClearAppearanceRule(recipeID)
     local crafts = math.max(1, math.floor(tonumber(options.crafts) or 1))
     SizeRecipeBars(recipeID, crafts, true)
     local afterCraft = (options.afterCraft ~= "keep") and options.afterCraft or nil
@@ -2113,7 +2262,7 @@ function CreateAppearancePrompt()
             for i = #appearanceQueue, 1, -1 do appearanceQueue[i] = nil end
             if appearance then
                 appearanceSnoozed = true
-                Print("BarTab will ask again next time you log in, or now with /bartab appearances scan.")
+                Print("BarTab will ask again next time you open a profession window, or now with /bartab appearances scan.")
             end
         end
     end)
@@ -2221,6 +2370,7 @@ function AnswerAppearancePrompt(answer)
                 entry.profession, entry.skillLineID, picks, nil, entry.kind, entry.crafts)
             if name and entry.kind == "skill" then
                 SetStopRule(entry.recipeID, entry.level, nil, true)
+                ClearAppearanceRule(entry.recipeID)
                 for _, item in pairs(trackedItems) do
                     if item.recipeID == entry.recipeID and not item.container then
                         item.skillGoal = entry.level
@@ -3104,9 +3254,224 @@ vendorWatcher:SetScript("OnEvent", function(_, event)
     -- The vendor's list can take a moment to fill in.
     C_Timer.After(0.3, function()
         if MerchantFrame and MerchantFrame.IsShown and not MerchantFrame:IsShown() then return end
+        pcall(RecordVendorPrices)
         pcall(OnMerchantShow)
     end)
 end)
+
+-- What crafts are worth at a vendor (/bartab profit) ---------------------------
+-- For each recipe the open profession knows: what the item sells to a vendor
+-- for, less what its ingredients cost. Two lists: using materials you have
+-- (only vendor-bought ingredients such as thread cost anything), and buying
+-- the rest at auction prices (from an auction addon, if you have one).
+
+-- Vendor prices (copper per item) of things vendors sell for gold, noted as
+-- you visit them: settings.vendorPrices[itemID].
+function RecordVendorPrices()
+    if not GetMerchantNumItems then return end
+    settings.vendorPrices = settings.vendorPrices or {}
+    for index = 1, GetMerchantNumItems() do
+        local _, price, quantity, numAvailable, goldOnly = GetMerchantSlot(index)
+        local itemID = GetMerchantSlotID(index)
+        -- Unlimited stock only: limited items aren't a steady source.
+        if itemID and goldOnly and price and price > 0 and numAvailable == -1 then
+            settings.vendorPrices[itemID] = price / math.max(1, quantity or 1)
+        end
+    end
+end
+
+function AuctionAddonAPI()
+    local addon = _G.Auctionator
+    return addon and addon.API and addon.API.v1
+end
+
+-- What a vendor charges for the item (copper each), if known.
+function VendorBuyPrice(itemID)
+    local seen = settings.vendorPrices and settings.vendorPrices[itemID]
+    if seen then return seen end
+    local api = AuctionAddonAPI()
+    if api and api.GetVendorPriceByItemID then
+        local ok, price = pcall(api.GetVendorPriceByItemID, "BarTab", itemID)
+        if ok and tonumber(price) and tonumber(price) > 0 then return tonumber(price) end
+    end
+end
+
+-- Auction price (copper each), if an auction addon has one.
+function AuctionPrice(itemID)
+    local api = AuctionAddonAPI()
+    if api and api.GetAuctionPriceByItemID then
+        local ok, price = pcall(api.GetAuctionPriceByItemID, "BarTab", itemID)
+        if ok and tonumber(price) and tonumber(price) > 0 then return tonumber(price) end
+    end
+end
+
+-- What a vendor pays for the item: copper, 0 if it can't be sold, or nil
+-- while the item's data is still loading.
+function VendorSellPrice(itemID)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not getInfo then return 0 end
+    local results = { pcall(getInfo, itemID) }
+    if not results[1] or results[2] == nil then
+        if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, itemID) end
+        return nil
+    end
+    return tonumber(results[12]) or 0
+end
+
+-- The cheapest way to get one of an item, in copper: from a vendor, at the
+-- auction house, or made with a recipe BarTab has seen this character know
+-- (its ingredients priced the same way, several steps deep: ore to bar to
+-- part). Returns the cost and whether making it was cheapest, or nil if it
+-- can't be priced. state.memo remembers answers for one /bartab profit;
+-- state.visiting stops chains that loop back (essences that convert both
+-- ways).
+PROFIT_MAX_DEPTH = 5
+
+function BestCost(itemID, itemName, state, depth)
+    local key = itemID or itemName
+    if not key then return nil end
+    local known = state.memo[key]
+    if known ~= nil then
+        if known then return known.cost, known.made end
+        return nil
+    end
+    if state.visiting[key] then return nil end
+    local vendor = itemID and VendorBuyPrice(itemID)
+    if vendor then
+        state.memo[key] = { cost = vendor, made = false }
+        return vendor, false
+    end
+    local best, made = itemID and AuctionPrice(itemID), false
+    if depth <= PROFIT_MAX_DEPTH then
+        local mine = settings.producers and settings.producers[CharacterKey()]
+        local producer = (mine and itemID and mine[itemID]) or FindProducer(itemName)
+        local reagents = producer and producer.recipeID and GetRecipeReagents(producer.recipeID)
+        if reagents and #reagents > 0 then
+            state.visiting[key] = true
+            local total = 0
+            for _, reagent in ipairs(reagents) do
+                local each = BestCost(reagent.itemID, reagent.name, state, depth + 1)
+                if not each then total = nil break end
+                total = total + each * reagent.need
+            end
+            state.visiting[key] = nil
+            if total then
+                local each = total / math.max(1, producer.qty or 1)
+                if not best or each < best then best, made = each, true end
+            end
+        end
+    end
+    state.memo[key] = best and { cost = best, made = made } or false
+    return best, made
+end
+
+-- One recipe's numbers, "loading", or nil if what it makes can't be vendored.
+function RecipeProfit(recipeID, state)
+    state = state or { memo = {}, visiting = {} }
+    local outputID, made = GetRecipeOutput(recipeID)
+    if not outputID then return nil end
+    local sell = VendorSellPrice(outputID)
+    if sell == nil then return "loading" end
+    if sell <= 0 then return nil end
+    local income = sell * (made or 1)
+    local vendorCost, gatheredCost, unpriced, made = 0, 0, nil, {}
+    -- This recipe's own item never counts as one of its ingredients' sources.
+    state.visiting[outputID] = true
+    for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
+        local each = VendorBuyPrice(reagent.itemID)
+        if each then
+            vendorCost = vendorCost + each * reagent.need
+        else
+            -- Something you can make (a bar from ore, Thick Leather from
+            -- Heavy Leather): whichever is cheaper, buying it or making it.
+            local cost, ownMade = BestCost(reagent.itemID, reagent.name, state, 1)
+            if cost then
+                gatheredCost = gatheredCost + cost * reagent.need
+                if ownMade then made[#made + 1] = reagent.name end
+            else
+                unpriced = unpriced or reagent.name
+            end
+        end
+    end
+    state.visiting[outputID] = nil
+    return {
+        name = GetRecipeName(recipeID) or GetItemNameByID(outputID) or ("recipe " .. recipeID),
+        own = income - vendorCost,
+        bought = (not unpriced) and (income - vendorCost - gatheredCost) or nil,
+        unpriced = unpriced,
+        made = #made > 0 and table.concat(made, ", ") or nil,
+        seconds = CraftSeconds(recipeID),
+    }
+end
+
+function SignedMoney(copper)
+    copper = math.floor(copper + 0.5)
+    if copper < 0 then return "-" .. FormatMoney(-copper) end
+    return FormatMoney(copper)
+end
+
+function ShowProfitList()
+    local profession = LoadedProfession()
+    if not profession or not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then
+        Print("Open the profession window first; BarTab checks the recipes of the profession that's open.")
+        return
+    end
+    local results, loading = {}, 0
+    local state = { memo = {}, visiting = {} }
+    for _, recipeID in ipairs(C_TradeSkillUI.GetAllRecipeIDs() or {}) do
+        local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        if ok and type(info) == "table" and info.learned then
+            local result = RecipeProfit(recipeID, state)
+            if result == "loading" then
+                loading = loading + 1
+            elseif result then
+                results[#results + 1] = result
+            end
+        end
+    end
+    local function Line(rank, result, value, showMade)
+        local perHour = ""
+        if result.seconds and result.seconds > 0 and value > 0 then
+            perHour = ", about " .. SignedMoney(value * 3600 / result.seconds) .. " an hour"
+        end
+        local made = (showMade and result.made) and (" (making your own " .. result.made .. ")") or ""
+        Print(("  %d. %s: %s a craft%s%s"):format(rank, result.name, SignedMoney(value), perHour, made))
+    end
+    local SHOWN = 8
+
+    table.sort(results, function(a, b) return a.own > b.own end)
+    Print(profession .. ", sold to a vendor, using materials you have (vendor items like thread at their price):")
+    local shown = 0
+    for _, result in ipairs(results) do
+        if result.own <= 0 or shown >= SHOWN then break end
+        shown = shown + 1
+        Line(shown, result, result.own)
+    end
+    if shown == 0 then Print("  Nothing earns more at a vendor than its vendor-bought materials cost.") end
+
+    local bought = {}
+    for _, result in ipairs(results) do
+        if result.bought then bought[#bought + 1] = result end
+    end
+    table.sort(bought, function(a, b) return a.bought > b.bought end)
+    Print("Buying the other materials at auction prices (or their ingredients, where making them yourself is cheaper):")
+    if #bought == 0 then
+        Print("  No auction prices for these materials. Scan the auction house with your auction addon first.")
+    else
+        for rank = 1, math.min(SHOWN, #bought) do Line(rank, bought[rank], bought[rank].bought, true) end
+        if bought[1].bought <= 0 then Print("  None of them make money this way.") end
+        local skipped = #results - #bought
+        if skipped > 0 then
+            Print(("  (%d %s left out: no auction price for an ingredient.)"):format(skipped,
+                skipped == 1 and "recipe" or "recipes"))
+        end
+    end
+    if loading > 0 then
+        Print(("%d %s still loading; type /bartab profit again in a moment for the full list."):format(loading,
+            loading == 1 and "item was" or "items were"))
+    end
+    Print("Vendor items are priced once BarTab (or your auction addon) has seen them at a vendor.")
+end
 
 
 -- Craft the next ready bar (key binding and /bartab craft) -----------------------

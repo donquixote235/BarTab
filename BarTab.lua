@@ -307,7 +307,9 @@ function ShowBarTooltip(owner)
     local barCrafts = GetBarCraftCount(item)
 
     GameTooltip:SetText(DisplayName(item))
-    if item.label then
+    if item.label and IsOutputBar(item) then
+        GameTooltip:AddLine(("Making: %s, until you have %d"):format(item.name, item.goal), 0.8, 0.8, 0.8)
+    elseif item.label then
         local perCraft = GetReagentQuantity(item.recipeID, item.name)
         GameTooltip:AddLine("Material: " .. item.name
             .. (perCraft and (" (" .. perCraft .. " per craft)") or ""), 0.8, 0.8, 0.8)
@@ -315,7 +317,14 @@ function ShowBarTooltip(owner)
 
     -- Shopping list for one craft when the recipe needs more than one thing.
     local reagents = GetRecipeReagents(item.recipeID)
-    if reagents and #reagents > 1 then
+    local outputBar = IsOutputBar(item)
+    if reagents and (#reagents > 1 or outputBar) then
+        if outputBar and craftable and craftable > 0 then
+            local _, made = GetRecipeOutput(item.recipeID)
+            local more = math.min(craftable * (made or 1), math.max(0, item.goal - GetBarCount(item)))
+            GameTooltip:AddLine(("Your bags hold enough to make %d more (the lighter part of the bar)."):format(more),
+                0.6, 0.85, 1, true)
+        end
         GameTooltip:AddLine("Ingredients (have / need):", 1, 0.82, 0)
         for _, reagent in ipairs(reagents) do
             local short = reagent.have < reagent.need
@@ -353,13 +362,17 @@ function ShowBarTooltip(owner)
         GameTooltip:AddLine("After crafting: " .. afterLabel, 0.8, 0.8, 0.8)
     end
     -- What each click does (set in the settings window).
+    local function timed(crafts)
+        local time = BatchTimeText(item.recipeID, crafts)
+        return time and (", " .. time) or ""
+    end
     local function describe(action)
         if action == "one" then
-            return "craft 1"
+            return "craft 1" .. (BatchTimeText(item.recipeID, 1) and (" (" .. BatchTimeText(item.recipeID, 1) .. ")") or "")
         elseif action == "fit" then
-            return barCrafts and ("craft " .. barCrafts .. " (fits the bar)") or "craft as many as fit the bar"
+            return barCrafts and ("craft " .. barCrafts .. " (fits the bar" .. timed(barCrafts) .. ")") or "craft as many as fit the bar"
         elseif action == "max" then
-            return craftable and ("craft " .. craftable .. " (maximum available)") or "craft all you can"
+            return craftable and ("craft " .. craftable .. " (maximum available" .. timed(craftable) .. ")") or "craft all you can"
         end
         return "nothing"
     end

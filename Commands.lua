@@ -378,6 +378,11 @@ SlashCmdList.BARTAB = function(message)
             end
         elseif itemFilter then
             DebugItems(itemFilter)
+        elseif string.lower(args) == "perf" then
+            Safe("debug", DebugPerf)()
+        elseif string.lower(args) == "perf reset" then
+            perf.since, perf.updates, perf.ms, perf.redraws, perf.redrawMs, perf.collapses = GetTime(), 0, 0, 0, 0, 0
+            Print("Counting from now.")
         elseif string.lower(args) == "recipes" then
             Safe("debug", DebugRecipeList)()
         elseif string.lower(args) == "tracker" then
@@ -481,6 +486,9 @@ SlashCmdList.BARTAB = function(message)
             Print("Open a profession trainer and select a recipe first (or Alt-Shift-click it).")
         end
 
+    elseif command == "profit" then
+        Safe("profit", ShowProfitList)()
+
     elseif command == "favorites" or command == "favourites" or command == "favs" then
         Safe("favorites", ImportFavoriteRecipes)()
 
@@ -519,7 +527,7 @@ SlashCmdList.BARTAB = function(message)
             .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, item, autoitems on||off, favorites, trainer, make <count>, appearances on||off")
+        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, item, autoitems on||off, favorites, trainer, make <count>, profit, appearances on||off")
         Print("Type /bartab help for a quick guide with examples.")
     end
 end
@@ -591,6 +599,10 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             settings.hiddenSections = settings.hiddenSections or {}
             ApplyPalette(settings.palette)
             settings.hiddenSections["BarTab: Quests"] = nil
+            -- 1.60.1.4 counted redraws on a flag that's always on: start over.
+            if settings.trackerWatch ~= 2 then
+                settings.trackerUnstuck, settings.trackerWatch = nil, 2
+            end
             if settings.collapsed then
                 for key in pairs(settings.collapsed) do
                     if type(key) == "string" and (key:find("^BarTab: Quests") or key:find("^Quests/")) then
@@ -621,7 +633,9 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             or ProfessionsOpen()) then
             CraftLog(event:gsub("UNIT_SPELLCAST_", "cast ") .. " " .. tostring(arg3))
             if crafting then crafting.last = GetTime() end
-            if event == "UNIT_SPELLCAST_SUCCEEDED" and arg3 then
+            if event == "UNIT_SPELLCAST_START" and arg3 then
+                Safe("craft start", OnCraftStarted)(arg3)
+            elseif event == "UNIT_SPELLCAST_SUCCEEDED" and arg3 then
                 OnCraftSucceeded(arg3)
             elseif crafting and (event == "UNIT_SPELLCAST_FAILED"
                 or event == "UNIT_SPELLCAST_INTERRUPTED") then
@@ -630,6 +644,9 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         end
     elseif event == "TRADE_SKILL_SHOW" then
         CraftLog("profession opened (TRADE_SKILL_SHOW)")
+        -- You opened it yourself (not BarTab reading it quietly): offers
+        -- you closed earlier may be made again.
+        if not silent.waiting then appearanceSnoozed = nil end
         OnTradeSkillShow()
     elseif event == "TRADE_SKILL_CLOSE" then
         CraftLog("profession closed (TRADE_SKILL_CLOSE)")
