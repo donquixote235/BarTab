@@ -4826,6 +4826,31 @@ function SyncAltNeedBars()
     if changed then UpdateBars() end
 end
 
+-- At login: one line about what you're already carrying for your other
+-- characters (a bar that starts out full gets no goal alert).
+function AnnounceAltNeeds()
+    if not settings.altShopping then return end
+    local ready, partly = {}, {}
+    for _, item in pairs(trackedItems) do
+        if item.altNeed then
+            local count = math.min(GetBarCount(item), item.goal)
+            if count >= item.goal then
+                ready[#ready + 1] = item.goal .. " " .. item.name .. " for " .. item.altName
+            elseif count > 0 then
+                partly[#partly + 1] = count .. "/" .. item.goal .. " " .. item.name .. " for " .. item.altName
+            end
+        end
+    end
+    table.sort(ready)
+    table.sort(partly)
+    if #ready > 0 then
+        Print("You're carrying " .. JoinNames(ready, 5) .. ". Mail it at a mailbox.")
+    end
+    if #partly > 0 then
+        Print("Partway: " .. JoinNames(partly, 5) .. ".")
+    end
+end
+
 -- Never saved: out at logout (and at login, in case a session ended badly).
 function RemoveAltNeedBars()
     for key, item in pairs(trackedItems) do
@@ -4853,6 +4878,7 @@ altShopWatcher:SetScript("OnEvent", function(_, event)
         C_Timer.After(4, function()
             pcall(RemoveAltNeedBars)
             Safe("alt shopping", SyncAltNeedBars)()
+            Safe("alt shopping", AnnounceAltNeeds)()
         end)
     end
 end)
