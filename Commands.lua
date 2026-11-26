@@ -73,7 +73,7 @@ HELP_TOPICS = {
         "  Right-click a heading: move all to Inactive, share, untrack all. Ctrl-drag a bar to reorder; Ctrl-click opens its recipe.",
         "  Removed one by mistake? " .. cmd("/bartab undo") .. " brings it back (" .. cmd("/bartab undo list") .. " for more).",
         "  Hover a bar for details: shopping list, bank and alt counts, this session's gains and time to goal.",
-        "  " .. cmd("/bartab copy Alinda") .. " copies another character's bars; " .. cmd("/bartab share") .. " and "
+        "  " .. cmd("/bartab copy [Alt]") .. " copies another character's bars; " .. cmd("/bartab share") .. " and "
             .. cmd("/bartab import") .. " pass bars as text.",
         "  If another addon hides the objective tracker, BarTab gets its own window (" .. cmd("/bartab window") .. ").",
     },
@@ -156,7 +156,7 @@ local function TidyList()
     NormalizeOrder()
 end
 
--- Lists saved under a key missing its realm ("Alinda-"), from a login where
+-- Lists saved under a key missing its realm ("[Alt]-"), from a login where
 -- the game hadn't reported the realm yet: merged into the real list.
 function MergeBrokenCharacterKeys(db, key)
     local name = UnitName("player")

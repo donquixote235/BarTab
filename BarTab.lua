@@ -577,7 +577,7 @@ function CharacterKnown()
 end
 
 -- Where a character's full name might come from. WoW Forever characters have a
--- surname (the player frame shows "Alinda Windtotem") but UnitName only gives
+-- surname (the player frame shows "[Player] [Surname]") but UnitName only gives
 -- the first name, so try the name the player frame shows, then other lookups.
 function CharacterNameSources()
     local sources = {}
@@ -599,7 +599,7 @@ function CharacterNameSources()
     return sources
 end
 
--- "Shadowpope Malfus" if a source has it, else just "Shadowpope".
+-- "[Alt] [Surname]" if a source has it, else just "[Alt]".
 local function FullCharacterName()
     local first = UnitName("player")
     if not first then return nil end

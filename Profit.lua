@@ -248,7 +248,7 @@ end
 -- when you last opened their professions (settings.producers and
 -- settings.recipeIndex, per character).
 
--- "Vespera" from "Vespera-Realm".
+-- "[Alt]" from "[Alt]-Realm".
 function CharacterName(key)
     return (key and key:match("^([^%-]+)")) or key or "?"
 end
@@ -323,7 +323,7 @@ end
 
 -- Gathering skills of every character (with "include my characters").
 -- Your own skills are true; an alt's are that character's name, for
--- "from Padoo's Mining".
+-- "from [Alt]'s Mining".
 function AllGatherSkills()
     local skills = GatherSkills()
     local me = CharacterKey()

@@ -1755,7 +1755,7 @@ function AltStock(itemID)
     return list
 end
 
--- "Vespera can make it; Padoo has 30", or nil.
+-- "[Alt] can make it; [Alt] has 30", or nil.
 function AltNote(itemID, itemName)
     local parts = {}
     local makers = AltMakers(itemID, itemName)
@@ -4528,7 +4528,7 @@ function BarNeeds(list)
 end
 
 -- What your other characters' bars are short of (same realm and faction):
--- { { to = "Vespera", character = key, itemID, name, short }, ... }, from
+-- { { to = "[Alt]", character = key, itemID, name, short }, ... }, from
 -- their bars and last saved bags and bank, less what you've mailed them.
 function AltShortfalls()
     local me = CharacterKey()
@@ -4565,7 +4565,7 @@ function AltShortfalls()
     return list
 end
 
--- { { to = "Vespera", character = key, itemID, name, count }, ... }
+-- { { to = "[Alt]", character = key, itemID, name, count }, ... }
 function FindMailSends()
     local scan = ScanBags()
     -- What's spare here: bags less your own bars' goals.
@@ -4716,8 +4716,8 @@ function MailStep()
     local nameBox = _G.SendMailNameEditBox or (SendMailFrame and SendMailFrame.SendMailNameEditBox)
     local subjectBox = _G.SendMailSubjectEditBox or (SendMailFrame and SendMailFrame.SendMailSubjectEditBox)
     local bodyBox = _G.SendMailBodyEditBox or (SendMailFrame and SendMailFrame.SendMailBodyEditBox)
-    -- WoW Forever names have a surname ("Vespera Smyte"); address the full
-    -- name when BarTab has seen it, so it can't reach someone else's Vespera.
+    -- WoW Forever names have a surname ("[Alt] [Surname]"); address the full
+    -- name when BarTab has seen it, so it can't reach someone else's [Alt].
     -- If the game turns that down, the first name is tried next.
     local snapshot = settings.inventory and settings.inventory[letter.character]
     local fullName = snapshot and snapshot.fullName
@@ -4772,7 +4772,7 @@ end
 -- Shopping for your other characters ----------------------------------------------
 -- With settings.altShopping, the Crafting section gets a "For your other
 -- characters" subsection: a bar per material their bars are short of
--- ("Copper Ore for Vespera"), counting what you carry (your own bars claim
+-- ("Copper Ore for [Alt]"), counting what you carry (your own bars claim
 -- it first). These bars are made fresh each session and never saved: they're
 -- taken out at logout. settings.altShopHidden[key] hides one.
 function AltNeedKey(character, itemID)
