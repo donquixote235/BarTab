@@ -36,11 +36,17 @@ function AddNote(parent, y, text)
     return y - height - 6
 end
 
+-- A section heading, with a faint line running from it to the right edge.
 function AddHeading(parent, y, text)
     local heading = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     heading:SetPoint("TOPLEFT", 16, y)
     heading:SetText(text)
-    return y - 20
+    local rule = parent:CreateTexture(nil, "ARTWORK")
+    rule:SetColorTexture(1, 0.82, 0, 0.2)
+    rule:SetHeight(1)
+    rule:SetPoint("LEFT", heading, "RIGHT", 8, 0)
+    rule:SetPoint("RIGHT", parent, "RIGHT", -16, 0)
+    return y - 22
 end
 
 function AddCheck(parent, y, label, tooltip, get, set)
@@ -120,7 +126,7 @@ function BuildConfigFrame()
         local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
         close:SetPoint("TOPRIGHT", -4, -4)
     end
-    frame:SetSize(460, 560)
+    frame:SetSize(520, 560)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
@@ -140,6 +146,7 @@ function BuildConfigFrame()
     local TABS = {
         { key = "general", name = "General" },
         { key = "crafting", name = "Crafting" },
+        { key = "shopping", name = "Shopping" },
         { key = "recipes", name = "Recipes" },
         { key = "items", name = "Items" },
         { key = "display", name = "Display" },
@@ -156,15 +163,15 @@ function BuildConfigFrame()
     end
     for index, tab in ipairs(TABS) do
         local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        button:SetSize(82, 22)
-        button:SetPoint("TOPLEFT", 16 + (index - 1) * 86, -30)
+        button:SetSize(78, 22)
+        button:SetPoint("TOPLEFT", 16 + (index - 1) * 82, -30)
         button:SetText(tab.name)
         button.key = tab.key
         button:SetScript("OnClick", function() ShowTab(tab.key) end)
         tabButtons[index] = button
         local tabPage = CreateFrame("Frame", nil, frame)
         tabPage:SetPoint("TOPLEFT", 0, -56)
-        tabPage:SetSize(460, 500)
+        tabPage:SetSize(520, 500)
         tabPage:Hide()
         pages[tab.key] = tabPage
     end
@@ -210,6 +217,10 @@ function BuildConfigFrame()
         "A chat message when a material bar fills or a crate bundle is ready.",
         function() return settings.goalAlerts ~= false end,
         function(v) settings.goalAlerts = v end)
+    y = AddCheck(page, y, "Alert when you can make the rest",
+        "When the materials in your bags are enough to make the rest of a bar's item with your own recipes (8 / 10 Thick Leather, and Heavy Leather for 2 more). The bar also shows a lighter stretch for what you could make.",
+        function() return settings.makeableAlerts ~= false end,
+        function(v) settings.makeableAlerts = v end)
     y = AddCheck(page, y, "Play a sound",
         "Plays a short chime with the alert.",
         function() return settings.alertSound ~= false end,
@@ -294,24 +305,34 @@ function BuildConfigFrame()
     end
     y = y - 4
 
+    y = AddHeading(page, y - 6, "Making materials first")
+    local chainButton = AddButton(page, 24, y, 350, "",
+        "When you click a recipe bar and you're short of a material one of your recipes makes (Thick Leather for an Ammo Pouch, from Heavy Leather), BarTab can make it first, then the recipe, several steps deep. Make them automatically, ask with the steps first, or only from a bar's right-click menu (\"Craft N, making materials first\").",
+        function()
+            local current, index = settings.chainCraft or "auto", 1
+            for i, mode in ipairs(CHAIN_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.chainCraft = CHAIN_MODES[index % #CHAIN_MODES + 1].key
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.chainCraft or "auto"
+        for _, mode in ipairs(CHAIN_MODES) do
+            if mode.key == current then chainButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 28
+    y = AddCheck(page, y, "Use my other professions too",
+        "Also make materials with another of your professions: smelt Copper Bars with Mining for a Blacksmithing recipe, or Bolts of Cloth with Tailoring. BarTab switches professions between steps. Open each profession once so BarTab knows its recipes.",
+        function() return settings.chainOtherProfessions end,
+        function(v) settings.chainOtherProfessions = v or nil end)
 
+    y = AddHeading(page, y - 6, "While crafting")
     y = AddCheck(page, y, "Count down as you craft",
         "Each craft takes one craft's worth off a recipe's bars (8/32 becomes 4/28), so a bar shows what's left to make. When the count runs out, the recipe's After crafting rule applies (with \"keep the bar\", the bars move to Inactive at full size). Change it per recipe on a bar's right-click menu; this is for recipes you haven't set.",
         function() return settings.countDownDefault end,
         function(v) settings.countDownDefault = v or nil end)
-
-    y = AddCheck(page, y, "Training reminders",
-        "Tells you when a profession reaches its limit (75, 150, 225) and needs the next rank, and when recipes you saw at a trainer but couldn't learn yet are within reach. A profession at its limit also shows its skill in orange.",
-        function() return settings.trainingReminders ~= false end,
-        function(v) settings.trainingReminders = v end)
-
-    y = AddCheck(page, y, "Mark tracked recipes in the profession window",
-        "A check mark beside each recipe you have bars for, in the profession window's recipe list.",
-        function() return settings.recipeListMarks ~= false end,
-        function(v)
-            settings.recipeListMarks = v
-            RefreshRecipeListMarks()
-        end)
 
     y = AddHeading(page, y - 6, "Shared materials")
     local sharedModes = {
@@ -339,6 +360,8 @@ function BuildConfigFrame()
     y = y - 30
 
 
+    -- Shopping ------------------------------------------------------------
+    page, y = pages.shopping, -4
     y = AddHeading(page, y - 6, "Vendors")
     local vendorButton = AddButton(page, 24, y, 350, "",
         "At a vendor that sells something your Crafting bars are short of (thread, dye, vials...): ask with a list and the cost, buy it straight away, or do nothing.",
@@ -399,6 +422,25 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    y = AddHeading(page, y - 6, "Bank")
+    local bankButton = AddButton(page, 24, y, 350, "",
+        "At your bank, when it holds something your Crafting bars are short of in your bags: ask with a list, take it out straight away, or do nothing. /bartab bank asks again while the bank is open.",
+        function()
+            local current, index = settings.bankWithdraw or "ask", 1
+            for i, mode in ipairs(BANK_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.bankWithdraw = BANK_MODES[index % #BANK_MODES + 1].key
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.bankWithdraw or "ask"
+        for _, mode in ipairs(BANK_MODES) do
+            if mode.key == current then bankButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+
 
     y = AddHeading(page, y - 6, "Auction house")
     y = AddCheck(page, y, "Add a BarTab tab beside the auction house",
@@ -421,6 +463,19 @@ function BuildConfigFrame()
 
     -- Recipes -------------------------------------------------------------
     page, y = pages.recipes, -4
+    y = AddHeading(page, y - 6, "Professions")
+    y = AddCheck(page, y, "Mark tracked recipes in the profession window",
+        "A check mark beside each recipe you have bars for, in the profession window's recipe list.",
+        function() return settings.recipeListMarks ~= false end,
+        function(v)
+            settings.recipeListMarks = v
+            RefreshRecipeListMarks()
+        end)
+    y = AddCheck(page, y, "Training reminders",
+        "Tells you when a profession reaches its limit (75, 150, 225) and needs the next rank, and when recipes you saw at a trainer but couldn't learn yet are within reach. A profession at its limit also shows its skill in orange.",
+        function() return settings.trainingReminders ~= false end,
+        function(v) settings.trainingReminders = v end)
+
     y = AddHeading(page, y - 6, "Favorite recipes")
     AddButton(page, 24, y, 170, "Import favorites",
         "With a profession open: bars for its starred recipes that aren't tracked yet (one craft each). A window lets you track the main ingredients or all of them, or choose for each. (/bartab favorites)",

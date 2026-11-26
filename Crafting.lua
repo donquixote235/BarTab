@@ -38,12 +38,17 @@ function LoadedProfession()
     if not (C_TradeSkillUI and C_TradeSkillUI.GetBaseProfessionInfo) then return nil end
     local ok, info = pcall(C_TradeSkillUI.GetBaseProfessionInfo)
     if ok and type(info) == "table" and info.professionName and info.professionName ~= "" then
-        return info.professionName, info.professionID
+        -- The game can report ID 0 (unknown); that's no ID at all.
+        local id = tonumber(info.professionID)
+        return info.professionName, (id and id > 0) and id or nil
     end
 end
 
+-- The profession's skill line ID (165 for Leatherworking), used to load it.
+-- An ID of 0 (saved from a moment the game didn't know it) is ignored.
 function GetProfessionSkillLine(item)
-    if item.skillLineID then return item.skillLineID end
+    if item.skillLineID and item.skillLineID > 0 then return item.skillLineID end
+    item.skillLineID = nil
     if C_TradeSkillUI and C_TradeSkillUI.GetTradeSkillLineForRecipe then
         local ok, tradeSkillID, _, parentID =
             pcall(C_TradeSkillUI.GetTradeSkillLineForRecipe, item.recipeID)
@@ -52,6 +57,20 @@ function GetProfessionSkillLine(item)
             if id and id > 0 then
                 item.skillLineID = id
                 return id
+            end
+        end
+    end
+    -- Else by name, from your professions.
+    if item.profession and GetProfessions and GetProfessionInfo then
+        local indexes = { GetProfessions() }
+        for i = 1, 6 do
+            if indexes[i] then
+                local okInfo, name, _, _, _, _, _, skillLine = pcall(GetProfessionInfo, indexes[i])
+                if okInfo and name and skillLine and skillLine > 0
+                    and string.lower(name) == string.lower(item.profession) then
+                    item.skillLineID = skillLine
+                    return skillLine
+                end
             end
         end
     end
@@ -265,7 +284,7 @@ function CraftTick()
     if not silent.loaded then return end
     if ProfessionsOpen() then
         silent.loaded = nil -- the visible window owns it now
-    elseif crafting or craftJob or IsMouseOverCraftBar() or InCombatLockdown()
+    elseif crafting or craftJob or chainJob or IsMouseOverCraftBar() or InCombatLockdown()
         or CastingNow() or IsRepeatingCraft() then
         silent.idle = nil
     else
@@ -370,9 +389,11 @@ function CraftItem(itemKey, action)
 
     -- What this click does is chosen in the settings window.
     local chosen = action or GetClickAction(CurrentModifier())
+    -- Short of a material you can make: make it first (settings.chainCraft).
+    if chosen ~= "none" and TryChainCraft(item, chosen) then return end
     local amount, problem = ResolveCraftAmount(item, chosen)
     if not amount then
-        if problem then Print(problem) end
+        if problem then Print(ChainBlockedText(item) or problem) end
         return
     end
     -- A bar for what the recipe makes: craft only what's still missing.
@@ -396,6 +417,11 @@ function CraftItem(itemKey, action)
             if reagent.have < reagent.need then
                 short[#short + 1] = reagent.name .. " (" .. reagent.have .. "/" .. reagent.need .. ")"
             end
+        end
+        local chainText = ChainBlockedText(item)
+        if chainText then
+            Print(chainText)
+            return
         end
         Print("Can't craft " .. DisplayName(item) .. " yet"
             .. (#short > 0 and (": missing " .. table.concat(short, ", ")) or "") .. ".")
@@ -1594,6 +1620,351 @@ skillWatcher:SetScript("OnEvent", function(_, event)
     end)
 end)
 
+-- Chain crafting ---------------------------------------------------------------
+-- A click on a recipe bar that's short of a material you can make (Thick
+-- Leather for an Ammo Pouch, from Heavy Leather) makes that first, then the
+-- recipe; several steps deep (Medium -> Heavy -> Thick Leather). Only your
+-- own recipes, from the same profession unless settings.chainOtherProfessions
+-- (smelting bars for Blacksmithing). settings.chainCraft: "auto" (default),
+-- "ask" (a prompt lists the steps) or "menu" (only "Craft, making materials
+-- first" on a bar's right-click menu).
+CHAIN_MODES = {
+    { key = "auto", name = "Make missing materials first" },
+    { key = "ask", name = "Ask before making materials first" },
+    { key = "menu", name = "Only from a bar's right-click menu" },
+}
+CHAIN_DEPTH = 5
+CHAIN_MOST = 100 -- the most crafts one click plans for
+chainJob = nil
+
+-- Your recipe that makes this item, by ID or name.
+function ProducerFor(itemID, itemName)
+    local mine = settings.producers and settings.producers[CharacterKey()]
+    if mine and itemID and mine[itemID] then return mine[itemID] end
+    return FindProducer(itemName)
+end
+
+-- Whether crafts of recipeID can be made from inv (item ID -> count, filled
+-- from your bags as needed, and changed as the plan uses and makes things),
+-- making materials as needed. Appends the steps (deepest first) to steps.
+-- why (optional): collects what stops it, for the "Can't craft" message:
+-- { name=, have=, need=, itemID= } for something you'd have to get, or
+-- { name=, profession= } for something another profession makes.
+-- vendor (optional): vendor items you're short of (thread, dye) don't stop
+-- it; they're collected here instead (itemID -> { name=, count= }).
+function ChainFeasible(recipeID, crafts, inv, depth, visiting, steps, profession, why, vendor)
+    local reagents = GetRecipeReagents(recipeID)
+    if not reagents or #reagents == 0 then return false end
+    local feasible = true
+    for _, reagent in ipairs(reagents) do
+        local id = reagent.itemID
+        if inv[id] == nil then inv[id] = CountOwned(id) end
+        local need = reagent.need * crafts
+        local blocked = false
+        local producer = inv[id] < need and ProducerFor(id, reagent.name)
+        if inv[id] < need and vendor and not producer and VendorBuyPrice(id) then
+            -- Bought later, at a vendor: plan as if you had it.
+            local entry = vendor[id] or { name = reagent.name, count = 0 }
+            entry.count = entry.count + (need - inv[id])
+            vendor[id] = entry
+            inv[id] = need
+        end
+        if inv[id] < need then
+            if not producer or depth >= CHAIN_DEPTH or visiting[producer.recipeID] then
+                blocked = true
+                if why then why[#why + 1] = { name = reagent.name, have = inv[id], need = need, itemID = id } end
+            elseif not settings.chainOtherProfessions and profession and producer.profession
+                and string.lower(producer.profession) ~= string.lower(profession) then
+                blocked = true
+                if why then why[#why + 1] = { name = reagent.name, profession = producer.profession } end
+            else
+                local qty = math.max(1, producer.qty or 1)
+                local sub = math.ceil((need - inv[id]) / qty)
+                visiting[producer.recipeID] = true
+                -- Reasons go one step down only: "missing Heavy Leather" for a
+                -- Thick Armor Kit, not the scraps at the bottom of the chain.
+                local ok = ChainFeasible(producer.recipeID, sub, inv, depth + 1, visiting, steps, profession,
+                    depth == 0 and why or nil, vendor)
+                visiting[producer.recipeID] = nil
+                if not ok then
+                    blocked = true
+                    if why and depth >= 1 then
+                        why[#why + 1] = { name = reagent.name, have = inv[id], need = need, itemID = id }
+                    end
+                else
+                    inv[id] = inv[id] + sub * qty
+                    local last = steps[#steps]
+                    if last and last.recipeID == producer.recipeID then
+                        last.crafts = last.crafts + sub
+                    else
+                        steps[#steps + 1] = { recipeID = producer.recipeID, crafts = sub, qty = qty,
+                            name = producer.name or reagent.name, profession = producer.profession,
+                            skillLineID = producer.skillLineID }
+                    end
+                end
+            end
+        end
+        if blocked then
+            feasible = false
+            if not why then return false end -- no need to look further
+        else
+            inv[id] = inv[id] - need
+        end
+    end
+    return feasible
+end
+
+-- Why one craft can't be made even making materials first: a sentence, or
+-- nil when making materials doesn't come into it (nothing makeable).
+function ChainBlockedText(item)
+    local reagents = GetRecipeReagents(item.recipeID)
+    if not reagents then return nil end
+    local makeable = {}
+    for _, reagent in ipairs(reagents) do
+        if reagent.have < reagent.need and ProducerFor(reagent.itemID, reagent.name) then
+            makeable[#makeable + 1] = reagent.name
+        end
+    end
+    if #makeable == 0 then return nil end
+    local why = {}
+    ChainFeasible(item.recipeID, 1, {}, 0, { [item.recipeID] = true }, {}, item.profession, why)
+    if #why == 0 then return nil end
+    local parts, seen = {}, {}
+    for _, reason in ipairs(why) do
+        if not seen[reason.name] then
+            seen[reason.name] = true
+            if reason.profession then
+                parts[#parts + 1] = reason.name .. " (made with " .. reason.profession
+                    .. "; turn on \"Use my other professions too\" in settings)"
+            else
+                local where = VendorBuyPrice(reason.itemID) and "from a vendor" or "to get"
+                parts[#parts + 1] = ("%s (%d/%d, %s)"):format(reason.name, reason.have, reason.need, where)
+            end
+        end
+    end
+    return ("Can't craft %s yet, even making the %s first: missing %s."):format(
+        GetRecipeName(item.recipeID) or DisplayName(item), JoinNames(makeable), table.concat(parts, ", "))
+end
+
+-- The most crafts (up to wanted) of the bar's recipe that making materials
+-- allows, and the steps: { crafts=, steps={...} }, or nil.
+-- vendorLater: plan as if vendor items you're short of were there (they're
+-- listed in plan.vendor), to make the rest now.
+function PlanChain(item, wanted, vendorLater)
+    local bestVendor
+    local function Try(n)
+        local steps, vendor = {}, vendorLater and {} or nil
+        if ChainFeasible(item.recipeID, n, {}, 0, { [item.recipeID] = true }, steps, item.profession, nil, vendor) then
+            bestVendor = vendor
+            return steps
+        end
+    end
+    local low, best = 0, nil
+    local high = math.min(wanted, CHAIN_MOST)
+    -- Feasible counts run 1..k: find k.
+    while low < high do
+        local mid = math.floor((low + high + 1) / 2)
+        local steps = Try(mid)
+        if steps then low, best = mid, steps else high = mid - 1 end
+    end
+    if low < 1 or not best or #best == 0 then return nil end
+    -- The vendor list that goes with the count found (Try ran last on it
+    -- only if it succeeded last; run it again to be sure).
+    if vendorLater then best = Try(low) end
+    local plan = { crafts = low, steps = best, item = item }
+    if vendorLater then
+        plan.vendor = {}
+        for _, entry in pairs(bestVendor or {}) do plan.vendor[#plan.vendor + 1] = entry end
+        table.sort(plan.vendor, function(a, b) return a.name < b.name end)
+        if #plan.vendor > 0 then plan.prepOnly = true end
+    end
+    return plan
+end
+
+-- How many crafts this click wants, before materials limit it.
+function ChainWanted(item, chosen)
+    local wanted
+    if chosen == "one" then
+        wanted = 1
+    elseif chosen == "max" then
+        wanted = CHAIN_MOST
+    elseif chosen == "fit" then
+        local perCraft = GetReagentQuantity(item.recipeID, item.name)
+        if perCraft and perCraft > 0 then
+            wanted = math.floor((item.goal or 0) / perCraft)
+        else
+            local _, perOutput = GetRecipeOutput(item.recipeID)
+            wanted = math.floor(math.max(0, (item.goal or 0) - GetBarCount(item)) / math.max(1, perOutput or 1))
+        end
+    end
+    if wanted and IsOutputBar(item) then wanted = math.min(wanted, CraftsToTarget(item)) end
+    return wanted
+end
+
+-- Some progress when the whole recipe is out of reach: as much of each
+-- makeable material as your bags allow (1 Thick Leather toward a Thick
+-- Armor Kit that needs 4 more), up to what the click aims for (one craft,
+-- or the bar's crafts for Shift- and Alt-click). Vendor items don't count
+-- against it. nil if nothing can be made.
+function PartialChainPlan(item, chosen)
+    local target = 1
+    if chosen ~= "one" then
+        local perCraft = GetReagentQuantity(item.recipeID, item.name)
+        if IsOutputBar(item) then
+            target = math.max(1, CraftsToTarget(item))
+        elseif perCraft and perCraft > 0 then
+            target = math.max(1, math.ceil(((item.goal or 0) - (item.start or 0)) / perCraft))
+        end
+    end
+    target = math.min(target, CHAIN_MOST)
+    local reagents = GetRecipeReagents(item.recipeID)
+    if not reagents then return nil end
+    local steps = {}
+    for _, reagent in ipairs(reagents) do
+        local short = reagent.need * target - reagent.have
+        local producer = short > 0 and ProducerFor(reagent.itemID, reagent.name)
+        local allowed = producer and (settings.chainOtherProfessions or not (item.profession and producer.profession)
+            or string.lower(item.profession) == string.lower(producer.profession))
+        if allowed then
+            local qty = math.max(1, producer.qty or 1)
+            local function Try(n)
+                local sub = {}
+                if ChainFeasible(producer.recipeID, n, {}, 1, { [producer.recipeID] = true, [item.recipeID] = true },
+                    sub, item.profession, nil, {}) then
+                    return sub
+                end
+            end
+            local low, best, high = 0, nil, math.min(math.ceil(short / qty), CHAIN_MOST)
+            while low < high do
+                local mid = math.floor((low + high + 1) / 2)
+                local sub = Try(mid)
+                if sub then low, best = mid, sub else high = mid - 1 end
+            end
+            if low > 0 then
+                for _, step in ipairs(best) do steps[#steps + 1] = step end
+                steps[#steps + 1] = { recipeID = producer.recipeID, crafts = low, qty = qty,
+                    name = producer.name or reagent.name, profession = producer.profession,
+                    skillLineID = producer.skillLineID }
+            end
+        end
+    end
+    if #steps == 0 then return nil end
+    return { crafts = target, steps = steps, item = item, prepOnly = true, partial = true }
+end
+
+function ChainText(plan)
+    local parts = {}
+    for _, step in ipairs(plan.steps) do
+        parts[#parts + 1] = (step.crafts * step.qty) .. " " .. step.name
+    end
+    local recipeName = GetRecipeName(plan.item.recipeID) or DisplayName(plan.item)
+    if plan.partial then
+        return ("%s now, toward %d %s (not enough for all of it yet)"):format(JoinNames(parts, 6),
+            plan.crafts, recipeName)
+    end
+    if plan.prepOnly then
+        local buy = {}
+        for _, entry in ipairs(plan.vendor) do buy[#buy + 1] = entry.count .. " " .. entry.name end
+        return ("%s now; buy %s at a vendor to finish %d %s"):format(JoinNames(parts, 6),
+            JoinNames(buy), plan.crafts, recipeName)
+    end
+    return ("%s first, then %d %s"):format(JoinNames(parts, 6), plan.crafts, recipeName)
+end
+
+-- From a click: true if it started (or asked about) a chain.
+function TryChainCraft(item, chosen, forced)
+    if not (item and item.recipeID) or item.container or item.notLearned then return false end
+    if chainJob then
+        chainJob = nil
+        Print("Stopped making materials first; a craft in progress still finishes.")
+        return true
+    end
+    local mode = settings.chainCraft or "auto"
+    if mode == "menu" and not forced then return false end
+    if InCombatLockdown and InCombatLockdown() then return false end
+    local wanted = ChainWanted(item, chosen)
+    if not wanted or wanted < 1 then return false end
+    local craftable = GetCraftableCount(item.recipeID) or 0
+    if craftable >= wanted then return false end
+    local plan = PlanChain(item, wanted)
+    if not plan or plan.crafts <= craftable then
+        -- Held up only by vendor items (thread)? Make the rest now; the
+        -- vendor prompt offers the thread once the other materials are in.
+        if craftable >= 1 then return false end
+        plan = PlanChain(item, wanted, true)
+        if not (plan and plan.prepOnly) then
+            -- Not enough for even one: make what you can of its materials,
+            -- toward the bar.
+            plan = PartialChainPlan(item, chosen)
+            if not plan then return false end
+        end
+    end
+    if mode == "ask" and not forced and StaticPopupDialogs and StaticPopup_Show then
+        StaticPopupDialogs.BARTAB_CHAIN = StaticPopupDialogs.BARTAB_CHAIN or {
+            text = "BarTab: make %s?",
+            button1 = "Make",
+            button2 = CANCEL or "Cancel",
+            OnAccept = function(_, data) StartChain(data) end,
+            timeout = 0,
+            whileDead = false,
+            hideOnEscape = true,
+        }
+        StaticPopup_Show("BARTAB_CHAIN", ChainText(plan), nil, plan)
+        return true
+    end
+    StartChain(plan)
+    return true
+end
+
+function StartChain(plan)
+    local steps = {}
+    for _, step in ipairs(plan.steps) do steps[#steps + 1] = step end
+    if not plan.prepOnly then
+        steps[#steps + 1] = { recipeID = plan.item.recipeID, crafts = plan.crafts, final = true, item = plan.item }
+    end
+    chainJob = { steps = steps, index = 0 }
+    Print("Making " .. ChainText(plan)
+        .. ((plan.prepOnly and not plan.partial) and " (BarTab offers it when you visit one)." or "."))
+    RunChainStep()
+end
+
+-- One step at a time: craft it, wait until the batch is over, then the next.
+function RunChainStep()
+    local job = chainJob
+    if not job then return end
+    job.index = job.index + 1
+    local step = job.steps[job.index]
+    if not step then
+        chainJob = nil
+        return
+    end
+    local stepItem = step.item or { recipeID = step.recipeID, profession = step.profession,
+        skillLineID = step.skillLineID, name = step.name, label = GetRecipeName(step.recipeID) }
+    local craftable = GetCraftableCount(step.recipeID) or 0
+    local amount = math.min(step.crafts, craftable)
+    if amount < 1 then
+        chainJob = nil
+        Print("Couldn't make " .. (GetRecipeName(step.recipeID) or step.name or "the next step")
+            .. ": the materials aren't there. Stopped.")
+        return
+    end
+    TryCraft(stepItem, amount)
+    job.started = GetTime()
+    C_Timer.After(0.5, WaitChainStep)
+end
+
+function WaitChainStep()
+    local job = chainJob
+    if not job then return end
+    -- Still loading the profession, crafting, or casting.
+    if craftJob or crafting or CastingNow() or IsRepeatingCraft() then
+        C_Timer.After(0.5, WaitChainStep)
+        return
+    end
+    -- A moment for the bags to catch up, then the next step.
+    C_Timer.After(0.6, function() Safe("chain", RunChainStep)() end)
+end
+
 -- Recipe chains ----------------------------------------------------------------
 -- When a bar's material is something you can craft (Heavy Leather, from
 -- Medium Leather), BarTab can track that recipe too, sized to what the bar
@@ -1630,7 +2001,7 @@ function ScanProducers()
         local okRecipe, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
         if okRecipe and type(info) == "table" and info.name then
             index[string.lower(info.name)] = { recipeID = recipeID, profession = profession,
-                skillLineID = base.professionID }
+                skillLineID = (tonumber(base.professionID) or 0) > 0 and base.professionID or nil }
         end
         if okRecipe and type(info) == "table" and info.learned then
             local okSchematic, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
@@ -1640,7 +2011,7 @@ function ScanProducers()
                     recipeID = recipeID,
                     recipeName = info.name,
                     profession = profession,
-                    skillLineID = base.professionID,
+                    skillLineID = (tonumber(base.professionID) or 0) > 0 and base.professionID or nil,
                     qty = math.max(1, tonumber(schematic.quantityMin) or 1),
                     name = GetItemNameByID(output),
                 }
@@ -1683,18 +2054,16 @@ function TrackChain(parentKey, whole)
             .. ". Open that profession once so BarTab can see your recipes.")
         return
     end
+    -- Not short: you asked for it anyway, so one craft (to stock up).
     local short = parent.goal - GetBarCount(parent)
-    if short <= 0 then
-        Print("You already have enough " .. parent.name .. " for " .. DisplayName(parent) .. ".")
-        return
-    end
+    local enough = short <= 0
     local reagents = GetRecipeReagents(producer.recipeID)
     if not reagents or #reagents == 0 then
         Print("Couldn't read the " .. (producer.recipeName or parent.name) .. " recipe right now; try again with the profession open.")
         return
     end
 
-    local crafts = whole and math.ceil(short / producer.qty) or 1
+    local crafts = (whole and not enough) and math.ceil(short / producer.qty) or 1
     local recipeName = producer.recipeName or GetRecipeName(producer.recipeID) or parent.name
     local parts = {}
     for index, reagent in ipairs(reagents) do
@@ -1722,6 +2091,11 @@ function TrackChain(parentKey, whole)
     end
     NormalizeOrder()
     UpdateBars()
+    if enough then
+        Print(("You already have enough %s for %s; tracking one craft of %s anyway, needing %s. Use Crafts on its bar for more."):format(
+            parent.name, DisplayName(parent), recipeName, table.concat(parts, ", ")))
+        return
+    end
     Print(("Tracking how to make %d %s for %s: %d craft(s) of %s, needing %s."):format(
         crafts * producer.qty, parent.name, DisplayName(parent), crafts, recipeName,
         table.concat(parts, ", ")))
@@ -1740,6 +2114,13 @@ function AddChainLines(item)
     local fed = item.chainFor and trackedItems[item.chainFor]
     if fed then
         GameTooltip:AddLine("Makes " .. fed.name .. " for " .. DisplayName(fed), 0.8, 0.8, 0.8)
+    end
+    -- What the lighter stretch on the bar means.
+    local count = GetBarCount(item)
+    local okMake, makeable = pcall(MakeableCount, item, count)
+    if okMake and makeable and makeable > 0 then
+        GameTooltip:AddLine(("You could make %d more %s from what's in your bags%s"):format(makeable, item.name,
+            (count + makeable >= item.goal) and ", enough for the rest of the bar" or ""), 0.5, 1, 0.5, true)
     end
     local producer = CanTrackChain(item)
     if producer and GetBarCount(item) < item.goal then
@@ -3805,6 +4186,241 @@ vendorWatcher:SetScript("OnEvent", function(_, event)
         if MerchantFrame and MerchantFrame.IsShown and not MerchantFrame:IsShown() then return end
         pcall(RecordVendorPrices)
         pcall(OnMerchantShow)
+    end)
+end)
+
+-- Bank materials -----------------------------------------------------------------
+-- At the bank, offers to take out (or just takes out) what your Crafting bars
+-- are short of in your bags, the same list the vendor prompt works from.
+-- settings.bankWithdraw: "ask" (default), "auto" or "off". /bartab bank asks
+-- again while the bank is open.
+BANK_MODES = {
+    { key = "ask", name = "Ask before taking out materials" },
+    { key = "auto", name = "Take out materials automatically" },
+    { key = "off", name = "Off (take them out by hand)" },
+}
+bankJob = nil
+bankWindowOpen = false
+
+function ContainerSlots(bag)
+    local get = (C_Container and C_Container.GetContainerNumSlots) or _G.GetContainerNumSlots
+    if not get then return 0 end
+    local ok, slots = pcall(get, bag)
+    return ok and tonumber(slots) or 0
+end
+
+-- itemID, count, locked of a bag slot (nil when empty).
+function ContainerItem(bag, slot)
+    if C_Container and C_Container.GetContainerItemInfo then
+        local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+        if ok and type(info) == "table" and info.itemID then
+            return info.itemID, info.stackCount or 1, info.isLocked
+        end
+        return nil
+    end
+    if _G.GetContainerItemInfo then
+        local _, count, locked, _, _, _, _, _, _, itemID = _G.GetContainerItemInfo(bag, slot)
+        if itemID then return itemID, count or 1, locked end
+    end
+end
+
+-- The bank's containers: the bank itself and its bags (not your own bags).
+function BankContainers()
+    local list, seen = {}, {}
+    local function Add(bag)
+        if bag and not seen[bag] then
+            seen[bag] = true
+            list[#list + 1] = bag
+        end
+    end
+    local index = Enum and Enum.BagIndex
+    Add((index and index.Bank) or BANK_CONTAINER or -1)
+    if index then
+        for n = 1, 7 do Add(index["BankBag_" .. n]) end
+        for n = 1, 6 do Add(index["CharacterBankTab_" .. n]) end
+    end
+    local first = (NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4) + 1
+    for bag = first, first + (NUM_BANKBAGSLOTS or 7) - 1 do Add(bag) end
+    return list
+end
+
+-- An empty slot in your own bags, not one already used this run.
+function FreeBagSlot(reserved)
+    for bag = 0, NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            if not reserved[bag .. ":" .. slot] and not ContainerItem(bag, slot) then
+                return bag, slot
+            end
+        end
+    end
+end
+
+-- { { name=, itemID=, count= }, ... }: what the bank holds of what you're short.
+function FindBankWithdrawals()
+    local short, names, ids = GetShortages(false)
+    if not next(short) then return {} end
+    local inBank, idFor = {}, {}
+    for _, bag in ipairs(BankContainers()) do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count = ContainerItem(bag, slot)
+            if itemID then
+                local key = ids[itemID]
+                if not key then
+                    local name = GetItemNameByID(itemID)
+                    key = name and string.lower(name)
+                end
+                if key and short[key] then
+                    inBank[key] = (inBank[key] or 0) + count
+                    idFor[key] = itemID
+                end
+            end
+        end
+    end
+    local list = {}
+    for key, need in pairs(short) do
+        if inBank[key] then
+            list[#list + 1] = { name = names[key] or key, itemID = idFor[key], count = math.min(need, inBank[key]) }
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+function DescribeWithdrawals(list, field)
+    local parts = {}
+    for _, entry in ipairs(list) do
+        local count = entry[field or "count"]
+        if count and count > 0 then parts[#parts + 1] = count .. " " .. entry.name end
+    end
+    return parts
+end
+
+-- Moves the list into your bags, one stack at a time (each move locks the
+-- slots for a moment): a whole stack if you need all of it, else split off
+-- just what you need into an empty bag slot.
+function TakeOutMaterials(list)
+    if bankJob then return end
+    for _, entry in ipairs(list) do entry.left, entry.got = entry.count, 0 end
+    bankJob = { list = list, index = 1, reserved = {}, waits = 0 }
+    BankStep()
+end
+
+function FinishBankJob(problem)
+    local job = bankJob
+    bankJob = nil
+    if not job then return end
+    local parts = DescribeWithdrawals(job.list, "got")
+    if #parts > 0 then Print("Took out " .. JoinNames(parts, 6) .. ".") end
+    if problem then Print(problem) end
+    RequestUpdate(0.5)
+end
+
+function BankStep()
+    local job = bankJob
+    if not job then return end
+    if not bankWindowOpen then
+        FinishBankJob("The bank closed before BarTab finished.")
+        return
+    end
+    local entry = job.list[job.index]
+    while entry and entry.left <= 0 do
+        job.index = job.index + 1
+        entry = job.list[job.index]
+    end
+    if not entry then
+        FinishBankJob()
+        return
+    end
+    -- A stack of it in the bank that isn't mid-move.
+    local fromBag, fromSlot, stack, busy
+    for _, bag in ipairs(BankContainers()) do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count, locked = ContainerItem(bag, slot)
+            if itemID == entry.itemID then
+                if locked then
+                    busy = true
+                elseif not fromBag then
+                    fromBag, fromSlot, stack = bag, slot, count
+                end
+            end
+        end
+        if fromBag then break end
+    end
+    if not fromBag then
+        if busy and job.waits < 20 then
+            job.waits = job.waits + 1
+        else
+            entry.left = 0 -- none left in the bank
+        end
+        C_Timer.After(0.2, BankStep)
+        return
+    end
+    job.waits = 0
+    local toBag, toSlot = FreeBagSlot(job.reserved)
+    if not toBag then
+        FinishBankJob("Your bags are full; BarTab took out what fit.")
+        return
+    end
+    job.reserved[toBag .. ":" .. toSlot] = true
+    if CursorHasItem and CursorHasItem() then
+        FinishBankJob("Put down what's on your cursor, then type /bartab bank to finish.")
+        return
+    end
+    local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
+    local split = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
+    if stack <= entry.left then
+        pickup(fromBag, fromSlot)
+        pickup(toBag, toSlot)
+        entry.left, entry.got = entry.left - stack, entry.got + stack
+    else
+        split(fromBag, fromSlot, entry.left)
+        pickup(toBag, toSlot)
+        entry.got, entry.left = entry.got + entry.left, 0
+    end
+    if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+    C_Timer.After(0.25, BankStep)
+end
+
+-- force: /bartab bank (asks even with the setting off).
+function OfferBankWithdrawals(force)
+    local mode = settings.bankWithdraw or "ask"
+    if mode == "off" and not force then return end
+    if bankJob then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    local list = FindBankWithdrawals()
+    if #list == 0 then
+        if force then Print("Your bank has nothing your bars are short of.") end
+        return
+    end
+    if mode == "auto" and not force or not (StaticPopupDialogs and StaticPopup_Show) then
+        TakeOutMaterials(list)
+        return
+    end
+    StaticPopupDialogs.BARTAB_BANK_TAKE = StaticPopupDialogs.BARTAB_BANK_TAKE or {
+        text = "BarTab: your bank has materials your bars need.\n\n%s\n\nTake them out?",
+        button1 = "Take out",
+        button2 = NO or "No",
+        OnAccept = function(_, data) TakeOutMaterials(data) end,
+        timeout = 0,
+        whileDead = false,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("BARTAB_BANK_TAKE", table.concat(DescribeWithdrawals(list), "\n"), nil, list)
+end
+
+bankWatcher = CreateFrame("Frame")
+pcall(bankWatcher.RegisterEvent, bankWatcher, "BANKFRAME_OPENED")
+pcall(bankWatcher.RegisterEvent, bankWatcher, "BANKFRAME_CLOSED")
+bankWatcher:SetScript("OnEvent", function(_, event)
+    if event == "BANKFRAME_CLOSED" then
+        bankWindowOpen = false
+        if StaticPopup_Hide then StaticPopup_Hide("BARTAB_BANK_TAKE") end
+        return
+    end
+    bankWindowOpen = true
+    -- The bank's contents can take a moment to arrive.
+    C_Timer.After(0.4, function()
+        if bankWindowOpen then Safe("bank", OfferBankWithdrawals)() end
     end)
 end)
 

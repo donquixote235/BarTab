@@ -51,7 +51,7 @@ function AssignRecipe(key, recipeID, rangeGiven)
     item.skillLineID = nil
     if C_TradeSkillUI.GetBaseProfessionInfo then
         local ok, info = pcall(C_TradeSkillUI.GetBaseProfessionInfo)
-        if ok and type(info) == "table" and info.professionID then
+        if ok and type(info) == "table" and tonumber(info.professionID) and info.professionID > 0 then
             item.skillLineID = info.professionID
         end
     end
@@ -404,6 +404,24 @@ ShowItemMenu = function(owner, itemKey)
         crafting[#crafting + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
         local craftsEntry = IsOutputBar(item) and GoalCraftsMenuEntry(item) or CraftsMenuEntry(item)
         if craftsEntry then crafting[#crafting + 1] = craftsEntry end
+    end
+    -- Make missing materials first (always offered here, whatever the
+    -- setting says clicks do).
+    if item.recipeID and not item.container and not item.notLearned then
+        local craftable = GetCraftableCount(item.recipeID) or 0
+        local wanted = ChainWanted(item, "max") or CHAIN_MOST
+        local plan = PlanChain(item, wanted)
+        if plan and plan.crafts > craftable then
+            crafting[#crafting + 1] = { ("Craft %d, making materials first"):format(plan.crafts), function()
+                TryChainCraft(item, "max", true)
+            end }
+        elseif craftable < 1 then
+            local prep = PlanChain(item, wanted, true)
+            if prep and prep.prepOnly then
+                crafting[#crafting + 1] = { ("Make materials for %d (vendor items later)"):format(prep.crafts),
+                    function() TryChainCraft(item, "max", true) end }
+            end
+        end
     end
     local producer = CanTrackChain(item)
     if producer then

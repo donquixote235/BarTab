@@ -511,6 +511,87 @@ end
 
 function InvalidateSharedCounts()
     sharedCache = nil
+    makeableCache = nil
+end
+
+-- "Could make" on material bars -------------------------------------------------
+-- How many more of a bar's material you could make from what's in your bags
+-- with your own recipes (8 / 10 Thick Leather with Heavy Leather for 2 more:
+-- 2), several steps deep, the same way chain crafting plans. Up to what the
+-- bar is short. Cached until the next refresh.
+makeableCache = nil
+makeableReady = {} -- itemKey -> whether you could make the rest, for the alert
+MAKEABLE_ALPHA = 0.75
+
+function MakeableCount(item, count)
+    if item.container or IsOutputBar(item) then return 0 end
+    local short = (item.goal or 0) - count
+    if short <= 0 then return 0 end
+    makeableCache = makeableCache or {}
+    if makeableCache[item] then return makeableCache[item] end
+    local result, producer = 0, ProducerFor(ItemIDFor(item), item.name)
+    if producer then
+        local qty = math.max(1, producer.qty or 1)
+        local profession = item.profession or producer.profession
+        local otherProfession = item.profession and producer.profession
+            and string.lower(item.profession) ~= string.lower(producer.profession)
+        if not otherProfession or settings.chainOtherProfessions then
+            local function Can(n)
+                return ChainFeasible(producer.recipeID, n, {}, 0, { [producer.recipeID] = true }, {},
+                    producer.profession or profession)
+            end
+            local low, high = 0, math.min(math.ceil(short / qty), CHAIN_MOST)
+            while low < high do
+                local mid = math.floor((low + high + 1) / 2)
+                if Can(mid) then low = mid else high = mid - 1 end
+            end
+            result = math.min(short, low * qty)
+        end
+    end
+    makeableCache[item] = result
+    return result
+end
+
+-- The lighter stretch after what you have, and the alert when it covers the
+-- rest of the bar.
+function UpdateMakeable(bar, item, count, itemKey)
+    local makeable = 0
+    if item.recipeID or ProducerFor(ItemIDFor(item), item.name) then
+        local ok, value = pcall(MakeableCount, item, count)
+        makeable = ok and value or 0
+    end
+    bar.makeable = makeable
+    local range = item.goal - item.start
+    local width = bar:GetWidth()
+    if makeable > 0 and range > 0 and width and width > 0 then
+        if not bar.makeableFill then
+            bar.makeableFill = bar:CreateTexture(nil, "ARTWORK", nil, 1)
+            bar.makeableFill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        end
+        local from = math.max(count, item.start)
+        local to = math.min(item.goal, count + makeable)
+        local fill = bar.makeableFill
+        fill:SetVertexColor(READY_FILL[1], READY_FILL[2], READY_FILL[3])
+        fill:SetAlpha(MAKEABLE_ALPHA)
+        fill:ClearAllPoints()
+        fill:SetPoint("TOPLEFT", bar, "TOPLEFT", (from - item.start) / range * width, 0)
+        fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", (from - item.start) / range * width, 0)
+        fill:SetWidth(math.max(1, (to - from) / range * width))
+        fill:Show()
+    elseif bar.makeableFill then
+        bar.makeableFill:Hide()
+    end
+    -- Alert once when you go from short to able to make the rest (not the
+    -- first time a bar is seen, e.g. at login).
+    if itemKey and not item.inactive then
+        local ready = count < item.goal and count + makeable >= item.goal
+        local before = makeableReady[itemKey]
+        makeableReady[itemKey] = ready
+        if before == false and ready and settings.makeableAlerts ~= false then
+            PlayGoalAlert(("%s: you have the materials to make the rest (%d %s for %s)."):format(
+                item.name, item.goal - count, item.name, DisplayName(item)))
+        end
+    end
 end
 
 -- The count a bar shows: its share of a shared material, else all of it.
@@ -626,6 +707,7 @@ function RefreshBar(bar, item, includeName)
         craftText = " | Crafts: " .. craftable
     end
     UpdateSegments(bar, item, count, craftable)
+    UpdateMakeable(bar, item, count, bar.itemKey)
 
     -- Fill-up items: status text, and the item a click should use (read by the
     -- secure click overlay).

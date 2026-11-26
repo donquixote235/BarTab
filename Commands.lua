@@ -501,6 +501,13 @@ SlashCmdList.BARTAB = function(message)
             RestoreRemoved(tonumber(args) or 1)
         end
 
+    elseif command == "bank" then
+        if bankWindowOpen then
+            Safe("bank", OfferBankWithdrawals)(true)
+        else
+            Print("Open your bank first; BarTab then offers to take out what your bars are short of.")
+        end
+
     elseif command == "next" then
         Safe("profit", ShowCraftNext)(args)
 
@@ -549,7 +556,7 @@ SlashCmdList.BARTAB = function(message)
             .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], appearances on||off")
+        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], bank, appearances on||off")
         Print("Type /bartab help for a quick guide with examples.")
     end
 end
