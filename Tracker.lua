@@ -1027,6 +1027,36 @@ function DebugTracker(quiet)
             flags[#flags + 1] = ("sections=%d shown=%d"):format(count, shown)
         end
         if #flags > 0 then Line("tracker state: " .. table.concat(flags, " ")) end
+        -- Where things are: if the tracker stops laying itself out, a
+        -- section's place stops matching the sections above it.
+        local function Round(value) return value and math.floor(value + 0.5) or nil end
+        local function Place(frame)
+            local ok, top, bottom = pcall(function() return frame:GetTop(), frame:GetBottom() end)
+            if not ok then return "?" end
+            return ("top=%s bottom=%s"):format(tostring(Round(top)), tostring(Round(bottom)))
+        end
+        Line("tracker place: " .. Place(tracker))
+        local switches = {}
+        for field, value in pairs(tracker) do
+            if type(value) == "boolean" and type(field) == "string" then
+                switches[#switches + 1] = field .. "=" .. tostring(value)
+            end
+        end
+        table.sort(switches)
+        if #switches > 0 then Line("tracker switches: " .. table.concat(switches, " ")) end
+        if type(tracker.modules) == "table" then
+            for _, module in pairs(tracker.modules) do
+                if module.IsShown and module:IsShown() then
+                    local name = module.sectionName
+                    if not name and module.Header and module.Header.Text and module.Header.Text.GetText then
+                        name = module.Header.Text:GetText()
+                    end
+                    Line(("  section %s: %s height=%s collapsed=%s dirty=%s"):format(tostring(name or module.headerText or "?"),
+                        Place(module), tostring(module.GetHeight and Round(module:GetHeight())),
+                        tostring(module.collapsed or module.isCollapsed), tostring(module.isDirty)))
+                end
+            end
+        end
     else
         Line("tracker: ObjectiveTrackerFrame missing")
     end
@@ -1073,10 +1103,45 @@ function SnapshotTracker(reason)
     while #settings.trackerSnapshots > 6 do table.remove(settings.trackerSnapshots) end
 end
 
+-- When any other tracker section (Quests, All Objectives...) collapses or
+-- expands, the game doesn't always move BarTab's sections to match, which
+-- leaves them where they were (e.g. stuck at the bottom with a gap above).
+-- Redraw them right after. Hooked once per section, as sections appear.
+collapseHooked = setmetatable({}, { __mode = "k" })
+function HookTrackerCollapse()
+    if not hooksecurefunc then return end
+    local function Hook(target)
+        if type(target) ~= "table" or collapseHooked[target] then return end
+        for _, own in pairs(sectionModules) do
+            if own == target then return end
+        end
+        for _, method in ipairs({ "SetCollapsed", "ToggleCollapsed" }) do
+            if type(target[method]) == "function" then
+                pcall(hooksecurefunc, target, method, function() RequestUpdate(0.05) end)
+            end
+        end
+        collapseHooked[target] = true
+    end
+    local tracker = ObjectiveTrackerFrame
+    if not tracker then return end
+    Hook(tracker)
+    if type(tracker.modules) == "table" then
+        for _, module in pairs(tracker.modules) do Hook(module) end
+    end
+end
+
 -- Puts back any section the tracker dropped and redraws every bar.
-function RefreshTracker()
+-- full (/bartab refresh, out of combat): also ask the game's tracker to lay
+-- every section out again, in case it has stopped doing that itself.
+function RefreshTracker(full)
     if trackerAvailable and not panelActive then ReattachLostSections() end
     UpdateBars()
+    local tracker = ObjectiveTrackerFrame
+    if full and trackerAvailable and not panelActive and not InCombatLockdown()
+        and tracker and type(tracker.Update) == "function" then
+        local ok, err = pcall(tracker.Update, tracker)
+        if not ok then ReportError("refresh", err) end
+    end
 end
 
 -- The tracker has stopped updating after a level-up a few times. Note how it
@@ -1508,6 +1573,7 @@ UpdateBars = function()
         HideStandaloneBars()
         if not EnsureSectionModules() then RetrySectionsLater() end
         ReattachLostSections()
+        Safe("tracker hooks", HookTrackerCollapse)()
         for _, module in pairs(sectionModules) do
             module:MarkDirty()
         end
@@ -1516,6 +1582,7 @@ UpdateBars = function()
     end
 
     CheckGoalAlerts()
+    Safe("recipe list", RefreshRecipeListMarks)()
 end
 
 -- Ctrl-drag reordering ----------------------------------------------------

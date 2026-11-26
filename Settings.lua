@@ -300,6 +300,14 @@ function BuildConfigFrame()
         function() return settings.countDownDefault end,
         function(v) settings.countDownDefault = v or nil end)
 
+    y = AddCheck(page, y, "Mark tracked recipes in the profession window",
+        "A check mark beside each recipe you have bars for, in the profession window's recipe list.",
+        function() return settings.recipeListMarks ~= false end,
+        function(v)
+            settings.recipeListMarks = v
+            RefreshRecipeListMarks()
+        end)
+
     y = AddHeading(page, y - 6, "Shared materials")
     local sharedModes = {
         { key = "share", name = "Share out in list order" },

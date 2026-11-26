@@ -544,6 +544,99 @@ end
 -- selected recipe's ingredients; picking one tracks it for that recipe, the
 -- same as /bartab assign.
 
+-- Check marks on tracked recipes in the profession window's recipe list
+-- (settings.recipeListMarks, on unless turned off). Only a texture is added
+-- to each row; the rows themselves are left alone.
+function RecipeListScrollBox()
+    local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+    local list = page and page.RecipeList
+    return list and list.ScrollBox
+end
+
+function MarkRecipeRow(row, elementData)
+    if not row then return end
+    elementData = elementData or (row.GetElementData and row:GetElementData())
+    local data = elementData and elementData.GetData and elementData:GetData()
+    local recipeInfo = type(data) == "table" and data.recipeInfo
+    local recipeID = type(recipeInfo) == "table" and recipeInfo.recipeID
+    local show = settings.recipeListMarks ~= false and recipeID and IsTrackedRecipe(recipeID) or false
+    if show and not row.barTabMark then
+        local mark = row:CreateTexture(nil, "OVERLAY")
+        mark:SetSize(12, 12)
+        mark:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+        -- At the row's right edge: one column down the list, clear of the
+        -- skill-up arrows (at the left edge), the name and its "[3]" count,
+        -- and inside the row (the list hides anything drawn outside it).
+        mark:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        row.barTabMark = mark
+    end
+    if row.barTabMark then row.barTabMark:SetShown(show) end
+end
+
+function HookRecipeList()
+    if recipeListHooked then return end
+    local scrollBox = RecipeListScrollBox()
+    if not (scrollBox and ScrollUtil and ScrollUtil.AddAcquiredFrameCallback) then return end
+    ScrollUtil.AddAcquiredFrameCallback(scrollBox, function(_, row, elementData)
+        local ok, err = pcall(MarkRecipeRow, row, elementData)
+        if not ok then ReportError("recipe list", err) end
+    end, recipeListHookOwner, true)
+    recipeListHooked = true
+end
+recipeListHookOwner = {}
+
+-- /bartab debug recipes: where the parts of the tracked rows sit.
+function DebugRecipeList()
+    settings.debugLog = { "BarTab debug recipes" }
+    local function Line(text)
+        Print(text)
+        table.insert(settings.debugLog, text)
+    end
+    local scrollBox = RecipeListScrollBox()
+    Line(("hooked=%s open=%s list=%s"):format(tostring(recipeListHooked), tostring(ProfessionsOpen()),
+        tostring(scrollBox ~= nil)))
+    if not (scrollBox and scrollBox.ForEachFrame) then return end
+    local function Edge(region)
+        if type(region) ~= "table" or not region.GetLeft then return "none" end
+        local ok, left, right = pcall(function() return region:GetLeft(), region:GetRight() end)
+        local shown = region.IsShown and region:IsShown()
+        if not ok then return "?" end
+        return ("%s-%s%s"):format(tostring(left and math.floor(left)), tostring(right and math.floor(right)),
+            shown and "" or " hidden")
+    end
+    local count = 0
+    scrollBox:ForEachFrame(function(row)
+        local data = row.GetElementData and row:GetElementData()
+        data = data and data.GetData and data:GetData()
+        local info = type(data) == "table" and data.recipeInfo
+        if info and count < 4 and IsTrackedRecipe(info.recipeID) then
+            count = count + 1
+            local children = {}
+            for key, value in pairs(row) do
+                if type(key) == "string" and type(value) == "table" and value.GetObjectType then
+                    children[#children + 1] = key
+                end
+            end
+            table.sort(children)
+            Line(("%s: row %s, label %s, skillups %s, mark %s visible=%s"):format(tostring(info.name),
+                Edge(row), Edge(row.Label), Edge(row.SkillUps), Edge(row.barTabMark),
+                tostring(row.barTabMark and row.barTabMark.IsVisible and row.barTabMark:IsVisible())))
+            Line("  parts: " .. table.concat(children, ", "))
+        end
+    end)
+    if count == 0 then Line("No tracked recipes showing in the list.") end
+    Line("Saved for bug reports with /reload.")
+end
+
+-- Bars added or removed: update the marks on the rows showing now.
+function RefreshRecipeListMarks()
+    if not recipeListHooked or not ProfessionsOpen() then return end
+    local scrollBox = RecipeListScrollBox()
+    if scrollBox and scrollBox.ForEachFrame then
+        scrollBox:ForEachFrame(function(row) pcall(MarkRecipeRow, row) end)
+    end
+end
+
 -- How many bars a recipe has (fill-up items aside).
 function RecipeBarCount(recipeID)
     if not recipeID then return 0 end
@@ -577,6 +670,9 @@ function ShowProfessionMenu(owner)
     end
     entries[#entries + 1] = { "Make until I reach... (skill level)", function()
         AskSkillGoal(recipeID)
+    end }
+    entries[#entries + 1] = { "Track with settings...", function()
+        TrackWithOptions(recipeID)
     end }
     for _, reagent in ipairs(reagents) do
         local tracked = trackedItems[RecipeKey(reagent.name, recipeID)] ~= nil
@@ -695,9 +791,11 @@ do
     watcher:SetScript("OnEvent", function(_, event, arg1)
         if event ~= "ADDON_LOADED" or arg1 == "Blizzard_Professions" then
             pcall(CreateProfessionButton)
+            pcall(HookRecipeList)
         end
     end)
     pcall(CreateProfessionButton) -- never let this stop BarTab from loading
+    pcall(HookRecipeList)
 end
 
 

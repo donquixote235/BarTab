@@ -378,6 +378,8 @@ SlashCmdList.BARTAB = function(message)
             end
         elseif itemFilter then
             DebugItems(itemFilter)
+        elseif string.lower(args) == "recipes" then
+            Safe("debug", DebugRecipeList)()
         elseif string.lower(args) == "tracker" then
             Safe("debug", DebugTracker)()
         elseif string.lower(args) == "craft" then
@@ -430,7 +432,7 @@ SlashCmdList.BARTAB = function(message)
 
     elseif command == "refresh" then
         Safe("refresh", SnapshotTracker)("refresh, before")
-        Safe("refresh", RefreshTracker)()
+        Safe("refresh", RefreshTracker)(true)
         C_Timer.After(1, function() Safe("refresh", SnapshotTracker)("refresh, after") end)
         Print("Redrew the tracker sections. Details are saved for bug reports at your next /reload.")
 

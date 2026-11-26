@@ -631,7 +631,7 @@ end
 -- Sizing a recipe's bars by crafts (right-click > Crafts): 1, 5, 10, or as
 -- many as it takes to reach the next multiple of 5 in the profession (at
 -- 162 Leatherworking: 3 crafts, to 165), assuming a skill point a craft.
-function SizeRecipeBars(recipeID, crafts)
+function SizeRecipeBars(recipeID, crafts, quiet)
     local name
     for key, item in pairs(trackedItems) do
         if item.recipeID == recipeID and not item.container then
@@ -646,7 +646,7 @@ function SizeRecipeBars(recipeID, crafts)
             end
         end
     end
-    if name then
+    if name and not quiet then
         UpdateBars()
         Print(name .. ": bars sized for " .. crafts .. (crafts == 1 and " craft." or " crafts."))
     end
@@ -1792,6 +1792,254 @@ end
 -- again next session (or with /bartab appearances scan).
 APPEARANCE_PROMPT_ROWS = 6
 
+-- "Track with settings..." (the profession window's BarTab button): the same
+-- window with the recipe's settings below the ingredients, so the bars start
+-- out sized and set up rather than needing a trip to the right-click menu.
+TRACK_OPTIONS_HEIGHT = 112
+PROMPT_TITLES = {
+    appearance = "BarTab: new appearance", favorite = "BarTab: favorite recipe",
+    trainer = "BarTab: trainer recipe", skill = "BarTab: make until I reach",
+    track = "BarTab: track recipe",
+}
+STOP_CHOICES = { "never", "skill", "yellow", "green", "gray" }
+
+function TrackWithOptions(recipeID)
+    if not recipeID then
+        Print("Select the recipe in your profession window first.")
+        return
+    end
+    local profession, skillLineID = LoadedProfession()
+    if not profession then profession, skillLineID = RecipeProfession(recipeID) end
+    local reagents = GetRecipeReagents(recipeID)
+    if not reagents or #reagents == 0 then
+        Print("Couldn't read this recipe's ingredients.")
+        return
+    end
+    if (appearanceSummary and appearanceSummary:IsShown()) or #appearanceQueue > 0 then
+        Print("Finish the BarTab window that's open first.")
+        return
+    end
+    -- Start from the recipe's current settings if it already has bars.
+    local existing
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container and not IsOutputBar(item)
+            and (not existing or (item.order or 0) < (existing.order or 0)) then
+            existing = item
+        end
+    end
+    local options = {
+        crafts = math.max(1, existing and SizedCrafts(existing) or 1),
+        afterCraft = existing and existing.afterCraft or "keep",
+        untilSkill = existing and existing.untilSkill or nil,
+        untilColor = existing and existing.untilColor or nil,
+    }
+    if existing then
+        options.countDown = CountsDown(existing)
+    else
+        options.countDown = settings.countDownDefault and true or false
+    end
+    appearanceQueue[1] = { recipeID = recipeID, outputID = GetRecipeOutput(recipeID),
+        profession = profession, skillLineID = skillLineID, kind = "track",
+        crafts = options.crafts, options = options }
+    ShowAppearancePrompt()
+end
+
+-- The next multiple of 5 in the recipe's profession (capped), and the
+-- current skill; nil if the skill can't be read.
+function NextSkillTier(entry)
+    local skill, profession, cap = GetProfessionSkill({ recipeID = entry.recipeID,
+        profession = entry.profession, skillLineID = entry.skillLineID })
+    if not skill then return nil end
+    local tier = (math.floor(skill / 5) + 1) * 5
+    if cap and cap > 0 then tier = math.min(tier, cap) end
+    return tier, skill, profession or entry.profession
+end
+
+-- "4 Heavy Leather" at the current size; "(tracked)" for ones already tracked.
+function UpdatePromptLabels(frame)
+    local entry = frame.entry
+    if not entry then return end
+    for _, check in ipairs(frame.checks) do
+        if check:IsShown() and check.reagent then
+            check.label:SetText((check.reagent.need * (entry.crafts or 1)) .. " " .. check.reagent.name
+                .. (check.tracked and "  |cff808080(tracked)|r" or ""))
+        end
+    end
+end
+
+local function StopText(options)
+    if options.untilColor then return "Stop tracking: when it turns " .. options.untilColor end
+    if options.untilSkill ~= nil then return "Stop tracking: at skill" end
+    return "Stop tracking: never"
+end
+
+local function AfterText(options)
+    for _, mode in ipairs(AFTER_CRAFT_MODES) do
+        if mode.key == (options.afterCraft or "keep") then return "After crafting: " .. mode.phrase end
+    end
+    return "After crafting: keep the bar"
+end
+
+function CreateTrackOptions(frame)
+    local panel = CreateFrame("Frame", nil, frame)
+    panel:SetSize(288, TRACK_OPTIONS_HEIGHT)
+
+    local craftsLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    craftsLabel:SetPoint("TOPLEFT", 4, -6)
+    craftsLabel:SetText("Crafts:")
+    local craftsBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    craftsBox:SetSize(44, 20)
+    craftsBox:SetPoint("LEFT", craftsLabel, "RIGHT", 10, 0)
+    craftsBox:SetAutoFocus(false)
+    craftsBox:SetNumeric(true)
+    craftsBox:SetMaxLetters(4)
+    craftsBox:SetScript("OnTextChanged", function(self)
+        local entry = frame.entry
+        local crafts = tonumber(self:GetText())
+        if entry and entry.options and crafts and crafts >= 1 then
+            entry.crafts, entry.options.crafts = crafts, crafts
+            UpdatePromptLabels(frame)
+        end
+    end)
+    craftsBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    craftsBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    panel.craftsBox = craftsBox
+
+    local tierButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    tierButton:SetSize(150, 22)
+    tierButton:SetPoint("LEFT", craftsBox, "RIGHT", 10, 0)
+    tierButton:SetScript("OnClick", function(self)
+        if self.crafts then craftsBox:SetText(tostring(self.crafts)) end
+    end)
+    panel.tierButton = tierButton
+
+    local afterButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    afterButton:SetSize(288, 22)
+    afterButton:SetPoint("TOPLEFT", 0, -32)
+    afterButton:SetScript("OnClick", function(self)
+        local options = frame.entry and frame.entry.options
+        if not options then return end
+        local index = 1
+        for i, mode in ipairs(AFTER_CRAFT_MODES) do
+            if mode.key == (options.afterCraft or "keep") then index = i end
+        end
+        options.afterCraft = AFTER_CRAFT_MODES[index % #AFTER_CRAFT_MODES + 1].key
+        self:SetText(AfterText(options))
+    end)
+    panel.afterButton = afterButton
+
+    local stopButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    stopButton:SetSize(230, 22)
+    stopButton:SetPoint("TOPLEFT", 0, -60)
+    local stopBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    stopBox:SetSize(44, 20)
+    stopBox:SetPoint("LEFT", stopButton, "RIGHT", 12, 0)
+    stopBox:SetAutoFocus(false)
+    stopBox:SetNumeric(true)
+    stopBox:SetMaxLetters(4)
+    stopBox:SetScript("OnTextChanged", function(self)
+        local options = frame.entry and frame.entry.options
+        if options and options.untilSkill ~= nil then
+            options.untilSkill = tonumber(self:GetText()) or false
+        end
+    end)
+    stopBox:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    stopBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    stopButton:SetScript("OnClick", function(self)
+        local entry = frame.entry
+        local options = entry and entry.options
+        if not options then return end
+        local current = options.untilColor or (options.untilSkill ~= nil and "skill") or "never"
+        local index = 1
+        for i, key in ipairs(STOP_CHOICES) do
+            if key == current then index = i end
+        end
+        local nextKey = STOP_CHOICES[index % #STOP_CHOICES + 1]
+        options.untilSkill, options.untilColor = nil, nil
+        if nextKey == "skill" then
+            options.untilSkill = NextSkillTier(entry) or false
+            stopBox:SetText(options.untilSkill and tostring(options.untilSkill) or "")
+        elseif nextKey ~= "never" then
+            options.untilColor = nextKey
+        end
+        stopBox:SetShown(options.untilSkill ~= nil)
+        self:SetText(StopText(options))
+    end)
+    panel.stopButton, panel.stopBox = stopButton, stopBox
+
+    local countCheck = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    countCheck:SetSize(24, 24)
+    countCheck:SetPoint("TOPLEFT", 0, -86)
+    if type(countCheck.Text) == "table" then countCheck.Text:SetText("") end
+    local countLabel = countCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    countLabel:SetPoint("LEFT", countCheck, "RIGHT", 4, 0)
+    countLabel:SetText("Count down as you craft")
+    countCheck:SetScript("OnClick", function(self)
+        local options = frame.entry and frame.entry.options
+        if options then options.countDown = self:GetChecked() and true or false end
+    end)
+    panel.countCheck = countCheck
+
+    panel:Hide()
+    return panel
+end
+
+function FillTrackOptions(panel, entry)
+    local options = entry.options
+    panel.craftsBox:SetText(tostring(options.crafts or 1))
+    local tier, skill, profession = NextSkillTier(entry)
+    if tier and tier > skill then
+        panel.tierButton.crafts = tier - skill
+        panel.tierButton:SetText(("To %s %d"):format(profession or "skill", tier))
+        panel.tierButton:Show()
+    else
+        panel.tierButton.crafts = nil
+        panel.tierButton:Hide()
+    end
+    panel.afterButton:SetText(AfterText(options))
+    panel.stopButton:SetText(StopText(options))
+    panel.stopBox:SetText(options.untilSkill and tostring(options.untilSkill) or "")
+    panel.stopBox:SetShown(options.untilSkill ~= nil)
+    panel.countCheck:SetChecked(options.countDown and true or false)
+end
+
+-- After Track in the "Track with settings..." window: size and set up all of
+-- the recipe's bars (new and existing ones alike).
+function ApplyTrackOptions(entry, name)
+    local recipeID, options = entry.recipeID, entry.options
+    local crafts = math.max(1, math.floor(tonumber(options.crafts) or 1))
+    SizeRecipeBars(recipeID, crafts, true)
+    local afterCraft = (options.afterCraft ~= "keep") and options.afterCraft or nil
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container then
+            item.afterCraft = afterCraft
+            if not IsOutputBar(item) then item.countDown = options.countDown and true or false end
+        end
+    end
+    local level = options.untilSkill or nil
+    local _, skill, profession = NextSkillTier(entry)
+    if level and skill and level <= skill then
+        Print(("Your %s is already %d, so no skill level to stop at was set."):format(profession or "skill", skill))
+        level = nil
+    end
+    SetStopRule(recipeID, level, options.untilColor, true)
+    UpdateBars()
+
+    local parts = { crafts .. (crafts == 1 and " craft" or " crafts") }
+    if afterCraft then
+        for _, mode in ipairs(AFTER_CRAFT_MODES) do
+            if mode.key == afterCraft then parts[#parts + 1] = "after crafting, " .. mode.phrase end
+        end
+    end
+    if level then
+        parts[#parts + 1] = ("stops at %s %d"):format(profession or "skill", level)
+    elseif options.untilColor then
+        parts[#parts + 1] = "stops when it turns " .. ColorText(options.untilColor)
+    end
+    if options.countDown then parts[#parts + 1] = "counts down as you craft" end
+    Print(("Tracking %s: %s."):format(name, table.concat(parts, "; ")))
+end
+
 function CreateAppearancePrompt()
     local ok, frame = pcall(CreateFrame, "Frame", "BarTabAppearanceFrame", UIParent,
         "BasicFrameTemplateWithInset")
@@ -1822,9 +2070,9 @@ function CreateAppearancePrompt()
     frame:SetClampedToScreen(true)
     tinsert(UISpecialFrames, "BarTabAppearanceFrame") -- Escape closes it
 
-    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    title:SetPoint("TOP", 0, -6)
-    title:SetText("BarTab: new appearance")
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.title:SetPoint("TOP", 0, -6)
+    frame.title:SetText("BarTab: new appearance")
 
     frame.text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     frame.text:SetPoint("TOPLEFT", 16, -32)
@@ -1842,6 +2090,7 @@ function CreateAppearancePrompt()
     end
 
     frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    frame.options = CreateTrackOptions(frame)
 
     local track = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     track:SetSize(110, 22)
@@ -1901,15 +2150,17 @@ function ShowAppearancePrompt()
         appearancePrompt = frame
     end
     frame.entry, frame.reagents = entry, reagents
+    frame.title:SetText(PROMPT_TITLES[entry.kind or "appearance"] or PROMPT_TITLES.appearance)
     local recipeName = GetRecipeName(entry.recipeID) or GetItemNameByID(entry.outputID) or "This recipe"
     frame.text:SetText(recipeName .. (entry.kind == "skill" and (" until " .. (entry.profession or "skill") .. " "
             .. entry.level .. " (at least " .. entry.crafts .. (entry.crafts == 1 and " craft" or " crafts")
             .. "). Track ingredients for that many:")
+        or entry.kind == "track" and ": tick the ingredients to track, and set the recipe up."
         or entry.kind == "favorite" and " is a favorite recipe."
         or entry.kind == "trainer" and (entry.notLearned and (" (not learned yet"
             .. (entry.needSkill and ("; needs " .. entry.needSkill) or "") .. ").") or ".")
         or " makes an appearance you haven't collected.")
-        .. (entry.kind == "skill" and "" or " Track one craft's worth of:"))
+        .. ((entry.kind == "skill" or entry.kind == "track") and "" or " Track one craft's worth of:"))
     local textHeight = frame.text:GetStringHeight() or 24
     local y = -36 - textHeight
     local main = MainReagentIndex(reagents)
@@ -1918,13 +2169,31 @@ function ShowAppearancePrompt()
         if reagent then
             check:ClearAllPoints()
             check:SetPoint("TOPLEFT", 16, y)
-            check.label:SetText((reagent.need * (entry.crafts or 1)) .. " " .. reagent.name)
-            check:SetChecked(i == main or settings.appearanceBars == "all")
+            check.reagent = reagent
+            if entry.kind == "track" then
+                -- The main ingredient, plus any the recipe already tracks.
+                local tracked = trackedItems[RecipeKey(reagent.name, entry.recipeID)] ~= nil
+                check.tracked = tracked
+                check:SetChecked(i == main or tracked)
+            else
+                check.tracked = nil
+                check:SetChecked(i == main or settings.appearanceBars == "all")
+            end
             check:Show()
             y = y - 24
         else
             check:Hide()
         end
+    end
+    UpdatePromptLabels(frame)
+    if entry.kind == "track" then
+        frame.options:ClearAllPoints()
+        frame.options:SetPoint("TOPLEFT", 16, y - 6)
+        FillTrackOptions(frame.options, entry)
+        frame.options:Show()
+        y = y - 6 - TRACK_OPTIONS_HEIGHT
+    else
+        frame.options:Hide()
     end
     local waiting = #appearanceQueue - 1
     frame.more:ClearAllPoints()
@@ -1962,6 +2231,8 @@ function AnswerAppearancePrompt(answer)
                     name, entry.profession or "skill", entry.level, entry.crafts, entry.crafts == 1 and "craft" or "crafts"))
             elseif name and entry.kind == "trainer" then
                 MarkTrainerBars(entry, name)
+            elseif name and entry.kind == "track" then
+                ApplyTrackOptions(entry, name)
             elseif name then
                 AnnounceAppearanceBars({ name }, entry.kind)
             end

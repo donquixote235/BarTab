@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.60.1.3
+
+- "Track with settings..." on the profession window's BarTab button opens the ingredients window with the recipe's settings below it: how many crafts to size the bars for (with a button for the next skill tier), After crafting, Stop tracking (at a skill level or a recipe color), and Count down as you craft. Track creates the bars already set up. If the recipe already has bars, the window starts from their settings, and Track applies the new ones to all of them.
+- Tracked recipes get a check mark at the right end of their row in the profession window's recipe list. Turn it off with "Mark tracked recipes in the profession window" on the Crafting tab in settings.
+- BarTab now redraws its sections whenever another tracker section (Quests, All Objectives) collapses or expands, so they follow it.
+- Sometimes the whole tracker stops laying itself out, leaving BarTab's sections stuck with a gap above them until a /reload. `/bartab refresh` (out of combat) now also asks the tracker to lay itself out again, and its saved details now include where each section sits, to help track down the cause.
+- The ingredients window's title now says what it's for (track recipe, make until I reach, trainer recipe, favorite recipe), not always "new appearance".
+
 ## 1.60.1.2
 
 BarTab's version now follows WoW Forever's (1.60.1), plus a number for BarTab's own releases. 1.6 was the first public release (1.60.1.1).

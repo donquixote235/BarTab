@@ -35,7 +35,11 @@ A section only appears when it has something to show.
   selected recipe's ingredients in one click. Once the recipe has bars, the
   same button also has Crafts, After crafting, Count down as you craft, Stop
   tracking, and Untrack this recipe, for all of its bars at once, and shows a
-  check mark while the selected recipe has bars.
+  check mark while the selected recipe has bars. "Track with settings..." on
+  the same button picks the ingredients and sets the recipe up (crafts, After
+  crafting, Stop tracking, Count down) in one window.
+- Tracked recipes have a check mark beside them in the profession window's
+  recipe list (on/off in settings).
 - "Focus on" (right-click) shows just one ingredient of a recipe.
 - Hovering an item you track anywhere adds a line per bar, e.g. "BarTab: 4/5 for Hillman's Cloak" (on/off in settings).
 - At the auction house, a BarTab tab on the right edge opens a list of what your bars are short of, with a Search button for each (on/off in settings). Inactive bars are left out unless you tick "Include Inactive bars in the list".
