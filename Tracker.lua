@@ -13,6 +13,7 @@ ITEM_SECTION = "BarTab: Items"
 CRAFT_SECTION = "BarTab: Crafting"
 INACTIVE_GROUP = "Inactive"
 OTHER_GROUP = "Other"          -- crafting items with no recipe
+ALT_GROUP = "For your other characters" -- what your alts' bars are short of
 
 -- Crafting, then Items.
 SECTION_ORDER = { [CRAFT_SECTION] = 1, [ITEM_SECTION] = 2 }
@@ -25,6 +26,7 @@ end
 -- Subsections alphabetically, then Other, then Inactive last.
 function GroupRank(name)
     if name == INACTIVE_GROUP then return 2 end
+    if name == ALT_GROUP then return 1.5 end
     if name == OTHER_GROUP then return 1 end
     return 0
 end
@@ -104,6 +106,7 @@ function GetGroup(item)
     if item.container then
         return item.container.name
     end
+    if item.altNeed then return ALT_GROUP end
     if not item.recipeID then
         return OTHER_GROUP
     end

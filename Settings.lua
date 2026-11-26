@@ -474,6 +474,14 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    y = AddCheck(page, y, "Show what my other characters need",
+        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for Vespera\"), filling as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it.",
+        function() return settings.altShopping end,
+        function(v)
+            settings.altShopping = v or nil
+            Safe("alt shopping", SyncAltNeedBars)()
+        end)
+
     y = AddHeading(page, y - 6, "Auction house")
     y = AddCheck(page, y, "Add a BarTab tab beside the auction house",
         "A tab on the auction house's right edge (beside any other addons' tabs) that opens a list of what your bars are short of, each with a Search button. Stays open while you browse results.",

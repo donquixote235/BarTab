@@ -283,6 +283,16 @@ function ShowBarTooltip(owner)
         return
     end
 
+    if item and item.altNeed then
+        GameTooltip:SetText(DisplayName(item))
+        GameTooltip:AddLine(("%s's bars are short %d %s (from their last saved bags and bank)."):format(
+            item.altName, item.goal, item.name), 1, 1, 1, true)
+        GameTooltip:AddLine("Gather them, and BarTab offers to mail them at a mailbox.", 0.5, 1, 0.5, true)
+        AddStorageLines(item.name)
+        GameTooltip:AddLine("Right-click: hide it, or turn this off", 0.7, 0.7, 0.7)
+        GameTooltip:Show()
+        return
+    end
     if not item or not item.recipeID then
         GameTooltip:SetText(item and item.name or "No recipe assigned")
         if item then

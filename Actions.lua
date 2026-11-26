@@ -390,6 +390,23 @@ ShowItemMenu = function(owner, itemKey)
     if not item then return end
     GameTooltip:Hide()
 
+    -- A bar for another character's needs: only hiding makes sense here.
+    if item.altNeed then
+        ShowMenu(owner, DisplayName(item), {
+            { "Don't show this for " .. item.altName, function()
+                settings.altShopHidden = settings.altShopHidden or {}
+                settings.altShopHidden[itemKey] = true
+                SyncAltNeedBars()
+            end },
+            { "Turn off shopping for other characters", function()
+                settings.altShopping = nil
+                SyncAltNeedBars()
+                Print("Shopping for other characters is off (Shopping tab in /bartab config to turn it on).")
+            end },
+        })
+        return
+    end
+
     -- Only offered while a profession window is open with a recipe selected.
     local selectedRecipeID = GetSelectedRecipeID()
 
@@ -1258,7 +1275,7 @@ function UnescapeField(text)
 end
 
 function IsShareable(item)
-    return item and not item.container
+    return item and not item.container and not item.altNeed
 end
 
 function ExportKeys(keys)

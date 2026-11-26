@@ -55,6 +55,7 @@ HELP_TOPICS = {
         "  At a vendor that sells what your recipes are short of (thread, dye, vials), BarTab asks to buy it.",
         "  At your bank, it offers to take out what your bars are short of (" .. cmd("/bartab bank") .. " asks again).",
         "  At a mailbox, it offers to mail your other characters what their bars need and you have spare (" .. cmd("/bartab mail") .. ").",
+        "  Optionally, bars for what your other characters need, so you can gather for them (" .. cmd("/bartab config") .. " > Shopping).",
         "  " .. cmd("/bartab config") .. " > Shopping: ask, automatic or off; a spend limit; only buy for crafts your bars cover.",
         "  At the auction house, the BarTab tab on the right edge lists what you're short of, with Search buttons.",
         "  Hover any item you track to see lines like \"BarTab: 4/5 for Hillman's Cloak\".",

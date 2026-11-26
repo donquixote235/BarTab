@@ -2,6 +2,7 @@
 
 ## 1.60.1.10
 
+- Shopping for your other characters (optional; Shopping tab, "Show what my other characters need"): a "For your other characters" subsection under BarTab: Crafting with a bar for each material their bars are short of ("Copper Ore for Vespera"), filling as you gather; your own bars claim what you carry first. When one fills you get the goal alert, and the mailbox prompt offers to send it. Needs come from their bars and last saved bags and bank, less anything you've mailed them. Right-click a bar to hide it. These bars aren't saved with your own and don't count for vendor buying, the bank or sharing.
 - The profit window searches again by itself while item details are still arriving from the game (common the first time you look at an alt's profession), instead of asking you to click Search; recipes and material names fill in within a few seconds.
 - Free gathered materials say whose skill it is: "from Padoo's Mining" for an alt's, "from your Skinning" for your own.
 

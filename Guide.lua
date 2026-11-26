@@ -109,6 +109,7 @@ GUIDE_PAGES = {
             .. "At your bank, BarTab offers to take out what your bars are short of, moving only as much as you need. " .. C("/bartab bank") .. " asks again while the bank is open.\n\n"
             .. H("Your other characters") .. "\n\n"
             .. "At a mailbox, BarTab offers to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals: ore for your blacksmith, leather for your leatherworker. It sends exact amounts, one letter per character. " .. C("/bartab mail") .. " asks again. Their needs come from their bars and their last saved bags and bank.\n\n"
+            .. "Tick \"Show what my other characters need\" (Shopping settings) for a " .. H("For your other characters") .. " subsection under BarTab: Crafting: a bar per material their bars are short of (" .. C("Copper Ore for Vespera") .. "), filling as you gather, after your own bars take what they need.\n\n"
             .. H("The auction house") .. "\n\n"
             .. "A BarTab tab on the auction house's right edge opens a list of what your bars are short of, each with a Search button.\n\n"
             .. "All of these can ask first, act automatically, or be turned off in the settings (Shopping tab).",

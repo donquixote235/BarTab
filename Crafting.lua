@@ -382,6 +382,11 @@ function CraftItem(itemKey, action)
         return
     end
 
+    if item and item.altNeed then
+        Print(("%s's bars need %d %s; gather them and BarTab offers to mail them at a mailbox."):format(
+            item.altName, item.goal, item.name))
+        return
+    end
     if not item or not item.recipeID then
         Print("No recipe assigned to this item.")
         return
@@ -1279,7 +1284,7 @@ function NoteRemovedBars()
         end
         local added = false
         for key, item in pairs(trackedItems) do
-            if not item.container and not shadow.items[key] then added = true end
+            if not item.container and not item.altNeed and not shadow.items[key] then added = true end
         end
         if #gone > 0 then
             table.sort(gone, function(a, b) return (a.item.order or 0) < (b.item.order or 0) end)
@@ -1301,7 +1306,7 @@ function NoteRemovedBars()
     -- Snapshot for next time. A different list (logging in) starts fresh.
     local items = {}
     for key, item in pairs(trackedItems) do
-        if not item.container then items[key] = { ref = item, copy = DeepCopy(item) } end
+        if not item.container and not item.altNeed then items[key] = { ref = item, copy = DeepCopy(item) } end
     end
     shadow.list, shadow.items = trackedItems, items
 end
@@ -3986,7 +3991,7 @@ function GetShortages(forAuction, sold)
         local section = GetSection(item)
         -- Inactive bars only on the auction house list, and only with
         -- settings.auctionInactive (shelved or not-yet-learned recipes).
-        if not item.container and (not item.inactive or (forAuction and settings.auctionInactive))
+        if not item.container and not item.altNeed and (not item.inactive or (forAuction and settings.auctionInactive))
             and (forAuction or not (item.noVendor or item.notLearned))
             and (section == CRAFT_SECTION or (forAuction and section == ITEM_SECTION)) then
             local key = string.lower(item.name)
@@ -4511,7 +4516,7 @@ mailboxOpen = false
 function BarNeeds(list)
     local needs, names = {}, {}
     for _, item in pairs(list or {}) do
-        if not item.container and not item.inactive and item.goal and item.goal > 0 then
+        if not item.container and not item.inactive and not item.altNeed and item.goal and item.goal > 0 then
             local id = ItemIDFor(item)
             if id then
                 needs[id] = (needs[id] or 0) + item.goal
@@ -4522,21 +4527,15 @@ function BarNeeds(list)
     return needs, names
 end
 
--- { { to = "Vespera", character = key, itemID, name, count }, ... }
-function FindMailSends()
+-- What your other characters' bars are short of (same realm and faction):
+-- { { to = "Vespera", character = key, itemID, name, short }, ... }, from
+-- their bars and last saved bags and bank, less what you've mailed them.
+function AltShortfalls()
     local me = CharacterKey()
     local myRealm = me:match("%-(.*)$")
     local myFaction = UnitFactionGroup and UnitFactionGroup("player")
-    local scan = ScanBags()
-    -- What's spare here: bags less your own bars' goals.
-    local myNeeds = BarNeeds(trackedItems)
-    local spare = {}
-    for id, count in pairs(scan.byID) do
-        local left = count - (myNeeds[id] or 0)
-        if left > 0 then spare[id] = left end
-    end
     settings.mailed = settings.mailed or {}
-    local sends = {}
+    local list = {}
     local characters = (BarTabDB and BarTabDB.characters) or {}
     local keys = {}
     for key in pairs(characters) do keys[#keys + 1] = key end
@@ -4556,13 +4555,33 @@ function FindMailSends()
                 local have = ((snapshot.bags or {})[id] or 0) + ((snapshot.bank or {})[id] or 0)
                     + ((mailed and mailed.items[id]) or 0)
                 local short = need - have
-                if short > 0 and (spare[id] or 0) > 0 then
-                    local count = math.min(short, spare[id])
-                    spare[id] = spare[id] - count
-                    sends[#sends + 1] = { to = CharacterName(key), character = key, itemID = id,
-                        name = names[id] or GetItemNameByID(id) or ("item " .. id), count = count }
+                if short > 0 then
+                    list[#list + 1] = { to = CharacterName(key), character = key, itemID = id,
+                        name = names[id] or GetItemNameByID(id) or ("item " .. id), short = short }
                 end
             end
+        end
+    end
+    return list
+end
+
+-- { { to = "Vespera", character = key, itemID, name, count }, ... }
+function FindMailSends()
+    local scan = ScanBags()
+    -- What's spare here: bags less your own bars' goals.
+    local myNeeds = BarNeeds(trackedItems)
+    local spare = {}
+    for id, count in pairs(scan.byID) do
+        local left = count - (myNeeds[id] or 0)
+        if left > 0 then spare[id] = left end
+    end
+    local sends = {}
+    for _, need in ipairs(AltShortfalls()) do
+        if (spare[need.itemID] or 0) > 0 then
+            local count = math.min(need.short, spare[need.itemID])
+            spare[need.itemID] = spare[need.itemID] - count
+            sends[#sends + 1] = { to = need.to, character = need.character, itemID = need.itemID,
+                name = need.name, count = count }
         end
     end
     table.sort(sends, function(a, b)
@@ -4741,6 +4760,7 @@ function OnMailSent(success)
         end
     end
     settings.mailed[letter.character] = mailed
+    Safe("alt shopping", SyncAltNeedBars)()
     job.attached = 0
     -- More of this letter's items (over 12 stacks)? Another letter to them.
     local more = false
@@ -4748,6 +4768,71 @@ function OnMailSent(success)
     if not more then job.index = job.index + 1 end
     C_Timer.After(0.5, MailStep)
 end
+
+-- Shopping for your other characters ----------------------------------------------
+-- With settings.altShopping, the Crafting section gets a "For your other
+-- characters" subsection: a bar per material their bars are short of
+-- ("Copper Ore for Vespera"), counting what you carry (your own bars claim
+-- it first). These bars are made fresh each session and never saved: they're
+-- taken out at logout. settings.altShopHidden[key] hides one.
+function AltNeedKey(character, itemID)
+    return "altneed:" .. character .. ":" .. itemID
+end
+
+function SyncAltNeedBars()
+    local wanted = {}
+    if settings.altShopping then
+        settings.altShopHidden = settings.altShopHidden or {}
+        for _, need in ipairs(AltShortfalls()) do
+            local key = AltNeedKey(need.character, need.itemID)
+            if not settings.altShopHidden[key] then wanted[key] = need end
+        end
+    end
+    local changed = false
+    for key, item in pairs(trackedItems) do
+        if item.altNeed and not wanted[key] then
+            trackedItems[key] = nil
+            changed = true
+        end
+    end
+    local order = 100000
+    for key, need in pairs(wanted) do
+        local item = trackedItems[key]
+        if not item then
+            item = { altNeed = true, start = 0 }
+            trackedItems[key] = item
+            changed = true
+        end
+        if item.goal ~= need.short then changed = true end
+        item.name, item.itemID, item.goal = need.name, need.itemID, need.short
+        item.altName, item.altCharacter = need.to, need.character
+        item.label = need.name .. " for " .. need.to
+        order = order + 1
+        item.order = item.order and item.order >= 100000 and item.order or order
+    end
+    if changed then UpdateBars() end
+end
+
+-- Never saved: out at logout (and at login, in case a session ended badly).
+function RemoveAltNeedBars()
+    for key, item in pairs(trackedItems) do
+        if item.altNeed then trackedItems[key] = nil end
+    end
+end
+
+altShopWatcher = CreateFrame("Frame")
+pcall(altShopWatcher.RegisterEvent, altShopWatcher, "PLAYER_LOGOUT")
+pcall(altShopWatcher.RegisterEvent, altShopWatcher, "PLAYER_LOGIN")
+altShopWatcher:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGOUT" then
+        pcall(RemoveAltNeedBars)
+    else
+        C_Timer.After(4, function()
+            pcall(RemoveAltNeedBars)
+            Safe("alt shopping", SyncAltNeedBars)()
+        end)
+    end
+end)
 
 -- force: /bartab mail (asks even with the setting off).
 function OfferMailSends(force)
