@@ -168,8 +168,13 @@ function ProfitRow(recipeID, options, state)
     if not income then return nil end
     local cost, lines = 0, {}
     local leftOut
+    -- A material whose name hasn't arrived yet: wait for it, as for prices.
+    local reagents = GetRecipeReagents(recipeID) or {}
+    for _, reagent in ipairs(reagents) do
+        if reagent.name and reagent.name:find("^item %d+$") then return "loading" end
+    end
     state.visiting[outputID] = true
-    for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
+    for _, reagent in ipairs(reagents) do
         local each, how
         local vendor = VendorBuyPrice(reagent.itemID)
         local mode = options.itemMode[reagent.itemID]
@@ -188,7 +193,10 @@ function ProfitRow(recipeID, options, state)
             end
         elseif mode == nil and options.gather
             and CanGather(reagent.itemID, reagent.name, state.skills) then
-            each, how = 0, "from your " .. CanGather(reagent.itemID, reagent.name, state.skills)
+            local skill = CanGather(reagent.itemID, reagent.name, state.skills)
+            local holder = state.skills[string.lower(skill)]
+            each = 0
+            how = (type(holder) == "string") and ("from " .. holder .. "'s " .. skill) or ("from your " .. skill)
         elseif mode == nil and options.missing == "skip" then
             leftOut = "skipped"
             break
@@ -314,12 +322,22 @@ function ProfitRecipeSources(profession, includeAlts)
 end
 
 -- Gathering skills of every character (with "include my characters").
+-- Your own skills are true; an alt's are that character's name, for
+-- "from Padoo's Mining".
 function AllGatherSkills()
     local skills = GatherSkills()
-    for _, index in pairs(settings.recipeIndex or {}) do
-        for _, entry in pairs(index) do
-            local name = entry.profession and string.lower(entry.profession)
-            if name == "mining" or name == "herbalism" or name == "skinning" then skills[name] = true end
+    local me = CharacterKey()
+    local keys = {}
+    for character in pairs(settings.recipeIndex or {}) do keys[#keys + 1] = character end
+    table.sort(keys)
+    for _, character in ipairs(keys) do
+        if character ~= me then
+            for _, entry in pairs(settings.recipeIndex[character]) do
+                local name = entry.profession and string.lower(entry.profession)
+                if (name == "mining" or name == "herbalism" or name == "skinning") and not skills[name] then
+                    skills[name] = CharacterName(character)
+                end
+            end
         end
     end
     return skills
@@ -409,7 +427,22 @@ function RunProfitSearch(keepOffset)
     if unpriced > 0 then notes[#notes + 1] = unpriced .. " left out (no auction price for an ingredient)" end
     if skipped > 0 then notes[#notes + 1] = skipped .. " left out (missing materials)" end
     if noAuction > 0 then notes[#notes + 1] = noAuction .. " with no auction price yet" end
-    if loading > 0 then notes[#notes + 1] = loading .. " still loading: search again in a moment" end
+    -- Item details the game hasn't sent yet (often an alt's recipes):
+    -- search again by itself a few times as they arrive.
+    if loading > 0 then
+        frame.loadRetries = (frame.loadRetries or 0) + 1
+        if frame.loadRetries <= 6 then
+            notes[#notes + 1] = loading .. " more loading, updating in a moment"
+            C_Timer.After(1.5, function()
+                if profitWindow and profitWindow:IsShown() then Safe("profit", RunProfitSearch)(true) end
+            end)
+        else
+            notes[#notes + 1] = loading .. " still loading: click Search to try again"
+            frame.loadRetries = 0
+        end
+    else
+        frame.loadRetries = 0
+    end
     frame.status:SetText(table.concat(notes, "  ·  "))
     RefreshProfitRows()
 end

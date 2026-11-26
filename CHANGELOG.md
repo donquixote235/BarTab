@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.60.1.10
+
+- The profit window searches again by itself while item details are still arriving from the game (common the first time you look at an alt's profession), instead of asking you to click Search; recipes and material names fill in within a few seconds.
+- Free gathered materials say whose skill it is: "from Padoo's Mining" for an alt's, "from your Skinning" for your own.
+
 ## 1.60.1.9
 
 - The user's guide's What's new, Profit and leveling, and Managing bars pages cover the alts features.
