@@ -4640,7 +4640,8 @@ function FinishMailJob(problem)
     local job = mailJob
     mailJob = nil
     if not job then return end
-    if #job.sent > 0 then Print("Mailed " .. JoinNames(job.sent, 8) .. ".") end
+    if #job.sent > 0 then Print("Mailed " .. table.concat(job.sent, "; ") .. ".") end
+    if job.missing then Print("Couldn't find " .. JoinNames(job.missing, 6) .. " in your bags to attach.") end
     if problem then Print(problem) end
 end
 
@@ -4668,8 +4669,10 @@ function MailStep()
             return
         end
         -- A stack of it in your bags that isn't mid-move.
+        -- Every bag you carry, the reagent bag included (herbs and leather
+        -- often sit there).
         local fromBag, fromSlot, stack, busy
-        for bag = 0, NUM_BAG_SLOTS or 4 do
+        for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
             for slot = 1, ContainerSlots(bag) do
                 local itemID, count, locked = ContainerItem(bag, slot)
                 if itemID == send.itemID then
@@ -4683,6 +4686,10 @@ function MailStep()
             if busy and job.waits < 20 then
                 job.waits = job.waits + 1
             else
+                if (send.sentNow or 0) == 0 and send.left == send.count then
+                    job.missing = job.missing or {}
+                    job.missing[#job.missing + 1] = send.name
+                end
                 send.left = 0 -- none left to send
             end
             C_Timer.After(0.2, MailStep)
@@ -4756,13 +4763,15 @@ function OnMailSent(success)
     settings.mailed = settings.mailed or {}
     local mailed = settings.mailed[letter.character] or { items = {} }
     mailed.time = time and time() or 0
+    local parts = {}
     for _, item in ipairs(letter.items) do
         if item.sentNow and item.sentNow > 0 then
             mailed.items[item.itemID] = (mailed.items[item.itemID] or 0) + item.sentNow
-            job.sent[#job.sent + 1] = item.sentNow .. " " .. item.name .. " to " .. letter.to
+            parts[#parts + 1] = item.sentNow .. " " .. item.name
             item.sentNow = 0
         end
     end
+    if #parts > 0 then job.sent[#job.sent + 1] = JoinNames(parts, 8) .. " to " .. letter.to end
     settings.mailed[letter.character] = mailed
     Safe("alt shopping", SyncAltNeedBars)()
     job.attached = 0
@@ -4770,7 +4779,8 @@ function OnMailSent(success)
     local more = false
     for _, item in ipairs(letter.items) do if item.left > 0 then more = true end end
     if not more then job.index = job.index + 1 end
-    C_Timer.After(0.5, MailStep)
+    -- Give the mail window a moment to clear itself before the next letter.
+    C_Timer.After(1, MailStep)
 end
 
 -- One bar per material --------------------------------------------------------------
