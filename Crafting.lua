@@ -382,6 +382,10 @@ function CraftItem(itemKey, action)
         return
     end
 
+    if item and item.matBar then
+        HandleMaterialBarClick(item)
+        return
+    end
     if item and item.altNeed then
         Print(("%s's bars need %d %s; gather them and BarTab offers to mail them at a mailbox."):format(
             item.altName, item.goal, item.name))
@@ -1284,7 +1288,7 @@ function NoteRemovedBars()
         end
         local added = false
         for key, item in pairs(trackedItems) do
-            if not item.container and not item.altNeed and not shadow.items[key] then added = true end
+            if not item.container and not item.altNeed and not item.matBar and not shadow.items[key] then added = true end
         end
         if #gone > 0 then
             table.sort(gone, function(a, b) return (a.item.order or 0) < (b.item.order or 0) end)
@@ -1306,7 +1310,7 @@ function NoteRemovedBars()
     -- Snapshot for next time. A different list (logging in) starts fresh.
     local items = {}
     for key, item in pairs(trackedItems) do
-        if not item.container and not item.altNeed then items[key] = { ref = item, copy = DeepCopy(item) } end
+        if not item.container and not item.altNeed and not item.matBar then items[key] = { ref = item, copy = DeepCopy(item) } end
     end
     shadow.list, shadow.items = trackedItems, items
 end
@@ -3991,7 +3995,7 @@ function GetShortages(forAuction, sold)
         local section = GetSection(item)
         -- Inactive bars only on the auction house list, and only with
         -- settings.auctionInactive (shelved or not-yet-learned recipes).
-        if not item.container and not item.altNeed and (not item.inactive or (forAuction and settings.auctionInactive))
+        if not item.container and not item.altNeed and not item.matBar and (not item.inactive or (forAuction and settings.auctionInactive))
             and (forAuction or not (item.noVendor or item.notLearned))
             and (section == CRAFT_SECTION or (forAuction and section == ITEM_SECTION)) then
             local key = string.lower(item.name)
@@ -4516,7 +4520,7 @@ mailboxOpen = false
 function BarNeeds(list)
     local needs, names = {}, {}
     for _, item in pairs(list or {}) do
-        if not item.container and not item.inactive and not item.altNeed and item.goal and item.goal > 0 then
+        if not item.container and not item.inactive and not item.altNeed and not item.matBar and item.goal and item.goal > 0 then
             local id = ItemIDFor(item)
             if id then
                 needs[id] = (needs[id] or 0) + item.goal
@@ -4769,6 +4773,166 @@ function OnMailSent(success)
     C_Timer.After(0.5, MailStep)
 end
 
+-- One bar per material --------------------------------------------------------------
+-- A profession can show its recipe bars as one bar per material instead of
+-- one per ingredient: "Peacebloom 2 / 3" for every tracked recipe that uses
+-- it. The ingredient bars stay tracked (they still drive shopping, rules,
+-- countdowns and crafting); the material bars are made fresh on every
+-- refresh, never saved. settings.materialMode[profession] (lower case),
+-- else settings.materialModeDefault.
+function MaterialMode(profession)
+    if not profession or profession == OTHER_GROUP or profession == INACTIVE_GROUP or profession == ALT_GROUP then
+        return false
+    end
+    local own = settings.materialMode and settings.materialMode[string.lower(profession)]
+    if own ~= nil then return own end
+    return settings.materialModeDefault and true or false
+end
+
+function SetMaterialMode(profession, on)
+    settings.materialMode = settings.materialMode or {}
+    settings.materialMode[string.lower(profession)] = on and true or false
+    UpdateBars()
+    Safe("material bars", RefreshTracker)(true)
+end
+
+-- An ingredient bar that a material bar stands in for.
+function IsMaterialModeBar(item)
+    if not item.recipeID or item.container or item.altNeed or item.matBar or item.inactive then return false end
+    if IsOutputBar(item) then return false end
+    return MaterialMode(GetGroup(item))
+end
+
+function SyncMaterialBars()
+    local wanted = {}
+    for key, item in pairs(trackedItems) do
+        if IsMaterialModeBar(item) then
+            local group = GetGroup(item)
+            local id = ItemIDFor(item)
+            local matKey = "mat:" .. group .. ":" .. tostring(id or string.lower(item.name))
+            local entry = wanted[matKey]
+            if not entry then
+                entry = { profession = group, name = item.name, itemID = id, goal = 0, recipes = {}, order = item.order or 0 }
+                wanted[matKey] = entry
+            end
+            entry.goal = entry.goal + (item.goal or 0)
+            entry.recipes[#entry.recipes + 1] = key
+            if (item.order or 0) < entry.order then entry.order = item.order or 0 end
+        end
+    end
+    for key, item in pairs(trackedItems) do
+        if item.matBar and not wanted[key] then trackedItems[key] = nil end
+    end
+    for key, entry in pairs(wanted) do
+        local item = trackedItems[key] or { matBar = true, start = 0 }
+        trackedItems[key] = item
+        item.name, item.itemID, item.goal = entry.name, entry.itemID, entry.goal
+        item.profession, item.order = entry.profession, entry.order
+        table.sort(entry.recipes, function(a, b)
+            return (trackedItems[a].order or 0) < (trackedItems[b].order or 0)
+        end)
+        item.recipes = entry.recipes
+    end
+end
+
+function RemoveMaterialBars()
+    for key, item in pairs(trackedItems) do
+        if item.matBar then trackedItems[key] = nil end
+    end
+end
+
+-- The recipes a material bar stands for, in list order: { key, bar,
+-- recipeID, name, ready (crafts you can make now), missing (text) }.
+function MaterialRecipes(item)
+    local list = {}
+    for _, key in ipairs(item.recipes or {}) do
+        local bar = trackedItems[key]
+        if bar and bar.recipeID then
+            local ready = GetCraftableCount(bar.recipeID) or 0
+            local missing
+            if ready < 1 then
+                for _, reagent in ipairs(GetRecipeReagents(bar.recipeID) or {}) do
+                    if reagent.have < reagent.need then
+                        missing = (missing and (missing .. ", ") or "") .. reagent.name
+                    end
+                end
+            end
+            list[#list + 1] = { key = key, bar = bar, recipeID = bar.recipeID, ready = ready, missing = missing,
+                name = GetRecipeName(bar.recipeID) or DisplayName(bar),
+                perCraft = GetReagentQuantity(bar.recipeID, item.name) }
+        end
+    end
+    return list
+end
+
+-- Click: pick a recipe. Shift-click: all that's ready of the first recipe
+-- that's ready. Alt-click: everything that's ready, one recipe after another.
+function HandleMaterialBarClick(item)
+    if chainJob then
+        chainJob = nil
+        Print("Stopped crafting; a craft in progress still finishes.")
+        return
+    end
+    local list = MaterialRecipes(item)
+    if #list == 0 then return end
+    local modifier = CurrentModifier()
+    if modifier == "click" then
+        local entries = {}
+        for _, recipe in ipairs(list) do
+            local status = recipe.ready > 0 and (recipe.ready .. " ready")
+                or ("missing " .. (recipe.missing or "materials"))
+            entries[#entries + 1] = { recipe.name .. ": " .. status, function() CraftItem(recipe.key, "one") end }
+        end
+        ShowMenu(UIParent, item.name .. ": craft", entries)
+        return
+    end
+    local ready = {}
+    for _, recipe in ipairs(list) do
+        if recipe.ready > 0 then ready[#ready + 1] = recipe end
+    end
+    if #ready == 0 then
+        -- Nothing ready: the first recipe says why (or makes materials first).
+        CraftItem(list[1].key, modifier == "alt" and "max" or "fit")
+        return
+    end
+    if modifier == "shift" or #ready == 1 then
+        -- All that's ready of it (the materials you have; nothing made first).
+        if InCombatLockdown and InCombatLockdown() then
+            Print("Nothing can be crafted in combat.")
+            return
+        end
+        TryCraft(ready[1].bar, ready[1].ready)
+        return
+    end
+    local steps, parts = {}, {}
+    for _, recipe in ipairs(ready) do
+        steps[#steps + 1] = { recipeID = recipe.recipeID, crafts = recipe.ready, item = recipe.bar }
+        parts[#parts + 1] = recipe.ready .. " " .. recipe.name
+    end
+    chainJob = { steps = steps, index = 0 }
+    Print("Crafting what's ready: " .. JoinNames(parts, 6) .. ". Click a bar to stop.")
+    RunChainStep()
+end
+
+function AddMaterialBarTooltip(item)
+    GameTooltip:SetText(item.name)
+    local count = CountItem(item)
+    GameTooltip:AddLine(("You have %d; your %s recipes here need %d."):format(count, item.profession or "", item.goal),
+        1, 1, 1, true)
+    for _, recipe in ipairs(MaterialRecipes(item)) do
+        local status = recipe.ready > 0 and ("|cff4dff4d" .. recipe.ready .. " ready|r")
+            or ("|cffff8040missing " .. (recipe.missing or "materials") .. "|r")
+        GameTooltip:AddDoubleLine(("%s (%d per craft)"):format(recipe.name, recipe.perCraft or 1), status,
+            0.9, 0.9, 0.9, 1, 1, 1)
+    end
+    AddStorageLines(item.name)
+    GameTooltip:AddLine("Click: pick a recipe to craft", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Shift-click: craft the first that's ready", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Alt-click: craft everything that's ready", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Right-click: options", 0.7, 0.7, 0.7)
+    GameTooltip:Show()
+end
+
 -- Shopping for your other characters ----------------------------------------------
 -- With settings.altShopping, the Crafting section gets a "For your other
 -- characters" subsection: a bar per material their bars are short of
@@ -4866,6 +5030,7 @@ altShopSyncPending = false
 altShopWatcher:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGOUT" then
         pcall(RemoveAltNeedBars)
+        pcall(RemoveMaterialBars)
     elseif event == "BAG_UPDATE_DELAYED" then
         -- Picking up something an alt needs can add its bar.
         if not settings or not settings.altShopping or altShopSyncPending then return end

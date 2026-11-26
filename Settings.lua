@@ -610,6 +610,20 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    local materialButton = AddButton(page, 24, y, 350, "",
+        "How recipe bars show: a bar for each ingredient of each recipe, or one bar per material for all of a profession's tracked recipes (\"Peacebloom 2 / 3\"; click it to pick a recipe to craft, Shift-click for the first that's ready, Alt-click for everything ready). This is the default; right-click a profession's heading to choose for that profession.",
+        function()
+            settings.materialModeDefault = (not settings.materialModeDefault) or nil
+            UpdateBars()
+            Safe("material bars", RefreshTracker)(true)
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        materialButton:SetText(settings.materialModeDefault and "Recipe bars: one per material"
+            or "Recipe bars: one per ingredient")
+    end)
+    y = y - 30
+
     local markButton = AddButton(page, 24, y, 350, "",
         "How a recipe bar's name shows the recipe's difficulty: skill-up arrows like the profession window (3 orange, 2 yellow, 1 green, none gray), the name in the recipe's color, or no marking.",
         function()

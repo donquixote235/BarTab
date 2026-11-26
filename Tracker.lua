@@ -107,6 +107,7 @@ function GetGroup(item)
         return item.container.name
     end
     if item.altNeed then return ALT_GROUP end
+    if item.matBar then return item.profession or OTHER_GROUP end
     if not item.recipeID then
         return OTHER_GROUP
     end
@@ -142,6 +143,10 @@ function GetSortedKeys()
 end
 
 function IsShown(item)
+    -- A profession shown "one bar per material": its ingredient bars stay
+    -- tracked (for shopping, rules and crafting) but the material bars stand
+    -- in for them on screen.
+    if IsMaterialModeBar(item) then return false end
     -- Fill-up bars only show while you have the item they fill.
     if item.container then
         -- "Focus on" one material hides the crate's other bars.
@@ -356,6 +361,36 @@ function UpdateSegments(bar, item, count, craftable)
             segment:ClearAllPoints()
             segment:SetAllPoints(bar)
             segment:Show()
+        end
+        return
+    end
+
+    -- Material bars: blue for what your ready crafts would use, orange for
+    -- what you have that's waiting on another ingredient.
+    if item.matBar then
+        local range = item.goal - item.start
+        local width = bar:GetWidth()
+        if range <= 0 or not width or width <= 0 or count <= 0 then return end
+        local used = 0
+        for _, recipe in ipairs(MaterialRecipes(item)) do
+            used = used + (recipe.ready or 0) * (recipe.perCraft or 0)
+        end
+        local have = math.min(count, item.goal)
+        used = math.min(used, have)
+        local pieces = { { 0, used, READY_FILL }, { used, have, BLOCKED_FILL } }
+        local index = 0
+        for _, piece in ipairs(pieces) do
+            if piece[2] > piece[1] then
+                index = index + 1
+                local segment = GetSegment(bar, index)
+                segment:SetVertexColor(piece[3][1], piece[3][2], piece[3][3])
+                segment:SetAlpha(1)
+                segment:ClearAllPoints()
+                segment:SetPoint("TOPLEFT", bar, "TOPLEFT", piece[1] / range * width, 0)
+                segment:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", piece[1] / range * width, 0)
+                segment:SetWidth((piece[2] - piece[1]) / range * width)
+                segment:Show()
+            end
         end
         return
     end
@@ -1999,6 +2034,7 @@ end
 do
     local inner = UpdateBars
     UpdateBars = function(...)
+        Safe("material bars", SyncMaterialBars)()
         inner(...)
         Safe("undo", NoteRemovedBars)()
     end

@@ -61,6 +61,8 @@ GUIDE_PAGES = {
             .. B .. C("Shift-click") .. ": craft as many as fit the bar.\n"
             .. B .. C("Alt-click") .. ": craft all you can.\n\n"
             .. "Change what each click does in the settings (Crafting tab). " .. C("/bartab craft") .. ", or a key binding (Key Bindings > AddOns), crafts the next bar that's ready.\n\n"
+            .. H("One bar per material") .. "\n\n"
+            .. "Professions with many small recipes (alchemy, cooking) can show one bar per material instead of one per ingredient: " .. C("Peacebloom 2 / 3") .. " for every tracked recipe that uses it. Right-click the profession's heading and choose Show one bar per material. Blue is what your ready crafts would use, orange what's waiting on another ingredient. Click the bar to pick a recipe, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready.\n\n"
             .. H("Shared materials") .. "\n\n"
             .. "When several bars count the same material, it's shared out in list order, so the bar higher up claims it first. Ctrl-drag bars to reorder them, or change this in the settings.\n\n"
             .. H("Count down as you craft") .. "\n\n"

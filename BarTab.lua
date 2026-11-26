@@ -283,6 +283,10 @@ function ShowBarTooltip(owner)
         return
     end
 
+    if item and item.matBar then
+        AddMaterialBarTooltip(item)
+        return
+    end
     if item and item.altNeed then
         GameTooltip:SetText(DisplayName(item))
         GameTooltip:AddLine(("%s's bars are short %d %s (from their last saved bags and bank)."):format(

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.60.1.11
+
+- One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules and countdowns work as before.
+- Examples in the guide, help, settings and changelog use placeholder names ([Alt]) instead of real characters'.
+
 ## 1.60.1.10
 
 - Shopping for your other characters (optional; Shopping tab, "Show what my other characters need"): a "For your other characters" subsection under BarTab: Crafting with a bar for each material their bars are short of ("Copper Ore for [Alt]"), filling as you gather, for materials this character can get: ones it can gather with its own skills or make with its own recipes, or already has some of; your own bars claim what you carry first. When one fills you get the goal alert, and the mailbox prompt offers to send it. Needs come from their bars and last saved bags and bank, less anything you've mailed them. At login, one chat line says what you're already carrying for them ("You're carrying 20 Copper Ore for [Alt]. Mail it at a mailbox."). Right-click a bar to hide it. These bars aren't saved with your own and don't count for vendor buying, the bank or sharing.

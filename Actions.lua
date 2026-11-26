@@ -390,6 +390,20 @@ ShowItemMenu = function(owner, itemKey)
     if not item then return end
     GameTooltip:Hide()
 
+    -- A material bar: its recipes, and switching the display back.
+    if item.matBar then
+        local entries = {}
+        for _, recipe in ipairs(MaterialRecipes(item)) do
+            entries[#entries + 1] = { "Open " .. recipe.name, function() OpenBarRecipe(recipe.key) end }
+        end
+        entries[#entries + 1] = { divider = true }
+        entries[#entries + 1] = { "Show each ingredient for " .. item.profession, function()
+            SetMaterialMode(item.profession, false)
+        end }
+        ShowMenu(owner, item.name, entries)
+        return
+    end
+
     -- A bar for another character's needs: only hiding makes sense here.
     if item.altNeed then
         ShowMenu(owner, DisplayName(item), {
@@ -499,10 +513,18 @@ end
 -- Untrack all (sections and subsections) ------------------------------------
 
 function GetGroupKeys(section, group)
-    local keys = {}
+    local keys, seen = {}, {}
     for _, key in ipairs(GetSectionKeys(section)) do
-        if not group or GetGroup(trackedItems[key]) == group then
-            keys[#keys + 1] = key
+        local item = trackedItems[key]
+        if not group or GetGroup(item) == group then
+            -- A material bar stands for the recipe bars behind it.
+            local list = item.matBar and item.recipes or { key }
+            for _, real in ipairs(list) do
+                if not seen[real] and not (trackedItems[real] and trackedItems[real].altNeed) then
+                    seen[real] = true
+                    keys[#keys + 1] = real
+                end
+            end
         end
     end
     return keys
@@ -567,6 +589,14 @@ ShowGroupMenu = function(owner, section, group)
     end
 
     local entries = {}
+    -- A profession's subsection: one bar per material, or each ingredient.
+    if section == CRAFT_SECTION and group and MaterialMode ~= nil
+        and group ~= OTHER_GROUP and group ~= INACTIVE_GROUP and group ~= ALT_GROUP then
+        local on = MaterialMode(group)
+        entries[#entries + 1] = { on and "Show each ingredient" or "Show one bar per material", function()
+            SetMaterialMode(group, not on)
+        end }
+    end
     if #activeKeys > 0 then
         entries[#entries + 1] = { "Move all to Inactive (" .. #activeKeys .. ")", function()
             SetKeysActive(activeKeys, false, label)
@@ -1275,7 +1305,7 @@ function UnescapeField(text)
 end
 
 function IsShareable(item)
-    return item and not item.container and not item.altNeed
+    return item and not item.container and not item.altNeed and not item.matBar
 end
 
 function ExportKeys(keys)
