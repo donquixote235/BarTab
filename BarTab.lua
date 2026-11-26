@@ -287,6 +287,10 @@ function ShowBarTooltip(owner)
         AddMaterialBarTooltip(item)
         return
     end
+    if item and item.recBar then
+        AddRecipeBarTooltip(item)
+        return
+    end
     if item and item.altNeed then
         GameTooltip:SetText(DisplayName(item))
         GameTooltip:AddLine(("%s's bars are short %d %s (from their last saved bags and bank)."):format(
@@ -522,6 +526,8 @@ end
 
 -- How many of a bar's item are in your bags: by item ID when known.
 function CountItem(item)
+    -- A recipe bar counts crafts your materials cover.
+    if item.recBar then return (RecipeBarCounts(item)) end
     local id = ItemIDFor(item)
     local scan = ScanBags()
     if id then return scan.byID[id] or 0 end

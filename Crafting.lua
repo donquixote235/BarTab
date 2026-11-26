@@ -386,6 +386,12 @@ function CraftItem(itemKey, action)
         HandleMaterialBarClick(item)
         return
     end
+    -- A recipe bar crafts like the recipe's own bars (the first of them).
+    if item and item.recBar then
+        local real = item.recipes and item.recipes[1]
+        if real and trackedItems[real] then CraftItem(real, action) end
+        return
+    end
     if item and item.altNeed then
         Print(("%s's bars need %d %s; gather them and BarTab offers to mail them at a mailbox."):format(
             item.altName, item.goal, item.name))
@@ -1288,7 +1294,7 @@ function NoteRemovedBars()
         end
         local added = false
         for key, item in pairs(trackedItems) do
-            if not item.container and not item.altNeed and not item.matBar and not shadow.items[key] then added = true end
+            if not item.container and not item.altNeed and not item.virtual and not shadow.items[key] then added = true end
         end
         if #gone > 0 then
             table.sort(gone, function(a, b) return (a.item.order or 0) < (b.item.order or 0) end)
@@ -1310,7 +1316,7 @@ function NoteRemovedBars()
     -- Snapshot for next time. A different list (logging in) starts fresh.
     local items = {}
     for key, item in pairs(trackedItems) do
-        if not item.container and not item.altNeed and not item.matBar then items[key] = { ref = item, copy = DeepCopy(item) } end
+        if not item.container and not item.altNeed and not item.virtual then items[key] = { ref = item, copy = DeepCopy(item) } end
     end
     shadow.list, shadow.items = trackedItems, items
 end
@@ -3995,7 +4001,7 @@ function GetShortages(forAuction, sold)
         local section = GetSection(item)
         -- Inactive bars only on the auction house list, and only with
         -- settings.auctionInactive (shelved or not-yet-learned recipes).
-        if not item.container and not item.altNeed and not item.matBar and (not item.inactive or (forAuction and settings.auctionInactive))
+        if not item.container and not item.altNeed and not item.virtual and (not item.inactive or (forAuction and settings.auctionInactive))
             and (forAuction or not (item.noVendor or item.notLearned))
             and (section == CRAFT_SECTION or (forAuction and section == ITEM_SECTION)) then
             local key = string.lower(item.name)
@@ -4521,7 +4527,7 @@ OfferMailText = nil
 function BarNeeds(list)
     local needs, names = {}, {}
     for _, item in pairs(list or {}) do
-        if not item.container and not item.inactive and not item.altNeed and not item.matBar and item.goal and item.goal > 0 then
+        if not item.container and not item.inactive and not item.altNeed and not item.virtual and item.goal and item.goal > 0 then
             local id = ItemIDFor(item)
             if id then
                 needs[id] = (needs[id] or 0) + item.goal
@@ -4802,33 +4808,77 @@ end
 -- countdowns and crafting); the material bars are made fresh on every
 -- refresh, never saved. settings.materialMode[profession] (lower case),
 -- else settings.materialModeDefault.
-function MaterialMode(profession)
-    if not profession or profession == OTHER_GROUP or profession == INACTIVE_GROUP or profession == ALT_GROUP then
-        return false
-    end
-    local own = settings.materialMode and settings.materialMode[string.lower(profession)]
-    if own ~= nil then return own end
-    return settings.materialModeDefault and true or false
+-- How a profession's recipe bars show: "ingredient" (a bar per ingredient
+-- per recipe, as tracked), "material" (one bar per material) or "recipe"
+-- (one bar per recipe, counting crafts).
+BAR_MODES = {
+    { key = "ingredient", name = "one per ingredient", menu = "Show each ingredient" },
+    { key = "material", name = "one per material", menu = "Show one bar per material" },
+    { key = "recipe", name = "one per recipe", menu = "Show one bar per recipe" },
+}
+
+-- Older saves stored true / false (material / ingredient).
+local function BarModeValue(value)
+    if value == true then return "material" end
+    if value == false or value == nil then return nil end
+    return value
 end
 
-function SetMaterialMode(profession, on)
+function MaterialMode(profession)
+    if not profession or profession == OTHER_GROUP or profession == INACTIVE_GROUP or profession == ALT_GROUP then
+        return "ingredient"
+    end
+    local own = BarModeValue(settings.materialMode and settings.materialMode[string.lower(profession)])
+    if own then return own end
+    if settings.materialModeDefault == false then return "ingredient" end
+    return BarModeValue(settings.materialModeDefault) or "ingredient"
+end
+
+function SetMaterialMode(profession, mode)
     settings.materialMode = settings.materialMode or {}
-    settings.materialMode[string.lower(profession)] = on and true or false
+    if mode == true then mode = "material" elseif mode == false then mode = "ingredient" end
+    settings.materialMode[string.lower(profession)] = mode
     UpdateBars()
     Safe("material bars", RefreshTracker)(true)
 end
 
--- An ingredient bar that a material bar stands in for.
+-- An ingredient bar that a material or recipe bar stands in for.
 function IsMaterialModeBar(item)
-    if not item.recipeID or item.container or item.altNeed or item.matBar or item.inactive then return false end
+    if not item.recipeID or item.container or item.altNeed or item.virtual or item.inactive then return false end
     if IsOutputBar(item) then return false end
-    return MaterialMode(GetGroup(item))
+    return MaterialMode(GetGroup(item)) ~= "ingredient"
+end
+
+-- Crafts the materials you carry cover, and crafts the bars are sized for.
+function RecipeBarCounts(item)
+    local have, planned
+    for _, key in ipairs(item.recipes or {}) do
+        local bar = trackedItems[key]
+        local perCraft = bar and GetReagentQuantity(bar.recipeID, bar.name)
+        if perCraft and perCraft > 0 then
+            local covers = math.floor(CountItem(bar) / perCraft)
+            if not have or covers < have then have = covers end
+            local size = math.ceil((bar.goal or 0) / perCraft)
+            if not planned or size > planned then planned = size end
+        end
+    end
+    return have or 0, math.max(1, planned or 1)
 end
 
 function SyncMaterialBars()
     local wanted = {}
     for key, item in pairs(trackedItems) do
-        if IsMaterialModeBar(item) then
+        if IsMaterialModeBar(item) and MaterialMode(GetGroup(item)) == "recipe" then
+            local recKey = "rec:" .. item.recipeID
+            local entry = wanted[recKey]
+            if not entry then
+                entry = { recipe = true, profession = GetGroup(item), recipeID = item.recipeID,
+                    name = GetRecipeName(item.recipeID) or DisplayName(item), recipes = {}, order = item.order or 0 }
+                wanted[recKey] = entry
+            end
+            entry.recipes[#entry.recipes + 1] = key
+            if (item.order or 0) < entry.order then entry.order = item.order or 0 end
+        elseif IsMaterialModeBar(item) then
             local group = GetGroup(item)
             local id = ItemIDFor(item)
             local matKey = "mat:" .. group .. ":" .. tostring(id or string.lower(item.name))
@@ -4843,24 +4893,58 @@ function SyncMaterialBars()
         end
     end
     for key, item in pairs(trackedItems) do
-        if item.matBar and not wanted[key] then trackedItems[key] = nil end
+        if item.virtual and not wanted[key] then trackedItems[key] = nil end
     end
     for key, entry in pairs(wanted) do
-        local item = trackedItems[key] or { matBar = true, start = 0 }
-        trackedItems[key] = item
-        item.name, item.itemID, item.goal = entry.name, entry.itemID, entry.goal
-        item.profession, item.order = entry.profession, entry.order
+        local item = trackedItems[key]
+        if not item then
+            item = { virtual = true, start = 0 }
+            if entry.recipe then item.recBar = true else item.matBar = true end
+            trackedItems[key] = item
+        end
         table.sort(entry.recipes, function(a, b)
             return (trackedItems[a].order or 0) < (trackedItems[b].order or 0)
         end)
         item.recipes = entry.recipes
+        item.profession, item.order = entry.profession, entry.order
+        if entry.recipe then
+            -- Counted in crafts: "1 / 3 crafts", headed with the recipe.
+            item.forRecipe, item.label, item.name = entry.recipeID, entry.name, "crafts"
+            local _, planned = RecipeBarCounts(item)
+            item.goal = planned
+        else
+            item.name, item.itemID, item.goal = entry.name, entry.itemID, entry.goal
+        end
     end
 end
 
 function RemoveMaterialBars()
     for key, item in pairs(trackedItems) do
-        if item.matBar then trackedItems[key] = nil end
+        if item.virtual then trackedItems[key] = nil end
     end
+end
+
+function AddRecipeBarTooltip(item)
+    GameTooltip:SetText(item.label or "Recipe")
+    local have, planned = RecipeBarCounts(item)
+    GameTooltip:AddLine(("Your materials cover %d of %d planned %s."):format(have, planned,
+        planned == 1 and "craft" or "crafts"), 1, 1, 1, true)
+    for _, key in ipairs(item.recipes or {}) do
+        local bar = trackedItems[key]
+        if bar then
+            local count = CountItem(bar)
+            local done = count >= bar.goal
+            GameTooltip:AddDoubleLine(bar.name, ("%d / %d"):format(count, bar.goal), 0.9, 0.9, 0.9,
+                done and 0.3 or 1, done and 1 or 0.5, done and 0.3 or 0.25)
+        end
+    end
+    local craftable = GetCraftableCount(item.forRecipe)
+    if craftable then
+        GameTooltip:AddDoubleLine("You can craft now", tostring(craftable), 0.9, 0.9, 0.9, 1, 1, 1)
+    end
+    GameTooltip:AddLine("Click, Shift-click, Alt-click: craft, as for any recipe bar", 0.7, 0.7, 0.7)
+    GameTooltip:AddLine("Right-click: the recipe's options", 0.7, 0.7, 0.7)
+    GameTooltip:Show()
 end
 
 -- The recipes a material bar stands for, in list order: { key, bar,

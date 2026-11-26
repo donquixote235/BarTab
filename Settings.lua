@@ -611,16 +611,22 @@ function BuildConfigFrame()
     y = y - 30
 
     local materialButton = AddButton(page, 24, y, 350, "",
-        "How recipe bars show: a bar for each ingredient of each recipe, or one bar per material for all of a profession's tracked recipes (\"Peacebloom 2 / 3\"; click it to pick a recipe to craft, Shift-click for the first that's ready, Alt-click for everything ready). This is the default; right-click a profession's heading to choose for that profession.",
+        "How recipe bars show: a bar for each ingredient of each recipe; one bar per material for all of a profession's tracked recipes (\"Peacebloom 2 / 3\"; click it to pick a recipe to craft, Shift-click for the first that's ready, Alt-click for everything ready); or one bar per recipe, counting crafts (\"Minor Mana Potion: 1 / 3 crafts\"). This is the default; right-click a profession's heading to choose for that profession.",
         function()
-            settings.materialModeDefault = (not settings.materialModeDefault) or nil
+            local current, index = MaterialMode("default-profession"), 1
+            for i, mode in ipairs(BAR_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.materialModeDefault = BAR_MODES[index % #BAR_MODES + 1].key
             UpdateBars()
             Safe("material bars", RefreshTracker)(true)
             RefreshConfig()
         end)
     table.insert(configRefreshers, function()
-        materialButton:SetText(settings.materialModeDefault and "Recipe bars: one per material"
-            or "Recipe bars: one per ingredient")
+        local current = MaterialMode("default-profession")
+        for _, mode in ipairs(BAR_MODES) do
+            if mode.key == current then materialButton:SetText("Recipe bars: " .. mode.name) end
+        end
     end)
     y = y - 30
 

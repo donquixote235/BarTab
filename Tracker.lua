@@ -107,7 +107,7 @@ function GetGroup(item)
         return item.container.name
     end
     if item.altNeed then return ALT_GROUP end
-    if item.matBar then return item.profession or OTHER_GROUP end
+    if item.virtual then return item.profession or OTHER_GROUP end
     if not item.recipeID then
         return OTHER_GROUP
     end
@@ -526,7 +526,7 @@ local function BuildSharedCounts()
         local item = trackedItems[key]
         -- "Make until I have..." bars count everything you own and take no
         -- share from (or give none to) bars using the item as a material.
-        if not item.container and not item.inactive and IsShown(item) and not IsOutputBar(item) then
+        if not item.container and not item.inactive and not item.recBar and IsShown(item) and not IsOutputBar(item) then
             local material = MaterialKey(item)
             cache.users[material] = cache.users[material] or {}
             table.insert(cache.users[material], item)
@@ -829,8 +829,9 @@ end
 function MarkedName(item)
     local name = DisplayName(item)
     local mode = settings.difficultyMark or "arrows"
-    if mode == "none" or not item.recipeID or item.container then return name end
-    local color = RecipeColorForDisplay(item.recipeID)
+    local recipeID = item.recipeID or item.forRecipe
+    if mode == "none" or not recipeID or item.container then return name end
+    local color = RecipeColorForDisplay(recipeID)
     if not color then return name end
     if mode == "color" then
         return "|c" .. (COLOR_CODES[color] or "ffffffff") .. name .. "|r"
