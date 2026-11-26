@@ -13,14 +13,11 @@ ADDON_NAME = addonName
 -- Replaced with the saved BarTabDB table once ADDON_LOADED fires.
 trackedItems = {}
 -- Replaced with the saved BarTabSettings table once ADDON_LOADED fires.
-settings = { autoQuests = true }
+settings = {}
 bars = {}        -- every bar ever created, for iteration
 barsByKey = {}   -- section + item key -> its bar
 updatePending = false
 trackerSetupTried = false
--- True while quest bars are shown under their quests in Blizzard's tracker
--- (/bt inline on) and the hooks for that are in place.
-inlineQuestsActive = false
 -- (The settings window, minimap button and help text live in do ... end
 -- blocks so their helpers don't count toward Lua's 200-local limit.)
 
@@ -32,6 +29,41 @@ end
 
 function Print(message)
     DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffBarTab:|r " .. message)
+end
+
+-- Errors in code BarTab runs inside Blizzard's own updates (the objective
+-- tracker) are caught, so they can't stop that update partway and freeze
+-- the tracker. They're kept (last 5) for /bartab errors, and mentioned once per
+-- session.
+errorNoticeShown = false
+
+function ReportError(where, err)
+    local log = settings and settings.errorLog
+    if settings then
+        settings.errorLog = settings.errorLog or {}
+        log = settings.errorLog
+        table.insert(log, 1, {
+            where = where,
+            message = tostring(err),
+            when = date and date("%Y-%m-%d %H:%M") or "",
+            version = C_AddOns and C_AddOns.GetAddOnMetadata
+                and C_AddOns.GetAddOnMetadata("BarTab", "Version") or nil,
+        })
+        while #log > 5 do table.remove(log) end
+    end
+    if not errorNoticeShown then
+        errorNoticeShown = true
+        Print("hit an error while updating (" .. where .. "); your tracker keeps working. "
+            .. "Type /bartab errors to see it.")
+    end
+end
+
+-- Runs fn safely: an error is reported instead of passed on.
+function Safe(where, fn)
+    return function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok then ReportError(where, err) end
+    end
 end
 
 function CountOwned(itemID)
@@ -88,6 +120,65 @@ function GetItemNameByID(itemID)
     end
 end
 
+-- Bars named "item 1529" (made before the game had loaded that item) get
+-- their real name once it's known: at login, and when the game reports the
+-- item has loaded. The bar's key holds its name, so it moves to the new key;
+-- anything pointing at the old key or name follows. If a bar by the real
+-- name already exists for the same recipe, the two are merged.
+placeholderPending = {} -- itemID -> true while waiting for its name
+
+function FixPlaceholderNames()
+    if not trackedItems then return end
+    local found = {}
+    for key, item in pairs(trackedItems) do
+        local id = tonumber((item.name or ""):match("^item (%d+)$"))
+        if id then
+            local ok, real = pcall(GetItemNameByID, id)
+            if ok and real and real ~= "" then
+                found[#found + 1] = { key = key, item = item, id = id, real = real }
+                placeholderPending[id] = nil
+            else
+                placeholderPending[id] = true
+                if C_Item and C_Item.RequestLoadItemDataByID then
+                    pcall(C_Item.RequestLoadItemDataByID, id)
+                end
+            end
+        end
+    end
+    if #found == 0 then return end
+    for _, entry in ipairs(found) do
+        local item, oldKey = entry.item, entry.key
+        local oldLower, newLower = string.lower(item.name), string.lower(entry.real)
+        item.name = entry.real
+        item.itemID = item.itemID or entry.id
+        knownItemIDs[newLower] = entry.id
+        local newKey = oldKey
+        if oldKey:sub(1, #oldLower) == oldLower then
+            newKey = newLower .. oldKey:sub(#oldLower + 1)
+        end
+        if newKey ~= oldKey then
+            local existing = trackedItems[newKey]
+            trackedItems[oldKey] = nil
+            if existing then
+                existing.goal = math.max(existing.goal or 0, item.goal or 0)
+            else
+                trackedItems[newKey] = item
+            end
+            for _, other in pairs(trackedItems) do
+                if other.chainFor == oldKey then other.chainFor = newKey end
+            end
+        end
+        if item.recipeID and settings.recipeFocus and settings.recipeFocus[item.recipeID] == oldLower then
+            settings.recipeFocus[item.recipeID] = newLower
+        end
+        if item.container and settings.containerFocus
+            and settings.containerFocus[item.container.id] == oldLower then
+            settings.containerFocus[item.container.id] = newLower
+        end
+    end
+    UpdateBars()
+end
+
 -- The recipe's required ingredients for one craft:
 -- { {name=, have=, need=}, ... }, or nil if the recipe can't be read.
 function GetRecipeReagents(recipeID)
@@ -116,6 +207,7 @@ function GetRecipeReagents(recipeID)
             end
             list[#list + 1] = {
                 name = name or ("item " .. tostring(slot.reagents[1].itemID)),
+                itemID = slot.reagents[1].itemID,
                 have = have,
                 need = need,
             }
@@ -162,62 +254,9 @@ function GetCraftableCount(recipeID)
     end
 end
 
-function ShowQuestTooltip(owner, item)
-    GameTooltip:SetText(item.name)
-    GameTooltip:AddLine(item.quest.title or "Quest item", 1, 0.82, 0)
-
-    for _, req in ipairs(item.quest.items or {}) do
-        local have = GetItemCount(req.name)
-        local done = have >= req.count
-        GameTooltip:AddLine(
-            req.name .. ": " .. math.min(have, req.count) .. " / " .. req.count
-                .. (done and " (done)" or ""),
-            done and 1 or 0.7, done and 1 or 0.7, done and 1 or 0.7
-        )
-    end
-
-    local state, missing = GetQuestState(item)
-    local incomplete = not state and GetItemCount(item.name) < item.goal
-    local progress = incomplete and GetPieceProgress(item)
-    local piece = incomplete and not progress and PickRelatedUseItem(item)
-    if progress then
-        GameTooltip:AddLine(("%s collected: %d / %d"):format(
-            progress.word:gsub("^%l", string.upper) .. "s", progress.owned, progress.required),
-            1, 1, 1)
-        if #progress.missing > 0 then
-            GameTooltip:AddLine("Still need " .. progress.word .. " "
-                .. table.concat(progress.missing, ", "), 1, 0.82, 0)
-        elseif progress.useName then
-            GameTooltip:AddLine("Click: use " .. progress.useName, 0.5, 1, 0.5)
-        end
-    elseif piece then
-        GameTooltip:AddLine("Click: use " .. piece, 0.5, 1, 0.5)
-    elseif state == "ready" then
-        local useName = GetQuestUseItem(item)
-        if useName then
-            GameTooltip:AddLine("Click: use " .. useName, 0.5, 1, 0.5)
-        else
-            GameTooltip:AddLine("All items collected", 0.5, 1, 0.5)
-        end
-    elseif state == "waiting" then
-        GameTooltip:AddLine("Still need " .. missing, 1, 0.82, 0)
-    end
-
-    GameTooltip:AddLine("Right-click: options", 0.7, 0.7, 0.7)
-    if owner.isBar then
-        GameTooltip:AddLine("Ctrl-drag: reorder", 0.7, 0.7, 0.7)
-    end
-    GameTooltip:Show()
-end
-
 function ShowBarTooltip(owner)
     local item = trackedItems[owner.itemKey]
     GameTooltip:SetOwner(owner, "ANCHOR_TOP")
-
-    if item and item.quest then
-        ShowQuestTooltip(owner, item)
-        return
-    end
 
     if item and item.container then
         GameTooltip:SetText(item.container.name)
@@ -295,7 +334,19 @@ function ShowBarTooltip(owner)
     end
     local skillLine = SkillLimitLine(item)
     if skillLine then GameTooltip:AddLine(skillLine, 0.8, 0.8, 0.8) end
+    if item.notLearned then
+        GameTooltip:AddLine("Not learned yet" .. (item.needSkill and (" (needs " .. item.needSkill .. ")") or "")
+            .. "; becomes active when you learn it", 1, 0.82, 0, true)
+    end
     local afterLabel = AfterCraftLabel(item)
+    if CountsDown(item) then
+        local left = CraftsLeft(item.recipeID)
+        if left then
+            GameTooltip:AddLine("Counting down: " .. left .. (left == 1 and " craft" or " crafts") .. " left"
+                .. (afterLabel and (", then " .. afterLabel) or ", then moves to Inactive"), 0.8, 0.8, 0.8)
+            afterLabel = nil
+        end
+    end
     if afterLabel then
         GameTooltip:AddLine("After crafting: " .. afterLabel, 0.8, 0.8, 0.8)
     end
@@ -317,7 +368,9 @@ function ShowBarTooltip(owner)
 
     GameTooltip:AddLine("Right-click: options", 0.7, 0.7, 0.7)
     if owner.isBar then
-        GameTooltip:AddLine("Ctrl-drag: reorder", 0.7, 0.7, 0.7)
+        GameTooltip:AddLine("Ctrl-click: open recipe  ·  Ctrl-drag: reorder", 0.7, 0.7, 0.7)
+    else
+        GameTooltip:AddLine("Ctrl-click: open recipe", 0.7, 0.7, 0.7)
     end
 
     GameTooltip:Show()
@@ -373,12 +426,17 @@ end
 -- Lower-case item name -> item ID, for anything seen in your bags.
 knownItemIDs = {}
 
-GetItemCount = function(itemName)
-    local total = 0
-    local wanted = string.lower(itemName)
+-- One scan of your bags, shared by everything that counts items until the
+-- bags change (or the next frame): counts by item ID and by lower-case name.
+bagScan = nil
+bagsDirty = true
+
+function ScanBags()
+    local now = GetTime()
+    if bagScan and not bagsDirty and bagScan.time == now then return bagScan end
+    local byID, byName = {}, {}
     -- Includes the reagent bag on clients that have one.
     local lastBag = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS
-
     for bag = 0, lastBag do
         local numSlots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, numSlots do
@@ -386,30 +444,108 @@ GetItemCount = function(itemName)
             if link then
                 local name = link:match("%[(.-)%]")
                 local itemID = tonumber(link:match("item:(%d+)"))
-                if name and itemID then
-                    knownItemIDs[string.lower(name)] = itemID
-                end
-                if name and string.lower(name) == wanted then
-                    local info = C_Container.GetContainerItemInfo(bag, slot)
-                    total = total + ((info and info.stackCount) or 1)
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                local count = (info and info.stackCount) or 1
+                if itemID then byID[itemID] = (byID[itemID] or 0) + count end
+                if name then
+                    local lower = string.lower(name)
+                    byName[lower] = (byName[lower] or 0) + count
+                    if itemID then knownItemIDs[lower] = itemID end
                 end
             end
         end
     end
-
-    return total
+    bagScan = { time = now, byID = byID, byName = byName }
+    bagsDirty = false
+    return bagScan
 end
 
--- Bank, Warband bank and alt counts ---------------------------------------------
+bagWatcher = CreateFrame("Frame")
+for _, bagEvent in ipairs({ "BAG_UPDATE", "BAG_UPDATE_DELAYED", "ITEM_LOCK_CHANGED" }) do
+    pcall(bagWatcher.RegisterEvent, bagWatcher, bagEvent)
+end
+bagWatcher:SetScript("OnEvent", function() bagsDirty = true end)
+
+-- How many of the named item are in your bags.
+GetItemCount = function(itemName)
+    if not itemName then return 0 end
+    return ScanBags().byName[string.lower(itemName)] or 0
+end
+
+-- A bar's item ID: saved on the bar once known (from a link, a recipe, your
+-- bags or the item cache), so counts don't depend on the name.
+function ItemIDFor(item)
+    if item.itemID then return item.itemID end
+    local id = ResolveItemID(item.name)
+    if id then item.itemID = id end
+    return id
+end
+
+-- How many of a fill-up item (the crate itself) are in your bags.
+function CountContainer(container)
+    local scan = ScanBags()
+    if container.id then return scan.byID[container.id] or 0 end
+    return scan.byName[string.lower(container.name)] or 0
+end
+
+-- How many of a bar's item are in your bags: by item ID when known.
+function CountItem(item)
+    local id = ItemIDFor(item)
+    local scan = ScanBags()
+    if id then return scan.byID[id] or 0 end
+    return scan.byName[string.lower(item.name)] or 0
+end
+
+-- Bank and alt counts ---------------------------------------------------------
 --
--- Tooltips show where else you have a bar's item. Your bank and Warband bank
--- come straight from the game. Other characters can't be seen from here, so
+-- Tooltips show where else you have a bar's item. Your bank count comes
+-- straight from the game. Other characters can't be seen from here, so
 -- each character saves a snapshot of its own counts (bags, plus bank counts
 -- of items BarTab knows about) as you play; an alt shows up once you've
 -- logged into it. Bags alone still drive the bars.
 
+-- "Name-Realm", which keys each character's bars. Once BarTab has bound this
+-- session's list it keeps that key (the game can be slow to report the realm
+-- right at login; see BindCharacterList).
 function CharacterKey()
-    return (UnitName("player") or "?") .. "-" .. (GetRealmName and GetRealmName() or "?")
+    if boundCharacterKey then return boundCharacterKey end
+    return (UnitName("player") or "?") .. "-" .. (PlayerRealm() or "?")
+end
+
+-- The realm's name. Some clients report it empty (all session, not just at
+-- login), so the last name the game did report is remembered, and failing
+-- that, the realm of this character's existing saved list.
+function PlayerRealm()
+    local realm = GetRealmName and GetRealmName()
+    if realm and realm ~= "" then
+        if settings then settings.realmName = realm end
+        return realm
+    end
+    if settings and settings.realmName and settings.realmName ~= "" then return settings.realmName end
+    local name = UnitName and UnitName("player")
+    local db = _G.BarTabDB
+    if name and db and db.characters then
+        local found
+        for key in pairs(db.characters) do
+            local keyName, keyRealm = key:match("^(.-)%-(.+)$")
+            if keyName == name and keyRealm and keyRealm ~= "?" then
+                if found and found ~= keyRealm then return nil end -- more than one: can't tell
+                found = keyRealm
+            end
+        end
+        if found then
+            if settings then settings.realmName = found end
+            return found
+        end
+    end
+    return nil
+end
+
+-- Whether BarTab knows both the character's name and realm.
+function CharacterKnown()
+    local name = UnitName and UnitName("player")
+    return name and name ~= "" and name ~= (_G.UNKNOWNOBJECT or "Unknown")
+        and PlayerRealm() ~= nil and true or false
 end
 
 -- Where a character's full name might come from. WoW Forever characters have a
@@ -449,7 +585,7 @@ local function FullCharacterName()
 end
 
 -- C_Item.GetItemCount(item, includeBank, includeUses, includeReagentBank, includeAccountBank)
-local function CountWhere(itemID, bank, account)
+function CountWhere(itemID, bank, account)
     if not (C_Item and C_Item.GetItemCount) then return 0 end
     local ok, count = pcall(C_Item.GetItemCount, itemID, bank, false, bank, account)
     return (ok and count) or 0
@@ -512,7 +648,8 @@ function RecordInventory()
         fullName = FullCharacterName(), updated = time and time() }
 end
 
-local function ResolveItemID(name)
+function ResolveItemID(name)
+    if not name then return nil end
     local lower = string.lower(name)
     if knownItemIDs[lower] then return knownItemIDs[lower] end
     for _, snapshot in pairs(settings.inventory or {}) do
@@ -524,7 +661,7 @@ local function ResolveItemID(name)
     end
 end
 
--- Adds "Bags 12 · Bank 30 · Warband 5" and "Alts: ..." lines to a tooltip.
+-- Adds "Bags 12 · Bank 30" and "Alts: ..." lines to a tooltip.
 function AddStorageLines(name)
     if settings.storageCounts == false or not name then return end
     local itemID = ResolveItemID(name)
@@ -532,12 +669,10 @@ function AddStorageLines(name)
 
     local bags = CountWhere(itemID, false, false)
     local withBank = CountWhere(itemID, true, false)
-    local withWarband = CountWhere(itemID, true, true)
     local parts = { "Bags " .. bags }
     if withBank - bags > 0 then parts[#parts + 1] = "Bank " .. (withBank - bags) end
-    if withWarband - withBank > 0 then parts[#parts + 1] = "Warband " .. (withWarband - withBank) end
 
-    local me, myRealm = CharacterKey(), GetRealmName and GetRealmName()
+    local me, myRealm = CharacterKey(), PlayerRealm()
     local alts = {}
     for key, snapshot in pairs(settings.inventory or {}) do
         if key ~= me then
@@ -593,14 +728,23 @@ end
 -- vendors, chat links, profession reagents), adds a line per bar that counts
 -- it: "BarTab: 4/5 for Hillman's Cloak". settings.itemTooltips (on by default).
 
-function AddItemTooltipLines(tooltip, itemName)
-    if settings.itemTooltips == false or not itemName then return end
-    local wanted = string.lower(itemName)
+function AddItemTooltipLines(tooltip, itemName, itemID)
+    if settings.itemTooltips == false or not (itemName or itemID) then return end
+    local wanted = itemName and string.lower(itemName)
     local list = {}
     for _, item in pairs(trackedItems) do
-        if string.lower(item.name) == wanted then list[#list + 1] = item end
+        local id = ItemIDFor(item)
+        if (itemID and id and id == itemID)
+            or ((not itemID or not id) and wanted and string.lower(item.name) == wanted) then
+            list[#list + 1] = item
+        end
     end
-    if #list == 0 then return end
+    -- "Alt-Shift-click" hints, except where that click does something else.
+    local hint
+    if not IsAuctionHouseTooltip(tooltip) then
+        hint = CrateHint(tooltip, itemID) or RecipeItemHint(itemName or (itemID and GetItemNameByID(itemID)))
+    end
+    if #list == 0 and not hint then return end
     table.sort(list, function(a, b) return (a.order or 0) < (b.order or 0) end)
 
     for _, item in ipairs(list) do
@@ -608,8 +752,6 @@ function AddItemTooltipLines(tooltip, itemName)
         local target
         if item.container then
             target = " for " .. item.container.name
-        elseif item.quest then
-            target = " for " .. (item.quest.title or "a quest")
         elseif item.label then
             target = " for " .. item.label
         else
@@ -624,7 +766,52 @@ function AddItemTooltipLines(tooltip, itemName)
             tooltip:AddLine(text, 0.4, 0.8, 1)
         end
     end
+    if hint then tooltip:AddLine(hint, 0.4, 0.8, 1) end
     tooltip:Show() -- resize to fit the new lines
+end
+
+-- Whether the tooltip belongs to something in the auction house window, where
+-- Alt-Shift-click opens the item's listings instead of reaching BarTab.
+function IsAuctionHouseTooltip(tooltip)
+    local ah = _G.AuctionHouseFrame or _G.AuctionFrame
+    if not (ah and ah.IsShown and ah:IsShown() and tooltip.GetOwner) then return false end
+    local frame = tooltip:GetOwner()
+    for _ = 1, 20 do
+        if not frame then return false end
+        if frame == ah then return true end
+        frame = frame.GetParent and frame:GetParent()
+    end
+    return false
+end
+
+-- Whether the tooltip shows a fill-up item (a Waylaid Crate): known from an
+-- earlier look, or read off the tooltip's own lines.
+function IsFillUpTooltip(tooltip, itemID)
+    if itemID and fillOptionsCache[itemID] ~= nil then return fillOptionsCache[itemID] and true or false end
+    local name = tooltip.GetName and tooltip:GetName()
+    if not name then return false end
+    local lines = {}
+    for i = 1, (tooltip.NumLines and tooltip:NumLines()) or 0 do
+        local text = _G[name .. "TextLeft" .. i]
+        text = text and text:GetText()
+        if text and text ~= "" then lines[#lines + 1] = text end
+    end
+    local fillText = FindFillText(lines)
+    return fillText ~= nil and #ParseFillOptions(fillText) > 0
+end
+
+-- On a crate's tooltip: how to track it, or that it's tracked. Crates are
+-- tracked (and filled) from your bags, so one that's only in your bank says
+-- to move it first; one you don't have (a chat link) says nothing.
+function CrateHint(tooltip, itemID)
+    if not itemID then return nil end
+    local inBags = CountWhere(itemID, false, false)
+    local inBank = CountWhere(itemID, true, false) - inBags
+    if inBags == 0 and inBank <= 0 then return nil end
+    if not IsFillUpTooltip(tooltip, itemID) then return nil end
+    if inBags == 0 then return "BarTab: move this crate to your bags, then Alt-Shift-click it if it doesn't track automatically" end
+    if IsContainerTracked(itemID) then return "BarTab: tracking this crate" end
+    return "BarTab: Alt-Shift-click to track this crate"
 end
 
 -- Only the main tooltip and chat-link tooltips (not comparison tooltips).
@@ -639,15 +826,16 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
         pcall(function()
             local name = data.id and GetItemNameByID(data.id)
             if not name and tooltip.GetItem then name = tooltip:GetItem() end
-            AddItemTooltipLines(tooltip, name)
+            AddItemTooltipLines(tooltip, name, tonumber(data.id))
         end)
     end)
 else
     for _, tooltip in ipairs({ GameTooltip, ItemRefTooltip }) do
         if tooltip and tooltip.HookScript then
             pcall(tooltip.HookScript, tooltip, "OnTooltipSetItem", function(self)
-                local name = self.GetItem and self:GetItem()
-                pcall(AddItemTooltipLines, self, name)
+                local name, link
+                if self.GetItem then name, link = self:GetItem() end
+                pcall(AddItemTooltipLines, self, name, link and tonumber(link:match("item:(%d+)")))
             end)
         end
     end

@@ -6,45 +6,26 @@ setfenv(1, ns)
 -- Sections and subsections -----------------------------------------------
 --
 -- Two tracker sections, each split into subsections:
---   BarTab: Quests    -> one subsection per zone, "Unknown/Other", "Inactive"
 --   BarTab: Crafting  -> one subsection per profession, "Other", "Inactive"
+--   BarTab: Items     -> one subsection per fill-up item, "Other", "Inactive"
 
-QUEST_SECTION = "BarTab: Quests"
 ITEM_SECTION = "BarTab: Items"
 CRAFT_SECTION = "BarTab: Crafting"
 INACTIVE_GROUP = "Inactive"
 OTHER_GROUP = "Other"          -- crafting items with no recipe
-UNKNOWN_ZONE = "Unknown/Other" -- quests whose zone can't be found
 
--- The quest log header (usually the zone) a quest is listed under.
-function GetQuestZone(questID)
-    if not (C_QuestLog and C_QuestLog.GetLogIndexForQuestID
-        and C_QuestLog.GetInfo) then
-        return nil
-    end
-    local index = C_QuestLog.GetLogIndexForQuestID(questID)
-    if not index then return nil end
-    for i = index, 1, -1 do
-        local info = C_QuestLog.GetInfo(i)
-        if info and info.isHeader and info.title and info.title ~= "" then
-            return info.title
-        end
-    end
-end
+-- Crafting, then Items.
+SECTION_ORDER = { [CRAFT_SECTION] = 1, [ITEM_SECTION] = 2 }
 
--- Quests above Crafting.
-SECTION_ORDER = { [QUEST_SECTION] = 1, [CRAFT_SECTION] = 2, [ITEM_SECTION] = 3 }
-
--- Quests, then Crafting, then Items.
 function CompareSections(a, b)
     if a == b then return false end
     return (SECTION_ORDER[a] or 9) < (SECTION_ORDER[b] or 9)
 end
 
--- Subsections alphabetically, then Other / Unknown, then Inactive last.
+-- Subsections alphabetically, then Other, then Inactive last.
 function GroupRank(name)
     if name == INACTIVE_GROUP then return 2 end
-    if name == OTHER_GROUP or name == UNKNOWN_ZONE then return 1 end
+    if name == OTHER_GROUP then return 1 end
     return 0
 end
 
@@ -91,17 +72,7 @@ GetOpenProfessionName = function()
     end
 end
 
--- Zone subsection for a quest item inside the Quests section.
-function GetQuestZoneName(item)
-    if not item.quest then return nil end
-    if not item.quest.zone then
-        item.quest.zone = GetQuestZone(item.quest.id)
-    end
-    return item.quest.zone or UNKNOWN_ZONE
-end
-
 function GetSection(item)
-    if item.quest then return QUEST_SECTION end
     if item.container then return ITEM_SECTION end
     -- Alt-Shift-clicked items, until they're tied to a recipe.
     if item.collect and not item.recipeID then return ITEM_SECTION end
@@ -118,20 +89,17 @@ function GetRecipeName(recipeID)
 end
 
 function EnsureLabel(item)
-    if item.recipeID and not item.quest and not item.label then
+    if item.recipeID and not item.label then
         item.label = GetRecipeName(item.recipeID)
     end
 end
 
--- Subsection within the section: Inactive, the quest's zone, or the
+-- Subsection within the section: Inactive, the fill-up item, or the
 -- recipe's profession (Other if no recipe).
 function GetGroup(item)
     EnsureLabel(item)
     if item.inactive then
         return INACTIVE_GROUP
-    end
-    if item.quest then
-        return GetQuestZoneName(item)
     end
     if item.container then
         return item.container.name
@@ -170,45 +138,6 @@ function GetSortedKeys()
     return keys
 end
 
--- Quest items only show once the quest has something you can click to use:
--- the quest's own item, or one of its items with a "Use:" effect (e.g.
--- combining pages into a book). Usually that's known once the item is in
--- your bags. Once found, it's remembered for the rest of the quest.
-function QuestHasUsableItem(item)
-    local quest = item.quest
-    if not quest then return true end
-    if quest.usable then return true end
-
-    local usable = false
-    if C_QuestLog and C_QuestLog.GetLogIndexForQuestID
-        and GetQuestLogSpecialItemInfo then
-        local index = C_QuestLog.GetLogIndexForQuestID(quest.id)
-        if index and GetQuestLogSpecialItemInfo(index) then
-            usable = true
-        end
-    end
-
-    if not usable then
-        for _, req in ipairs(quest.items or {}) do
-            GetItemCount(req.name) -- refreshes its item ID if it's in your bags
-            if ItemHasUse(req.name) then
-                usable = true
-                break
-            end
-        end
-    end
-
-    -- Pieces in your bags that combine into an objective (pages -> chapter).
-    if not usable and #FindRelatedUseItems(quest) > 0 then
-        usable = true
-    end
-
-    if usable then
-        quest.usable = true
-    end
-    return usable
-end
-
 function IsShown(item)
     -- Fill-up bars only show while you have the item they fill.
     if item.container then
@@ -217,31 +146,22 @@ function IsShown(item)
         if focus and focus ~= string.lower(item.name) then
             return false
         end
-        return GetItemCount(item.container.name) > 0
+        return CountContainer(item.container) > 0
     end
     -- "Focus on" one ingredient hides a recipe's other bars (as long as the
     -- focused ingredient still has a bar).
-    if item.recipeID and not item.quest then
+    if item.recipeID then
         local focus = settings.recipeFocus and settings.recipeFocus[item.recipeID]
         if focus and focus ~= string.lower(item.name) then
             for _, other in pairs(trackedItems) do
-                if other.recipeID == item.recipeID and not other.quest
+                if other.recipeID == item.recipeID
                     and string.lower(other.name) == focus then
                     return false
                 end
             end
         end
     end
-    if item.quest and settings.questsUsableOnly == false then
-        return true
-    end
-    return QuestHasUsableItem(item)
-end
-
--- With /bt inline on, active quest bars live under their quests in
--- Blizzard's tracker; only inactive ones stay in the BarTab: Quests section.
-function IsInlineQuestItem(item)
-    return inlineQuestsActive and not panelActive and item.quest ~= nil and not item.inactive
+    return true
 end
 
 function GetSectionKeys(section)
@@ -251,8 +171,7 @@ function GetSectionKeys(section)
     end
     for _, key in ipairs(GetSortedKeys()) do
         local item = trackedItems[key]
-        if GetSection(item) == section and IsShown(item)
-            and not IsInlineQuestItem(item) then
+        if GetSection(item) == section and IsShown(item) then
             result[#result + 1] = key
         end
     end
@@ -307,16 +226,23 @@ BLOCKED_SEGMENT_COLORS = {
 
 -- Color sets you can pick in the settings window.
 PALETTES = {
+    -- readyFill / blockedFill: the single color craft blocks use, with a
+    -- dark line between crafts (the lighter shade, so the lines show).
     { key = "colorblind", name = "Color-blind friendly (blue / orange)",
       ready = { { 0.00, 0.45, 0.70 }, { 0.34, 0.71, 0.91 } },
-      blocked = { { 0.94, 0.89, 0.26 }, { 0.90, 0.62, 0.00 } } },
+      blocked = { { 0.94, 0.89, 0.26 }, { 0.90, 0.62, 0.00 } },
+      readyFill = { 0.34, 0.71, 0.91 }, blockedFill = { 0.90, 0.62, 0.00 } },
     { key = "classic", name = "Classic (green / yellow)",
       ready = { { 0.05, 0.55, 0.05 }, { 0.30, 0.85, 0.30 } },
-      blocked = { { 1.00, 0.85, 0.20 }, { 0.70, 0.55, 0.00 } } },
+      blocked = { { 1.00, 0.85, 0.20 }, { 0.70, 0.55, 0.00 } },
+      readyFill = { 0.30, 0.85, 0.30 }, blockedFill = { 1.00, 0.85, 0.20 } },
     { key = "contrast", name = "High contrast (cyan / magenta)",
       ready = { { 0.00, 0.85, 0.85 }, { 0.00, 0.45, 0.50 } },
-      blocked = { { 1.00, 0.25, 0.75 }, { 0.60, 0.05, 0.40 } } },
+      blocked = { { 1.00, 0.25, 0.75 }, { 0.60, 0.05, 0.40 } },
+      readyFill = { 0.00, 0.85, 0.85 }, blockedFill = { 1.00, 0.25, 0.75 } },
 }
+READY_FILL = { 0.34, 0.71, 0.91 }
+BLOCKED_FILL = { 0.90, 0.62, 0.00 }
 
 function ApplyPalette(key)
     for _, palette in ipairs(PALETTES) do
@@ -325,6 +251,8 @@ function ApplyPalette(key)
                 SEGMENT_COLORS[i] = palette.ready[i]
                 BLOCKED_SEGMENT_COLORS[i] = palette.blocked[i]
             end
+            READY_FILL = palette.readyFill or palette.ready[1]
+            BLOCKED_FILL = palette.blockedFill or palette.blocked[1]
             return palette
         end
     end
@@ -340,49 +268,83 @@ function GetSegment(bar, index)
     return segment
 end
 
--- Shades the bar one block per craft's worth of this item: alternating blue
--- for crafts you can make now, alternating yellow/orange for crafts held back
--- by other reagents. Anything left over keeps the normal bar color.
+-- A thin dark line marking where one craft ends and the next begins.
+function GetDivider(bar, index)
+    bar.dividers = bar.dividers or {}
+    local line = bar.dividers[index]
+    if not line then
+        line = bar:CreateTexture(nil, "ARTWORK", nil, 3)
+        line:SetColorTexture(0, 0, 0, 0.85)
+        -- Thin textures can vanish when the game snaps them to the pixel
+        -- grid; keep them.
+        if line.SetSnapToPixelGrid then line:SetSnapToPixelGrid(false) end
+        if line.SetTexelSnappingBias then line:SetTexelSnappingBias(0) end
+        bar.dividers[index] = line
+    end
+    return line
+end
+
+FUTURE_LINE_SHADE = 0.65
+
+-- How many crafts the recipe's other ingredients (everything but this bar's
+-- material) would allow; very large if there are none.
+function OtherIngredientsLimit(item)
+    local limit = math.huge
+    local own = string.lower(item.name)
+    for _, reagent in ipairs(GetRecipeReagents(item.recipeID) or {}) do
+        if string.lower(reagent.name) ~= own and reagent.need > 0 then
+            limit = math.min(limit, math.floor(reagent.have / reagent.need))
+        end
+    end
+    return limit
+end
+
+-- Two screen pixels wide at whatever UI scale, centered on x (in the bar's
+-- units), lined up with whole pixels so it always shows.
+-- edge: nil for a full-height line, or "TOP" / "BOTTOM" for a short tick
+-- along that edge (tickHeight in bar units).
+function PlaceDivider(line, bar, x, edge, tickHeight)
+    local scale = bar:GetEffectiveScale() or 1
+    local pixel = 1
+    if GetPhysicalScreenSize then
+        local _, physicalHeight = GetPhysicalScreenSize()
+        if physicalHeight and physicalHeight > 0 then
+            pixel = 768 / physicalHeight / scale   -- one screen pixel, in bar units
+        end
+    end
+    local width = 2 * pixel
+    local left = math.floor((x - pixel) / pixel + 0.5) * pixel
+    line:SetWidth(width)
+    line:ClearAllPoints()
+    if edge == "TOP" then
+        line:SetPoint("TOPLEFT", bar, "TOPLEFT", left, 0)
+        line:SetHeight(tickHeight)
+    elseif edge == "BOTTOM" then
+        line:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", left, 0)
+        line:SetHeight(tickHeight)
+    else
+        line:SetPoint("TOPLEFT", bar, "TOPLEFT", left, 0)
+        line:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", left, 0)
+    end
+end
+
+-- Shades the bar one block per craft's worth of this item: one color for
+-- crafts you can make now, another for crafts held back by other reagents,
+-- with a line between crafts. Anything left over keeps the normal bar color.
 function UpdateSegments(bar, item, count, craftable)
     bar.segments = bar.segments or {}
     for _, segment in ipairs(bar.segments) do
         segment:Hide()
+    end
+    for _, line in ipairs(bar.dividers or {}) do
+        line:Hide()
     end
 
     -- Fill-up items: blue once this bundle is enough to fill it.
     if item.container then
         local _, full = GetFillState(item)
         if full then
-            local color = SEGMENT_COLORS[1]
-            local segment = GetSegment(bar, 1)
-            segment:SetVertexColor(color[1], color[2], color[3])
-            segment:ClearAllPoints()
-            segment:SetAllPoints(bar)
-            segment:Show()
-        end
-        return
-    end
-
-    -- Quest items: once this item is complete, the whole bar turns blue if
-    -- everything the quest needs is collected, or yellow if something's missing.
-    if item.quest then
-        local state = GetQuestState(item)
-        if not state and count < item.goal then
-            -- Built from pieces: blue once you have them all.
-            local progress = GetPieceProgress(item)
-            if progress and progress.owned >= progress.required then
-                local color = SEGMENT_COLORS[1]
-                local segment = GetSegment(bar, 1)
-                segment:SetVertexColor(color[1], color[2], color[3])
-                segment:ClearAllPoints()
-                segment:SetAllPoints(bar)
-                segment:Show()
-            end
-            return
-        end
-        if state then
-            local color = (state == "ready") and SEGMENT_COLORS[1]
-                or BLOCKED_SEGMENT_COLORS[1]
+            local color = READY_FILL
             local segment = GetSegment(bar, 1)
             segment:SetVertexColor(color[1], color[2], color[3])
             segment:ClearAllPoints()
@@ -402,7 +364,7 @@ function UpdateSegments(bar, item, count, craftable)
     if range <= 0 or not width or width <= 0 then return end
 
     local blocks = math.floor(count / perCraft)
-    local used = 0
+    local used, lines = 0, 0
 
     for i = 1, blocks do
         local low = math.max((i - 1) * perCraft, item.start)
@@ -412,9 +374,7 @@ function UpdateSegments(bar, item, count, craftable)
             used = used + 1
             local segment = GetSegment(bar, used)
 
-            local palette = (i <= craftable) and SEGMENT_COLORS
-                or BLOCKED_SEGMENT_COLORS
-            local color = palette[(i - 1) % 2 + 1]
+            local color = (i <= craftable) and READY_FILL or BLOCKED_FILL
             segment:SetVertexColor(color[1], color[2], color[3])
             segment:ClearAllPoints()
             segment:SetPoint("TOPLEFT", bar, "TOPLEFT",
@@ -423,9 +383,57 @@ function UpdateSegments(bar, item, count, craftable)
                 (low - item.start) / range * width, 0)
             segment:SetWidth((high - low) / range * width)
             segment:Show()
+
+            -- The line at this craft's right edge (not at the bar's end).
+            if high < item.goal then
+                lines = lines + 1
+                local line = GetDivider(bar, lines)
+                local x = (high - item.start) / range * width
+                PlaceDivider(line, bar, x)
+                line:SetColorTexture(0, 0, 0, 0.85)
+                line:SetAlpha(1)
+                line:Show()
+            end
         end
 
         if high >= item.goal then break end
+    end
+
+    -- Lines across the rest of the bar, where future crafts would end, so you
+    -- can see how many crafts the whole bar holds. Each is the color that
+    -- craft's block would be once you have this material: ready if the
+    -- recipe's other ingredients already cover it, held back if not.
+    local otherLimit = OtherIngredientsLimit(item)
+    local boundary = (math.max(blocks, math.floor(item.start / perCraft)) + 1) * perCraft
+    while boundary < item.goal do
+        if boundary > item.start then
+            -- Short ticks at the top and bottom edges (the middle stays clear
+            -- for the bar's text), marking where the line between crafts
+            -- will be.
+            local craftNumber = boundary / perCraft
+            local color = (craftNumber <= otherLimit) and READY_FILL or BLOCKED_FILL
+            local shade = FUTURE_LINE_SHADE -- a darker shade of the same color
+            local x = (boundary - item.start) / range * width
+            -- A notch about a tenth of the bar's height, at least 1 screen pixel.
+            local pixel = 1
+            if GetPhysicalScreenSize then
+                local _, physicalHeight = GetPhysicalScreenSize()
+                if physicalHeight and physicalHeight > 0 then
+                    pixel = 768 / physicalHeight / (bar:GetEffectiveScale() or 1)
+                end
+            end
+            -- Whole pixels, so the notch doesn't blur or vanish.
+            local tickHeight = math.max(1, math.floor((bar:GetHeight() or 18) * 0.1 / pixel + 0.5)) * pixel
+            for _, edge in ipairs({ "TOP", "BOTTOM" }) do
+                lines = lines + 1
+                local tick = GetDivider(bar, lines)
+                PlaceDivider(tick, bar, x, edge, tickHeight)
+                tick:SetColorTexture(color[1] * shade, color[2] * shade, color[3] * shade, 1)
+                tick:SetAlpha(1)
+                tick:Show()
+            end
+        end
+        boundary = boundary + perCraft
     end
 end
 
@@ -440,12 +448,18 @@ end
 
 local sharedCache -- rebuilt after each UpdateBars
 
+-- Which material a bar counts: its item ID when known, else its name.
+function MaterialKey(item)
+    local id = ItemIDFor(item)
+    return id and ("id:" .. id) or string.lower(item.name)
+end
+
 local function BuildSharedCounts()
     local cache = { counts = {}, users = {} }
     for _, key in ipairs(GetSortedKeys()) do
         local item = trackedItems[key]
-        if not item.quest and not item.container and not item.inactive and IsShown(item) then
-            local material = string.lower(item.name)
+        if not item.container and not item.inactive and IsShown(item) then
+            local material = MaterialKey(item)
             cache.users[material] = cache.users[material] or {}
             table.insert(cache.users[material], item)
         end
@@ -453,7 +467,7 @@ local function BuildSharedCounts()
     if (settings.sharedMaterials or "share") == "share" then
         for _, list in pairs(cache.users) do
             if #list > 1 then
-                local remaining = GetItemCount(list[1].name)
+                local remaining = CountItem(list[1])
                 for i, item in ipairs(list) do
                     local share = (i == #list) and remaining or math.min(remaining, math.max(0, item.goal))
                     cache.counts[item] = share
@@ -471,11 +485,11 @@ end
 
 -- The count a bar shows: its share of a shared material, else all of it.
 function GetBarCount(item)
-    if item.quest or item.container then
-        return GetItemCount(item.name)
+    if item.container then
+        return CountItem(item)
     end
     sharedCache = sharedCache or BuildSharedCounts()
-    return sharedCache.counts[item] or GetItemCount(item.name)
+    return sharedCache.counts[item] or CountItem(item)
 end
 
 -- Session stats -------------------------------------------------------------
@@ -535,14 +549,14 @@ end
 -- The bars (in list order) counting the same material, if more than one.
 function GetMaterialSharers(item)
     sharedCache = sharedCache or BuildSharedCounts()
-    local list = sharedCache.users[string.lower(item.name)]
+    local list = sharedCache.users[MaterialKey(item)]
     if list and #list > 1 then return list end
 end
 
 -- Tooltip lines about a shared material.
 function AddSharedLines(item)
     local mode = settings.sharedMaterials or "share"
-    if mode == "off" or item.quest or item.container then return end
+    if mode == "off" or item.container then return end
     local sharers = GetMaterialSharers(item)
     if not sharers then return end
 
@@ -572,7 +586,7 @@ function RefreshBar(bar, item, includeName)
     local craftText = ""
     local craftable = GetCraftableCount(item.recipeID)
     -- With a shared material, crafts are limited to this bar's share of it.
-    if craftable and count < GetItemCount(item.name) then
+    if craftable and count < CountItem(item) then
         local perCraft = GetReagentQuantity(item.recipeID, item.name)
         if perCraft and perCraft > 0 then
             craftable = math.min(craftable, math.floor(count / perCraft))
@@ -583,7 +597,7 @@ function RefreshBar(bar, item, includeName)
     end
     UpdateSegments(bar, item, count, craftable)
 
-    -- Quest items: status text, and the item a click should use (read by the
+    -- Fill-up items: status text, and the item a click should use (read by the
     -- secure click overlay).
     bar.useItemName = nil
     bar.useTargetName = nil
@@ -604,44 +618,10 @@ function RefreshBar(bar, item, includeName)
             end
         end
     end
-    if item.quest then
-        local state, missing = GetQuestState(item)
-        local progress = not state and count < item.goal and GetPieceProgress(item)
-        if progress then
-            -- Show the pieces collected toward this objective, e.g. 1 / 4 pages.
-            bar:SetMinMaxValues(0, progress.required)
-            bar:SetValue(progress.owned)
-            valueText = progress.owned .. " / " .. progress.required .. " " .. progress.word .. "s"
-            if progress.owned >= progress.required then
-                craftText = " | Ready"
-                bar.useItemName = progress.useName
-            end
-        elseif state == "ready" then
-            craftText = " | Ready"
-            bar.useItemName = GetQuestUseItem(item)
-        elseif state == "waiting" then
-            -- "Need Chapter 2" rather than repeating "Shredder Operating
-            -- Manual - " when both share that start.
-            local short = missing
-            if NameStem(missing) and NameStem(missing) == NameStem(item.name) then
-                short = missing:match("[%-:]%s*(.+)$") or missing
-            end
-            craftText = " | Need " .. short
-        elseif count < item.goal then
-            -- Not collected yet, but pieces that combine into it are in
-            -- your bags (e.g. pages for a chapter): click to combine.
-            local piece = PickRelatedUseItem(item)
-            if piece then
-                craftText = " | Click to combine"
-                bar.useItemName = piece
-            end
-        end
-    end
-
     -- Bars labeled with what you're making also name the material counted,
     -- in slightly smaller text.
     local textSize = settings.textSize or 12
-    if item.label and not item.quest then
+    if item.label then
         valueText = valueText .. " " .. item.name
         textSize = textSize - 2
     end
@@ -877,7 +857,8 @@ function CreateSectionModule(name)
             pcall(blizzardSetCollapsed, module, true)
         end
     end
-    module.LayoutContents = LayoutSection
+    -- Runs inside Blizzard's tracker update: never let an error escape.
+    module.LayoutContents = Safe("drawing " .. name, LayoutSection)
 
     module.OnBlockHeaderClick = function(_, block, mouseButton)
         if block.groupKey then
@@ -889,7 +870,9 @@ function CreateSectionModule(name)
             end
         elseif mouseButton == "RightButton" then
             ShowItemMenu(block, block.itemKey)
-        elseif mouseButton == "LeftButton" and not IsControlKeyDown() then
+        elseif mouseButton == "LeftButton" and IsControlKeyDown() then
+            OpenBarRecipe(block.itemKey)
+        elseif mouseButton == "LeftButton" then
             CraftItem(block.itemKey)
         end
     end
@@ -907,6 +890,30 @@ end
 function IsAttached(module)
     local map = ObjectiveTrackerManager.moduleToContainerMap
     return module.parentContainer or (map and map[module])
+end
+
+-- Whether the tracker still lists the section (it can drop sections when
+-- it rebuilds; BarTab then puts them back).
+function IsInTracker(module)
+    local list = ObjectiveTrackerFrame and ObjectiveTrackerFrame.modules
+    if type(list) == "table" then
+        for _, other in pairs(list) do
+            if other == module then return true end
+        end
+        return false
+    end
+    local map = ObjectiveTrackerManager and ObjectiveTrackerManager.moduleToContainerMap
+    if type(map) == "table" then return map[module] ~= nil end
+    return true -- can't tell on this client
+end
+
+function ReattachLostSections()
+    for _, module in pairs(sectionModules) do
+        if not IsInTracker(module) then
+            pcall(ObjectiveTrackerManager.SetModuleContainer, ObjectiveTrackerManager, module, ObjectiveTrackerFrame)
+            reattachCount = (reattachCount or 0) + 1
+        end
+    end
 end
 
 -- Checks that the game accepts addon sections, starting with "Other".
@@ -934,14 +941,20 @@ function SetUpTracker()
 end
 
 -- Creates sections for any new professions and keeps them in order.
+-- Returns false if a new section couldn't be made right now (the game can
+-- refuse, e.g. during combat); the sections already made keep working and
+-- BarTab tries again shortly.
 function EnsureSectionModules()
-    local added = false
+    local added, complete = false, true
     for _, name in ipairs(GetSectionNames()) do
         if not sectionModules[name] then
             local module = CreateSectionModule(name)
-            if not module then return false end
-            sectionModules[name] = module
-            added = true
+            if module then
+                sectionModules[name] = module
+                added = true
+            else
+                complete = false
+            end
         end
     end
 
@@ -959,7 +972,99 @@ function EnsureSectionModules()
         end
     end
 
-    return true
+    return complete
+end
+
+-- Joining the tracker at login. The tracker may not be ready that early (or
+-- after a client update, a little later than before), so keep trying for
+-- about 30 seconds before falling back to the plain list.
+trackerSetupAttempts = 0
+function TrySetUpTracker(attempt)
+    trackerSetupAttempts = attempt
+    if SetUpTracker() then
+        UpdateBars()
+        return
+    end
+    if attempt < 15 then
+        C_Timer.After(2, function() TrySetUpTracker(attempt + 1) end)
+    else
+        Print("Couldn't add a section to the objective tracker; using standalone bars. /bartab window on shows them in BarTab's own window instead.")
+    end
+    UpdateBars()
+end
+
+-- /bartab debug tracker: how BarTab is showing its bars, for bug reports.
+function DebugTracker()
+    settings.debugLog = { "BarTab debug tracker" }
+    local function Line(text)
+        Print(text)
+        table.insert(settings.debugLog, text)
+    end
+    local tracker = ObjectiveTrackerFrame
+    Line(("mode setting=%s; own window=%s; tracker sections=%s (after %d tries); hidden tracker=%s"):format(
+        tostring(settings.displayMode or "auto"), tostring(panelActive), tostring(trackerAvailable),
+        trackerSetupAttempts or 0, tostring(IsTrackerHidden())))
+    if tracker then
+        Line(("tracker: shown=%s alpha=%s height=%s manager=%s setContainer=%s"):format(
+            tostring(tracker:IsShown()), tostring(tracker.GetAlpha and tracker:GetAlpha()),
+            tostring(tracker.GetHeight and math.floor(tracker:GetHeight())),
+            tostring(ObjectiveTrackerManager ~= nil),
+            tostring(ObjectiveTrackerManager and ObjectiveTrackerManager.SetModuleContainer ~= nil)))
+    else
+        Line("tracker: ObjectiveTrackerFrame missing")
+    end
+    local names = GetSectionNames()
+    Line("sections with bars: " .. (#names > 0 and table.concat(names, ", ") or "none"))
+    for name, module in pairs(sectionModules) do
+        Line(("  %s: shown=%s attached=%s in tracker=%s height=%s collapsed=%s"):format(name,
+            tostring(module:IsShown()), tostring(IsAttached(module) and true or false),
+            tostring(IsInTracker(module)),
+            tostring(module.GetHeight and math.floor(module:GetHeight())),
+            tostring(settings.collapsed and settings.collapsed[name])))
+    end
+    -- Every bar: where it belongs, whether BarTab wants it shown, and
+    -- whether a bar for it is actually on screen.
+    for _, key in ipairs(GetSortedKeys()) do
+        local item = trackedItems[key]
+        local visible = false
+        for barID, bar in pairs(barsByKey) do
+            if bar.itemKey == key and bar:IsVisible() then visible = true end
+        end
+        local ok, group = pcall(GetGroup, item)
+        Line(("  bar %s [%s / %s] order=%s wanted=%s inactive=%s on screen=%s"):format(
+            key, tostring(GetSection(item)), ok and tostring(group) or "?", tostring(item.order),
+            tostring(IsShown(item)), tostring(item.inactive and true or false), tostring(visible)))
+    end
+    local standalone = 0
+    for barID, bar in pairs(barsByKey) do
+        if barID:sub(1, 11) == "standalone\0" and bar:IsShown() then standalone = standalone + 1 end
+    end
+    Line("plain-list bars showing: " .. standalone .. "; sections put back this session: " .. (reattachCount or 0))
+    Line("Saved for bug reports with /reload.")
+end
+
+-- Retry a section that couldn't be made: soon, and again once combat ends.
+sectionRetry = CreateFrame("Frame")
+sectionRetry:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    RequestUpdate(0.5)
+end)
+function RetrySectionsLater()
+    if sectionRetryPending then return end
+    sectionRetryPending = true
+    C_Timer.After(3, function()
+        sectionRetryPending = false
+        RequestUpdate(0)
+    end)
+    pcall(sectionRetry.RegisterEvent, sectionRetry, "PLAYER_REGEN_ENABLED")
+end
+
+-- Hides the fallback bars (used only when tracker sections can't be made at
+-- all), so they never show alongside the tracker or BarTab's window.
+function HideStandaloneBars()
+    for barID, bar in pairs(barsByKey) do
+        if barID:sub(1, 11) == "standalone\0" then bar:Hide() end
+    end
 end
 
 -- Fallback when tracker sections aren't available: standalone bars.
@@ -1131,7 +1236,7 @@ function GetPanelSectionHeader(section)
         GameTooltip:SetText(section)
         GameTooltip:AddLine((settings.collapsed and settings.collapsed[section])
             and "Click to expand" or "Click to collapse", 0.7, 0.7, 0.7)
-        GameTooltip:AddLine(settings.panelLocked and "Window locked (unlock in /bt config)"
+        GameTooltip:AddLine(settings.panelLocked and "Window locked (unlock in /bartab config)"
             or "Drag to move the window", 0.7, 0.7, 0.7)
         GameTooltip:AddLine("Right-click: options", 0.7, 0.7, 0.7)
         GameTooltip:Show()
@@ -1269,7 +1374,7 @@ end
 -- Goal-reached alerts ----------------------------------------------------------
 --
 -- When a bar reaches its goal (a material bar fills, a crate bundle is
--- ready, a quest has everything it needs), BarTab says so in chat and,
+-- ready), BarTab says so in chat and,
 -- optionally, with a sound and an on-screen message.
 
 goalReached = {}   -- item key -> whether it was at its goal last check
@@ -1279,8 +1384,6 @@ function IsGoalReached(item)
     if item.container then
         local _, full = GetFillState(item)
         return full
-    elseif item.quest then
-        return GetQuestState(item) == "ready"
     end
     return GetBarCount(item) >= item.goal
 end
@@ -1288,8 +1391,6 @@ end
 function AlertText(item)
     if item.container then
         return item.container.name .. " is ready: " .. item.goal .. " " .. item.name
-    elseif item.quest then
-        return (item.quest.title or item.name) .. ": all items collected"
     elseif item.label then
         return item.label .. ": " .. item.name .. " " .. item.goal .. " / " .. item.goal
     end
@@ -1353,17 +1454,17 @@ UpdateBars = function()
     end
 
     if panelActive then
+        HideStandaloneBars()
         UpdatePanel()
-    elseif trackerAvailable and EnsureSectionModules() then
+    elseif trackerAvailable then
+        HideStandaloneBars()
+        if not EnsureSectionModules() then RetrySectionsLater() end
+        ReattachLostSections()
         for _, module in pairs(sectionModules) do
             module:MarkDirty()
         end
     else
         UpdateStandaloneBars()
-    end
-
-    if UpdateInlineQuests then
-        UpdateInlineQuests()
     end
 
     CheckGoalAlerts()
@@ -1402,6 +1503,7 @@ end
 
 BeginDrag = function(bar)
     if not bar.itemKey then return end
+    lastDragResult = nil
     dragState = { key = bar.itemKey, bar = bar }
     bar:SetAlpha(0.6)
     GameTooltip:Hide()
@@ -1411,7 +1513,9 @@ end
 
 EndDrag = function()
     local state = dragState
-    if not state then return end
+    -- Already ended (by the safety net below, before the bar's mouse-up):
+    -- give the same answer again.
+    if not state then return lastDragResult ~= false end
     dragState = nil
     dragDriver:Hide()
 
@@ -1421,12 +1525,17 @@ EndDrag = function()
     state.bar:SetAlpha(1)
     if ResetCursor then ResetCursor() end
 
+    -- Returns false only when let go on the bar it started on: a Ctrl-click.
     local target = GetBarUnderCursor()
     if target and target.itemKey and target.itemKey ~= state.key
         and target.section == state.bar.section
         and target.group == state.bar.group then
         MoveItem(state.key, target.itemKey)
+        lastDragResult = true
+        return true
     end
+    lastDragResult = target == nil or target.itemKey ~= state.key
+    return lastDragResult
 end
 
 dragDriver:SetScript("OnUpdate", function(self)
@@ -1482,7 +1591,7 @@ function StripLinks(text)
     return Trim(text)
 end
 
--- For /bt assign: the item is either a leading link or the text before the
+-- For /bartab assign: the item is either a leading link or the text before the
 -- (shift-clicked) recipe.
 -- Returns e.g. "Light Leather" or "Light Leather 0-20".
 function ParseAssignTarget(args)
@@ -1564,7 +1673,7 @@ function ParseTrackArgs(args)
 
     local stackSize = GetStackSize(name)
     if not stackSize then
-        return nil, nil, nil, "Could not determine stack size. Specify a max, e.g. /bt track Light Leather 20."
+        return nil, nil, nil, "Could not determine stack size. Specify a max, e.g. /bartab track Light Leather 20."
     end
 
     return name, 0, stackSize

@@ -4,7 +4,7 @@ local _, ns = ...
 setfenv(1, ns)
 
 do
--- Settings window (/bt config) -------------------------------------------------
+-- Settings window (/bartab config) -------------------------------------------------
 
 configRefreshers = {}
 
@@ -140,11 +140,13 @@ function BuildConfigFrame()
     local TABS = {
         { key = "general", name = "General" },
         { key = "crafting", name = "Crafting" },
-        { key = "quests", name = "Quests & Items" },
+        { key = "recipes", name = "Recipes" },
+        { key = "items", name = "Items" },
         { key = "display", name = "Display" },
     }
     local pages, tabButtons = {}, {}
     local function ShowTab(key)
+        if key == "quests" then key = "items" end -- the tab's old name
         if not pages[key] then key = "general" end
         for pageKey, tabPage in pairs(pages) do tabPage:SetShown(pageKey == key) end
         for _, button in ipairs(tabButtons) do
@@ -154,8 +156,8 @@ function BuildConfigFrame()
     end
     for index, tab in ipairs(TABS) do
         local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        button:SetSize(104, 22)
-        button:SetPoint("TOPLEFT", 16 + (index - 1) * 107, -30)
+        button:SetSize(82, 22)
+        button:SetPoint("TOPLEFT", 16 + (index - 1) * 86, -30)
         button:SetText(tab.name)
         button.key = tab.key
         button:SetScript("OnClick", function() ShowTab(tab.key) end)
@@ -178,11 +180,8 @@ function BuildConfigFrame()
     page, y = pages.general, -4
     y = AddHeading(page, y - 6, "Sections")
     y = AddNote(page, y, "A section only appears in the objective tracker when it has "
-        .. "something to show. For example, BarTab: Quests stays hidden until a quest "
-        .. "item is tracked, and BarTab: Items until a fill-up item is in your bags.")
-    y = AddCheck(page, y, "Show BarTab: Quests", "Quest item bars.",
-        function() return not settings.hiddenSections[QUEST_SECTION] end,
-        function(v) SetSectionShown(QUEST_SECTION, v) end)
+        .. "something to show. For example, BarTab: Items stays hidden until a fill-up "
+        .. "item is in your bags or you collect something there.")
     y = AddCheck(page, y, "Show BarTab: Crafting", "Material and recipe bars.",
         function() return not settings.hiddenSections[CRAFT_SECTION] end,
         function(v) SetSectionShown(CRAFT_SECTION, v) end)
@@ -197,7 +196,7 @@ function BuildConfigFrame()
         function() return settings.inactiveCollapsed ~= false end,
         function(v) settings.inactiveCollapsed = v; UpdateBars() end)
     y = AddCheck(page, y, "Show bank and alt counts in tooltips",
-        "Adds where else you have a bar's item: your bank, Warband bank, and other characters (once you've logged into them).",
+        "Adds where else you have a bar's item: your bank and other characters (once you've logged into them).",
         function() return settings.storageCounts ~= false end,
         function(v) settings.storageCounts = v end)
     y = AddCheck(page, y, "Show minimap button",
@@ -208,7 +207,7 @@ function BuildConfigFrame()
 
     y = AddHeading(page, y - 6, "Alerts")
     y = AddCheck(page, y, "Alert when a bar reaches its goal",
-        "A chat message when a material bar fills, a crate bundle is ready, or a quest has all its items.",
+        "A chat message when a material bar fills or a crate bundle is ready.",
         function() return settings.goalAlerts ~= false end,
         function(v) settings.goalAlerts = v end)
     y = AddCheck(page, y, "Play a sound",
@@ -296,6 +295,11 @@ function BuildConfigFrame()
     y = y - 4
 
 
+    y = AddCheck(page, y, "Count down as you craft",
+        "Each craft takes one craft's worth off a recipe's bars (8/32 becomes 4/28), so a bar shows what's left to make. When the count runs out, the recipe's After crafting rule applies (with \"keep the bar\", the bars move to Inactive at full size). Change it per recipe on a bar's right-click menu; this is for recipes you haven't set.",
+        function() return settings.countDownDefault end,
+        function(v) settings.countDownDefault = v or nil end)
+
     y = AddHeading(page, y - 6, "Shared materials")
     local sharedModes = {
         { key = "share", name = "Share out in list order" },
@@ -341,6 +345,11 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    y = AddCheck(page, y, "Only buy for crafts your bars cover",
+        "Buys a recipe's vendor materials only for the crafts its tracked bars already cover. For example, tracking 10 Heavy Leather for Heavy Armor Kits (5 a kit) with 8 in your bags buys thread for 1 kit, not 2. Ingredients without a bar don't hold it up.",
+        function() return settings.vendorWhenReady end,
+        function(v) settings.vendorWhenReady = v or nil end)
+
     -- Most BarTab will spend at one vendor visit (asking or not).
     local limitLabel = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     limitLabel:SetPoint("TOPLEFT", 24, y - 4)
@@ -378,26 +387,79 @@ function BuildConfigFrame()
     y = y - 30
 
 
-    -- Quests & Items -----------------------------------------------------
-    page, y = pages.quests, -4
-    y = AddHeading(page, y - 6, "Quests")
-    y = AddCheck(page, y, "Track quest items when accepting a quest",
-        "Adds bars for a quest's \"collect\" objectives when you accept it. (/bt auto)",
-        function() return settings.autoQuests end,
-        function(v) settings.autoQuests = v end)
-    y = AddCheck(page, y, "Show quest bars under their quests (experimental)",
-        "Puts quest bars inside Blizzard's quest tracker instead of the BarTab: Quests section. This works inside Blizzard's own layout and can stop other quests in the tracker from updating; turn it off if they do. (/bt inline)",
-        function() return settings.inlineQuests end,
-        function(v) SetInlineQuests(v) end)
-    y = AddCheck(page, y, "Only show quests with an item to use",
-        "Hides quests until they have something to click: the quest's own item, or one that combines (pages into a book).",
-        function() return settings.questsUsableOnly ~= false end,
-        function(v) settings.questsUsableOnly = v; UpdateBars() end)
+    y = AddHeading(page, y - 6, "Auction house")
+    y = AddCheck(page, y, "Add a BarTab tab beside the auction house",
+        "A tab on the auction house's right edge (beside any other addons' tabs) that opens a list of what your bars are short of, each with a Search button. Stays open while you browse results.",
+        function() return settings.auctionList ~= false end,
+        function(v)
+            settings.auctionList = v
+            if not v and auctionTab then
+                if auctionPanel and auctionPanel:IsShown() then SetAuctionPanelOpen(false) end
+                auctionTab:Hide()
+            end
+        end)
+    y = AddCheck(page, y, "Include Inactive bars in the list",
+        "Also list what your Inactive bars are short of (recipes you've shelved or haven't learned yet), so you can stock up while you're at the auction house.",
+        function() return settings.auctionInactive end,
+        function(v)
+            settings.auctionInactive = v or nil
+            if auctionPanel and auctionPanel:IsShown() then Safe("auction", UpdateAuctionPanel)() end
+        end)
 
+    -- Recipes -------------------------------------------------------------
+    page, y = pages.recipes, -4
+    y = AddHeading(page, y - 6, "Favorite recipes")
+    AddButton(page, 24, y, 170, "Import favorites",
+        "With a profession open: bars for its starred recipes that aren't tracked yet (one craft each). A window lets you track the main ingredients or all of them, or choose for each. (/bartab favorites)",
+        function() Safe("favorites", ImportFavoriteRecipes)() end)
+    y = y - 30
+    y = AddCheck(page, y, "Track recipes when you favorite them",
+        "Clicking the star beside a recipe in the profession window asks which of its ingredients to track.",
+        function() return settings.autoFavorites end,
+        function(v) settings.autoFavorites = v or nil end)
 
+    y = AddHeading(page, y - 6, "Appearances")
+    y = AddCheck(page, y, "Track recipes for appearances you haven't collected",
+        "When you learn a recipe, or open a profession, recipes that make gear with an appearance this character can collect but hasn't get bars for one craft, untracked after crafting. Each recipe is offered once, and skipped if you already have one crafted. Equip or disenchant the result to collect it. (/bartab appearances)",
+        function() return settings.appearanceRecipes end,
+        function(v)
+            settings.appearanceRecipes = v
+            if v then
+                appearanceSnoozed = nil
+                Safe("appearances", ScanAppearanceRecipes)()
+            end
+        end)
+    local appearanceButton = AddButton(page, 24, y, 350, "",
+        "Which of a recipe's ingredients get bars. Ask: a window lists them, with the main one (the one it needs most) ticked. Main: just that one. Every: all of them, thread and dye included.",
+        function()
+            local current, index = settings.appearanceBars or "ask", 1
+            for i, mode in ipairs(APPEARANCE_MODES) do
+                if mode.key == current then index = i end
+            end
+            settings.appearanceBars = APPEARANCE_MODES[index % #APPEARANCE_MODES + 1].key
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.appearanceBars or "ask"
+        for _, mode in ipairs(APPEARANCE_MODES) do
+            if mode.key == current then appearanceButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+    y = AddCheck(page, y, "Add appearance bars to Inactive",
+        "New appearance bars start in the profession's Inactive area, out of the way until you move one up to craft it.",
+        function() return settings.appearanceInactive end,
+        function(v) settings.appearanceInactive = v or nil end)
+    y = AddCheck(page, y, "Include recipes that no longer give skill",
+        "Also green and gray recipes. Off: only orange and yellow ones.",
+        function() return settings.appearanceAllColors end,
+        function(v) settings.appearanceAllColors = v end)
+
+    -- Items --------------------------------------------------------------
+    page, y = pages.items, -4
     y = AddHeading(page, y - 6, "Items")
     y = AddCheck(page, y, "Track fill-up items automatically",
-        "Adds bars when an item like a Waylaid Crate reaches your bags. (/bt autoitems)",
+        "Adds bars when an item like a Waylaid Crate reaches your bags. (/bartab autoitems)",
         function() return settings.autoItems end,
         function(v) settings.autoItems = v end)
     y = AddCheck(page, y, "Combine stacks automatically",
@@ -505,7 +567,7 @@ RegisterOptionsPage = function()
     page.name = "BarTab"
     local text = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     text:SetPoint("TOPLEFT", 16, -16)
-    text:SetText("BarTab's settings open in their own window (also /bt config).")
+    text:SetText("BarTab's settings open in their own window (also /bartab config).")
     local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
     button:SetSize(180, 24)
     button:SetPoint("TOPLEFT", 16, -40)

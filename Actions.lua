@@ -40,6 +40,7 @@ function AssignRecipe(key, recipeID, rangeGiven)
         if oldNeed and item.goal == oldNeed and newNeed and newNeed > 0
             and newNeed ~= oldNeed then
             item.goal = newNeed
+            item.countFrom, item.countDone = nil, nil -- a new size starts the countdown over
             resized = true
         end
     end
@@ -65,7 +66,7 @@ function AssignRecipe(key, recipeID, rangeGiven)
 end
 
 -- Tracks a material for a recipe: that material's bar for the recipe, sized
--- to one craft unless a range is given. Used by /bt assign and the BarTab
+-- to one craft unless a range is given. Used by /bartab assign and the BarTab
 -- button in the profession window.
 function AssignMaterial(name, recipeID, startCount, goal)
     -- This material's bar for this recipe, or else a bar for the material
@@ -74,8 +75,8 @@ function AssignMaterial(name, recipeID, startCount, goal)
     item = trackedItems[key]
     if not item then
         for otherKey, other in pairs(trackedItems) do
-            -- Only a plain material bar; never a quest or crate bar.
-            if not other.quest and not other.container and not other.recipeID
+            -- Only a plain material bar; never a crate bar.
+            if not other.container and not other.recipeID
                 and string.lower(other.name) == string.lower(name) then
                 key, item = otherKey, other
                 break
@@ -88,6 +89,7 @@ function AssignMaterial(name, recipeID, startCount, goal)
         if goal then
             item.start = startCount
             item.goal = goal
+            item.countFrom, item.countDone = nil, nil -- a new size starts the countdown over
         end
     else
         -- New bar: use the given range, else how many one craft needs,
@@ -126,6 +128,7 @@ function TrackMaterial(name, startCount, goal, collect)
     local oldItem = trackedItems[key]
     if collect == nil then collect = oldItem and oldItem.collect end
     trackedItems[key] = {
+        itemID = oldItem and oldItem.itemID,
         collect = collect or nil,
         name = name,
         start = startCount,
@@ -167,7 +170,7 @@ function FindKeyByName(text, command)
         end
         table.sort(names)
         Print(text .. " matches several bars: " .. table.concat(names, ", ")
-            .. ". Use /bt " .. command .. " with the recipe name, or right-click the bar.")
+            .. ". Use /bartab " .. command .. " with the recipe name, or right-click the bar.")
     end
 end
 
@@ -211,6 +214,7 @@ function UntrackItem(key)
     end
 
     trackedItems[key] = nil
+    NoteUntrackedContainers({ item })
     UpdateBars()
     Print("Stopped tracking " .. DisplayName(item) .. ".")
 end
@@ -322,7 +326,7 @@ end
 function RecipeFocusMenuEntry(recipeID, recipeName)
     local bars = {}
     for _, other in pairs(trackedItems) do
-        if other.recipeID == recipeID and not other.quest and not other.container then
+        if other.recipeID == recipeID and not other.container then
             bars[#bars + 1] = other
         end
     end
@@ -362,7 +366,7 @@ ShowItemMenu = function(owner, itemKey)
     local entries = {}
     -- Only when the recipe selected in the profession window uses this
     -- material and isn't already this bar's recipe.
-    if selectedRecipeID and not item.quest and not item.container
+    if selectedRecipeID and not item.container
         and selectedRecipeID ~= item.recipeID
         and GetReagentQuantity(selectedRecipeID, item.name) then
         entries[#entries + 1] = {
@@ -370,8 +374,12 @@ ShowItemMenu = function(owner, itemKey)
             function() AssignRecipe(itemKey, selectedRecipeID) end,
         }
     end
-    if item.recipeID and not item.quest and not item.container then
+    if item.recipeID and not item.container then
+        entries[#entries + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
+        local craftsEntry = CraftsMenuEntry(item)
+        if craftsEntry then entries[#entries + 1] = craftsEntry end
         entries[#entries + 1] = AfterCraftMenuEntry(item)
+        entries[#entries + 1] = CountdownMenuEntry(item)
         entries[#entries + 1] = StopMenuEntry(item)
     end
     if item.recipeID then
@@ -388,12 +396,17 @@ ShowItemMenu = function(owner, itemKey)
             SetItemActive(itemKey, false)
         end }
     end
-    if not item.quest and not item.container then
+    if not item.container then
         entries[#entries + 1] = VendorMenuEntry(item)
     end
-    if CanTrackChain(item) then
-        entries[#entries + 1] = { "Also track how to make " .. item.name, function()
-            TrackChain(itemKey)
+    local producer = CanTrackChain(item)
+    if producer then
+        -- One craft; Alt-click for everything the bar is short of.
+        local crafts = ChainShortfallCrafts(item, producer)
+        local label = "Also track how to make " .. item.name
+        if crafts > 1 then label = label .. " (Alt: " .. crafts .. " crafts)" end
+        entries[#entries + 1] = { label, function()
+            TrackChain(itemKey, IsAltKeyDown())
         end }
     end
     if IsShareable(item) then
@@ -407,7 +420,7 @@ ShowItemMenu = function(owner, itemKey)
 
     if item.container then
         table.insert(entries, 1, FocusMenuEntry(item.container))
-    elseif item.recipeID and not item.quest then
+    elseif item.recipeID then
         local focusEntry = RecipeFocusMenuEntry(item.recipeID, DisplayName(item))
         if focusEntry then table.insert(entries, 1, focusEntry) end
     end
@@ -427,9 +440,12 @@ function GetGroupKeys(section, group)
 end
 
 function UntrackKeys(keys, label)
+    local removed = {}
     for _, key in ipairs(keys) do
+        removed[#removed + 1] = trackedItems[key]
         trackedItems[key] = nil
     end
+    NoteUntrackedContainers(removed)
     UpdateBars()
     Print("Stopped tracking " .. #keys .. " item(s) in " .. label .. ".")
 end
@@ -519,7 +535,7 @@ end
 --
 -- A small BarTab button on the recipe details panel. Clicking it lists the
 -- selected recipe's ingredients; picking one tracks it for that recipe, the
--- same as /bt assign.
+-- same as /bartab assign.
 
 function ShowProfessionMenu(owner)
     local recipeID = GetSelectedRecipeID()
@@ -596,7 +612,8 @@ do
 end
 
 
--- Alt-Shift-click an item (bags, chat links, auction house, loot, ...) -----
+-- Alt-Shift-click an item (bags, bank, chat links, loot, ...) -------------
+-- (Not in the auction house window: there that click opens the listings.)
 -- Fill-up items get their bars right away; anything else asks for a goal,
 -- with a button to track it for the open recipe when that recipe uses it.
 
@@ -610,18 +627,39 @@ end
 
 function GetLinkFillOptions(link, itemID)
     if fillOptionsCache[itemID] ~= nil then return fillOptionsCache[itemID] end
-    if not (C_TooltipInfo and C_TooltipInfo.GetHyperlink) then return false end
-    local ok, data = pcall(C_TooltipInfo.GetHyperlink, link)
-    if not ok or not data or not data.lines then return false end
-    for _, line in ipairs(data.lines) do
-        if line.leftText and line.leftText:find("^Use:") then
-            local parsed = ParseFillOptions(line.leftText)
-            if #parsed > 0 then
-                fillOptionsCache[itemID] = parsed
-                return parsed
+    local lines = {}
+    local surface = TooltipUtil and TooltipUtil.SurfaceArgs
+    if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+        local ok, data = pcall(C_TooltipInfo.GetHyperlink, link)
+        if ok and type(data) == "table" then
+            if surface then pcall(surface, data) end
+            for _, line in ipairs(data.lines or {}) do
+                if surface and not line.leftText then pcall(surface, line) end
+                if line.leftText and line.leftText ~= "" then lines[#lines + 1] = line.leftText end
             end
-            break
         end
+    end
+    if #lines == 0 then
+        -- Tooltip data came back empty: read a hidden tooltip instead.
+        local tip = GetScanTooltip()
+        if tip and tip.SetHyperlink then
+            tip:SetOwner(_G.WorldFrame or UIParent, "ANCHOR_NONE")
+            tip:ClearLines()
+            if pcall(tip.SetHyperlink, tip, link) then
+                for i = 1, (tip.NumLines and tip:NumLines()) or 0 do
+                    local text = _G["BarTabScanTooltipTextLeft" .. i]
+                    text = text and text:GetText()
+                    if text and text ~= "" then lines[#lines + 1] = text end
+                end
+            end
+            tip:Hide()
+        end
+    end
+    local useText = FindFillText(lines)
+    local parsed = useText and ParseFillOptions(useText)
+    if parsed and #parsed > 0 then
+        fillOptionsCache[itemID] = parsed
+        return parsed
     end
     return false -- not cached: the tooltip may not have loaded yet
 end
@@ -648,7 +686,7 @@ function DefaultGoalText(data, mode)
         if perCraft and perCraft > 0 then return tostring(perCraft) end
     end
     local bar = trackedItems[string.lower(data.name)]
-    if bar and not bar.quest and not bar.container then
+    if bar and not bar.container then
         return RangeText(bar.start, bar.goal)
     end
     return tostring(GetStackSize(data.name) or 20)
@@ -664,11 +702,16 @@ function TrackFromDialog(data, mode, text)
         Print("Max must be greater than min.")
         return false
     end
+    local key
     if mode == "recipe" then
         AssignMaterial(data.name, data.recipeID, startCount, goal)
+        key = RecipeKey(data.name, data.recipeID)
     else
         TrackMaterial(data.name, startCount, goal, mode == "items")
+        key = string.lower(data.name)
     end
+    -- The link said exactly which item this is.
+    if data.itemID and trackedItems[key] then trackedItems[key].itemID = data.itemID end
     return true
 end
 
@@ -803,7 +846,7 @@ function ShowTrackDialog(name, itemID)
     -- Start on: the bar's current section, else the open recipe, else Items.
     local bar = trackedItems[string.lower(name)]
     local mode
-    if bar and not bar.quest and not bar.container then
+    if bar and not bar.container then
         mode = bar.collect and "items" or "crafting"
     elseif recipeID then
         mode = "recipe"
@@ -828,11 +871,19 @@ function TrackFromLink(link)
     if options then
         if IsContainerTracked(itemID) then
             Print(name .. " is already tracked.")
+        elseif CountWhere(itemID, false, false) == 0 then
+            if CountWhere(itemID, true, false) > 0 then
+                Print("Move " .. name .. " to your bags, then Alt-Shift-click it if it doesn't track automatically.")
+            else
+                Print("BarTab only tracks crates that are in your bags.")
+            end
         else
+            DismissedContainers()[itemID] = nil
             ImportContainer(itemID, name, options, true)
         end
         return
     end
+    if TrackRecipeItem(name) then return end
     ShowTrackDialog(name, itemID)
 end
 
@@ -858,11 +909,12 @@ end
 
 -- Sharing bar setups as text -----------------------------------------------
 -- "BarTab1:" then one entry per bar, separated by ";":
---   name,start,goal,recipeID,profession,label,flags,stop (skill level or color)
+--   name,start,goal,recipeID,profession,label,flags,stop (skill level or color),itemID
 --   (flags: c = Items section; u / n = untrack / move to Inactive after crafting;
---    a = ask before a stop rule removes it; v = not bought at vendors)
--- Text fields escape % , ; | and line breaks as %XX. Quest and fill-up bars
--- aren't shared; they come from your own quests and bags.
+--    a = ask before a stop rule removes it; v = not bought at vendors;
+--    d / k = count down as you craft, on / off)
+-- Text fields escape % , ; | and line breaks as %XX. Fill-up bars
+-- aren't shared; they come from your own bags.
 SHARE_PREFIX = "BarTab1:"
 
 function EscapeField(text)
@@ -876,7 +928,7 @@ function UnescapeField(text)
 end
 
 function IsShareable(item)
-    return item and not item.quest and not item.container
+    return item and not item.container
 end
 
 function ExportKeys(keys)
@@ -893,8 +945,10 @@ function ExportKeys(keys)
             item.recipeID or "", EscapeField(item.profession), EscapeField(item.label),
             (item.collect and "c" or "") .. (item.afterCraft == "untrack" and "u"
                 or item.afterCraft == "inactive" and "n" or "") .. (item.stopAsk and "a" or "")
-                .. (item.noVendor and "v" or ""),
+                .. (item.noVendor and "v" or "")
+                .. (item.countDown == true and "d" or item.countDown == false and "k" or ""),
             item.untilSkill or item.untilColor or "",
+            ItemIDFor(item) or "",
         }, ",")
     end
     if #entries == 0 then return nil end
@@ -926,6 +980,7 @@ function ImportText(text)
             local item = trackedItems[key]
             if item then
                 item.start, item.goal = startCount, goal
+                item.countFrom, item.countDone = nil, nil -- a new size starts the countdown over
                 updated = updated + 1
             else
                 local profession = UnescapeField(fields[5] or "")
@@ -945,6 +1000,9 @@ function ImportText(text)
                     untilColor = recipeID and COLOR_RANK[fields[8] or ""] and fields[8] or nil,
                     stopAsk = (recipeID and (fields[7] or ""):find("a")) and true or nil,
                     noVendor = (fields[7] or ""):find("v") and true or nil,
+                    countDown = recipeID and (((fields[7] or ""):find("d") and true)
+                        or ((fields[7] or ""):find("k") and false)) or nil,
+                    itemID = tonumber(fields[9] or ""),
                     order = NextOrder(),
                 }
                 added = added + 1
@@ -1060,7 +1118,7 @@ end
 function ShareKeys(keys, label)
     local text, count = ExportKeys(keys)
     if not text then
-        Print("Nothing to share there (quest and fill-up bars aren't shared).")
+        Print("Nothing to share there (fill-up bars aren't shared).")
         return
     end
     ShowShareWindow(text, count, label)

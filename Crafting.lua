@@ -18,6 +18,16 @@ setfenv(1, ns)
 silent = {}          -- .waiting, .loaded (profession name), .idle
 mutedFrames = {}
 
+-- /bartab debug craft: a timestamped log of crafting steps, saved with
+-- /reload, for bug reports.
+function CraftLog(message)
+    if not settings.debugCraft then return end
+    local line = ("%.2f %s"):format(GetTime(), message)
+    settings.debugLog = settings.debugLog or {}
+    table.insert(settings.debugLog, line)
+    while #settings.debugLog > 300 do table.remove(settings.debugLog, 1) end
+end
+
 function ProfessionsOpen()
     return ProfessionsFrame ~= nil and ProfessionsFrame:IsShown()
 end
@@ -103,6 +113,8 @@ function OnTradeSkillShow()
 end
 
 function CraftNow(item, amount)
+    CraftLog("CraftRecipe " .. tostring(item.recipeID) .. " x" .. tostring(amount)
+        .. " (craftable " .. tostring(GetCraftableCount(item.recipeID)) .. ", loaded silently: " .. tostring(silent.loaded ~= nil) .. ")")
     crafting = { id = item.recipeID, amount = amount, done = 0, last = GetTime() }
     local ok, err = pcall(C_TradeSkillUI.CraftRecipe, item.recipeID, amount)
     if not ok then
@@ -151,7 +163,7 @@ end
 
 -- Hovering a crafting bar loads its profession ahead of the click.
 function PreloadProfession(item)
-    if item and item.recipeID and not item.quest and not IsProfessionLoaded(item) then
+    if item and item.recipeID and not IsProfessionLoaded(item) then
         SilentLoad(item)
     end
 end
@@ -178,6 +190,7 @@ C_Timer.NewTicker(0.5, function()
         silent.idle = (silent.idle or 0) + 0.5
         if silent.idle >= 1.5 then
             silent.loaded, silent.idle = nil, nil
+            CraftLog("closing the silently loaded profession (idle)")
             if C_TradeSkillUI.CloseTradeSkill then
                 C_TradeSkillUI.CloseTradeSkill()
             end
@@ -185,10 +198,68 @@ C_Timer.NewTicker(0.5, function()
     end
 end)
 
+-- Opens the profession window on the bar's recipe (Ctrl-click, or "Open
+-- recipe" on the right-click menu).
+function OpenBarRecipe(itemKey)
+    local item = itemKey and trackedItems[itemKey]
+    if not item then return end
+    if not item.recipeID or item.container then
+        Print(DisplayName(item) .. " has no recipe. Right-click it to assign one, with the recipe selected in the profession window.")
+        return
+    end
+    if InCombatLockdown() then
+        Print("Professions can't be opened in combat.")
+        return
+    end
+    -- A profession BarTab loaded without its window has to be closed first,
+    -- or opening it again doesn't bring the window up.
+    if silent.loaded and not ProfessionsOpen() then
+        silent.loaded, silent.idle = nil, nil
+        if C_TradeSkillUI.CloseTradeSkill then pcall(C_TradeSkillUI.CloseTradeSkill) end
+    end
+    Unmute()
+    local recipeID = item.recipeID
+    if C_TradeSkillUI.OpenRecipe and pcall(C_TradeSkillUI.OpenRecipe, recipeID) then
+        C_Timer.After(0.3, function() SelectRecipeInWindow(recipeID) end)
+        return
+    end
+    local skillLine = GetProfessionSkillLine(item)
+    if skillLine and C_TradeSkillUI.OpenTradeSkill and pcall(C_TradeSkillUI.OpenTradeSkill, skillLine) then
+        C_Timer.After(0.3, function() SelectRecipeInWindow(recipeID) end)
+    else
+        Print("Couldn't open " .. (item.profession or "the profession") .. ". Try opening its window yourself.")
+    end
+end
+
+-- Selects the recipe once the profession window is up, if the game didn't.
+function SelectRecipeInWindow(recipeID, tries)
+    tries = tries or 0
+    if not ProfessionsOpen() then
+        if tries < 10 then
+            C_Timer.After(0.2, function() SelectRecipeInWindow(recipeID, tries + 1) end)
+        end
+        return
+    end
+    if GetSelectedRecipeID() == recipeID then return end
+    local page = ProfessionsFrame.CraftingPage
+    local list = page and page.RecipeList
+    local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+    if list and list.SelectRecipe and ok and info then
+        pcall(list.SelectRecipe, list, info, true)
+    elseif page and page.SelectRecipe and ok and info then
+        pcall(page.SelectRecipe, page, info)
+    end
+end
+
 -- action: what to do ("one", "fit", "max"); by default whatever this click
 -- (with its modifier) is set to do.
 function CraftItem(itemKey, action)
     local item = trackedItems[itemKey]
+    if item and item.notLearned then
+        Print("You haven't learned " .. (item.recipeName or DisplayName(item)) .. " yet"
+            .. (item.needSkill and (" (needs " .. item.needSkill .. ")") or "") .. ".")
+        return
+    end
 
     if item and item.container then
         local count, full = GetFillState(item)
@@ -205,30 +276,6 @@ function CraftItem(itemKey, action)
             Print("Can't use items in combat.")
         else
             Print("Click the bar itself (not the name) to use " .. item.container.name .. ".")
-        end
-        return
-    end
-
-    -- Quest items are used through the bar's secure click overlay; a click
-    -- only gets here when that overlay is off.
-    if item and item.quest then
-        local state, missing = GetQuestState(item)
-        local progress = not state and GetItemCount(item.name) < item.goal
-            and GetPieceProgress(item)
-        if progress and #progress.missing > 0 then
-            Print("Still need " .. progress.word .. " " .. table.concat(progress.missing, ", ") .. ".")
-            return
-        end
-        if state == "waiting" then
-            Print("Still need " .. missing .. ".")
-        elseif not state then
-            Print("Still collecting " .. item.name .. ".")
-        elseif InCombatLockdown() then
-            Print("Can't use items in combat.")
-        elseif not GetQuestUseItem(item) then
-            Print("All items collected; there's nothing to use for this quest.")
-        else
-            Print("Click the bar itself (not the name) to use the item.")
         end
         return
     end
@@ -324,10 +371,11 @@ function CreateBar(key, barID)
         end
         if button ~= "LeftButton" then return end
 
-        -- A Ctrl-drag never crafts, even if released without moving.
+        -- A Ctrl-drag never crafts. Dropped on another bar it reorders;
+        -- released on the same bar it's a Ctrl-click: open the recipe.
         if self.dragStarted then
             self.dragStarted = nil
-            EndDrag()
+            if not EndDrag() then OpenBarRecipe(self.itemKey) end
             return
         end
 
@@ -360,30 +408,47 @@ AFTER_CRAFT_MODES = {
 
 function IsTrackedRecipe(recipeID)
     for _, item in pairs(trackedItems) do
-        if item.recipeID == recipeID and not item.quest and not item.container then
+        if item.recipeID == recipeID and not item.container then
             return true
         end
     end
     return false
 end
 
-function AfterCraftDone(recipeID)
+-- reason: said instead of "crafted" when something else finished the
+-- recipe's job (its appearance got collected).
+function AfterCraftDone(recipeID, reason)
     if not recipeID then return end
+    CraftLog("after-craft check " .. tostring(recipeID) .. (reason and (" (" .. reason .. ")") or ""))
+    if not reason then Safe("appearances", RemindToEquip)(recipeID) end
+    -- Counting down: the rule waits until no crafts are left.
+    if not reason then
+        local left = CraftsLeft(recipeID)
+        if left and left > 0 then return end
+    end
     local moved, removed, name = 0, 0, nil
     for key, item in pairs(trackedItems) do
-        if item.recipeID == recipeID and not item.quest and not item.container then
+        if item.recipeID == recipeID and not item.container then
             if item.afterCraft == "untrack" then
                 trackedItems[key] = nil
                 removed = removed + 1
                 name = name or DisplayName(item)
             elseif item.afterCraft == "inactive" and not item.inactive then
                 item.inactive = true
+                if item.countFrom then -- full size again in Inactive
+                    item.goal, item.countFrom, item.countDone = item.countFrom, nil, nil
+                end
                 moved = moved + 1
                 name = name or DisplayName(item)
             end
         end
     end
-    if moved + removed == 0 then return end
+    -- Bars the rule kept (countdown run out) go to Inactive at full size.
+    local restart = not reason and CraftsLeft(recipeID) == 0
+    if moved + removed == 0 then
+        if restart then RestartCountdown(recipeID) end
+        return
+    end
     if removed > 0 and settings.recipeFocus and not IsTrackedRecipe(recipeID) then
         settings.recipeFocus[recipeID] = nil
     end
@@ -391,7 +456,8 @@ function AfterCraftDone(recipeID)
     local parts = {}
     if removed > 0 then parts[#parts + 1] = "untracked " .. removed .. " bar(s)" end
     if moved > 0 then parts[#parts + 1] = "moved " .. moved .. " bar(s) to Inactive" end
-    Print(name .. " crafted; " .. table.concat(parts, ", ") .. ".")
+    Print(name .. " " .. (reason or "crafted") .. "; " .. table.concat(parts, ", ") .. ".")
+    if restart then RestartCountdown(recipeID) end
 end
 
 -- Right-click submenu for a recipe bar.
@@ -420,12 +486,230 @@ end
 -- Called on each successful craft cast. Crafts BarTab started finish when
 -- their count is reached; crafts from the profession window when the
 -- window's queue (Create All / a typed amount) runs out.
+-- The rules wait for the bag update that takes the craft's materials out of
+-- your bags. Run before that, a removed bar's share of a shared material
+-- would briefly go to the other bars, counting materials already used up
+-- (and could set off their goal alerts).
+pendingAfterCraft = {}
+
+function QueueAfterCraft(recipeID)
+    pendingAfterCraft[recipeID] = true
+    -- In case no bag update comes (nothing left the bags), go ahead anyway.
+    C_Timer.After(2, function()
+        ApplyCountdowns()
+        if pendingAfterCraft[recipeID] then
+            pendingAfterCraft[recipeID] = nil
+            AfterCraftDone(recipeID)
+        end
+    end)
+end
+
+function RunPendingAfterCraft()
+    if not next(pendingAfterCraft) and not next(pendingCountdown) then return end
+    -- Next frame, once the bag counts have refreshed.
+    C_Timer.After(0.1, function()
+        ApplyCountdowns()
+        for recipeID in pairs(pendingAfterCraft) do
+            pendingAfterCraft[recipeID] = nil
+            AfterCraftDone(recipeID)
+        end
+    end)
+end
+
+-- Counting down --------------------------------------------------------------
+-- With "Count down as you craft" (item.countDown, or settings.countDownDefault
+-- for bars not set either way), each craft lowers the goal of each of the
+-- recipe's ingredient bars by one craft's worth: 8/32 Bolt of Linen Cloth
+-- for 8 Red Linen Bags becomes 4/28 after one, not 4/32. The After crafting
+-- rule then waits for the count to run out; with "keep the bar" the bars go
+-- back to their full size for another round. Like the rule, the countdown
+-- waits for the bag update, so a bar never briefly counts materials the
+-- craft already used.
+pendingCountdown = {} -- recipeID -> crafts not yet counted down
+
+function CountsDown(item)
+    if item.container or not item.recipeID then return false end
+    if item.countDown ~= nil then return item.countDown end
+    return settings.countDownDefault and true or false
+end
+
+-- The recipe's ingredient bars that count down, each with its per-craft amount.
+function CountdownBars(recipeID)
+    local list = {}
+    for key, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and CountsDown(item) then
+            local need = GetReagentQuantity(recipeID, item.name)
+            if need and need > 0 then list[#list + 1] = { key = key, item = item, need = need } end
+        end
+    end
+    return list
+end
+
+-- Crafts left before the countdown runs out (nil: the recipe doesn't count down).
+function CraftsLeft(recipeID)
+    local left
+    for _, entry in ipairs(CountdownBars(recipeID)) do
+        local crafts = entry.item.countDone and 0
+            or math.floor(((entry.item.goal or 0) - (entry.item.start or 0)) / entry.need)
+        left = math.min(left or crafts, crafts)
+    end
+    return left
+end
+
+function QueueCountdown(recipeID)
+    pendingCountdown[recipeID] = (pendingCountdown[recipeID] or 0) + 1
+    C_Timer.After(2, ApplyCountdowns)
+end
+
+function ApplyCountdowns()
+    if not next(pendingCountdown) then return end
+    CraftLog("countdown applied")
+    local changed = false
+    for recipeID, crafts in pairs(pendingCountdown) do
+        pendingCountdown[recipeID] = nil
+        for _, entry in ipairs(CountdownBars(recipeID)) do
+            local item = entry.item
+            item.countFrom = item.countFrom or item.goal
+            local goal = item.goal - entry.need * crafts
+            if goal <= (item.start or 0) then
+                -- Last craft: the bar keeps its size until the After
+                -- crafting rule deals with it (a goal of nothing would count
+                -- as reached and set off its alert).
+                item.countDone = true
+            else
+                item.goal = goal
+            end
+            changed = true
+        end
+    end
+    if changed then UpdateBars() end
+end
+
+-- Countdown ran out and the bars are kept: they move to Inactive at full
+-- size, out of the way but ready to use again.
+function RestartCountdown(recipeID)
+    local name
+    for _, entry in ipairs(CountdownBars(recipeID)) do
+        local item = entry.item
+        if item.countFrom then
+            item.goal, item.countFrom, item.countDone = item.countFrom, nil, nil
+            item.inactive = true
+            name = name or DisplayName(item)
+        end
+    end
+    if name then
+        UpdateBars()
+        Print(name .. ": all crafts done; its bars moved to Inactive (full size again, for next time).")
+    end
+end
+
+-- Sizing a recipe's bars by crafts (right-click > Crafts): 1, 5, 10, or as
+-- many as it takes to reach the next multiple of 5 in the profession (at
+-- 162 Leatherworking: 3 crafts, to 165), assuming a skill point a craft.
+function SizeRecipeBars(recipeID, crafts)
+    local name
+    for key, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container then
+            local need = GetReagentQuantity(recipeID, item.name)
+            if need and need > 0 then
+                item.goal = (item.start or 0) + need * crafts
+                item.countFrom, item.countDone = nil, nil
+                -- A size you just picked isn't a goal you just reached: no alert.
+                goalReached[key] = nil
+                name = name or DisplayName(item)
+            end
+        end
+    end
+    if name then
+        UpdateBars()
+        Print(name .. ": bars sized for " .. crafts .. (crafts == 1 and " craft." or " crafts."))
+    end
+end
+
+-- How many crafts the recipe's bars are sized for now (nil if unknown).
+function SizedCrafts(item)
+    local need = GetReagentQuantity(item.recipeID, item.name)
+    if not need or need <= 0 then return nil end
+    return math.floor(((item.goal or 0) - (item.start or 0)) / need)
+end
+
+function CraftsMenuEntry(item)
+    if not GetReagentQuantity(item.recipeID, item.name) then return nil end
+    local current = SizedCrafts(item)
+    local choices = {}
+    for _, crafts in ipairs({ 1, 5, 10 }) do
+        choices[#choices + 1] = {
+            crafts == 1 and "1 craft" or (crafts .. " crafts"),
+            function() SizeRecipeBars(item.recipeID, crafts) end,
+            selected = current == crafts,
+        }
+    end
+    local skill, profession, cap = GetProfessionSkill(item)
+    if skill then
+        local tier = (math.floor(skill / 5) + 1) * 5
+        if cap and cap > 0 then tier = math.min(tier, cap) end
+        local crafts = tier - skill
+        if crafts > 0 then
+            choices[#choices + 1] = {
+                ("To %s %d (%d %s)"):format(profession or "skill", tier, crafts, crafts == 1 and "craft" or "crafts"),
+                function() SizeRecipeBars(item.recipeID, crafts) end,
+                selected = false,
+            }
+        end
+    end
+    -- As many crafts as this bar's material in your bags covers (37 Heavy
+    -- Leather at 8 a craft: 4). Other ingredients (thread, dye) can be bought.
+    local need = GetReagentQuantity(item.recipeID, item.name)
+    local have = CountItem(item)
+    local fromBags = need and need > 0 and math.floor(have / need) or 0
+    if fromBags > 0 then
+        choices[#choices + 1] = {
+            ("Use all your %s (%d %s)"):format(item.name, fromBags, fromBags == 1 and "craft" or "crafts"),
+            function() SizeRecipeBars(item.recipeID, fromBags) end,
+            selected = false,
+        }
+    end
+    return { "Crafts" .. (current and (" (" .. current .. ")") or ""), choices = choices }
+end
+
+-- Right-click toggle for a recipe bar (all of the recipe's bars together).
+function CountdownMenuEntry(item)
+    return {
+        "Count down as you craft",
+        function()
+            local on = not CountsDown(item)
+            for _, other in pairs(trackedItems) do
+                if other.recipeID == item.recipeID and not other.container then
+                    other.countDown = on
+                    if not on then other.countFrom, other.countDone = nil, nil end
+                end
+            end
+            Print(DisplayName(item) .. (on
+                and ": each craft now takes one craft's worth off its bars."
+                or ": bars keep their size as you craft."))
+            UpdateBars()
+        end,
+        selected = CountsDown(item),
+        isSelected = function() return CountsDown(item) end,
+        check = true,
+    }
+end
+
 function OnCraftSucceeded(spellID)
+    CraftLog("craft succeeded " .. tostring(spellID) .. (crafting and (" (" .. (crafting.done + 1) .. " of " .. crafting.amount .. ")") or " (not BarTab's)"))
+    if spellID and IsTrackedRecipe(spellID) then
+        for _, item in pairs(trackedItems) do
+            if item.recipeID == spellID and CountsDown(item) then
+                QueueCountdown(spellID)
+                break
+            end
+        end
+    end
     if crafting and spellID == crafting.id then
         crafting.done = crafting.done + 1
         if crafting.done >= crafting.amount then
             crafting = nil
-            C_Timer.After(0.3, function() AfterCraftDone(spellID) end)
+            QueueAfterCraft(spellID)
         end
         return
     end
@@ -436,7 +720,7 @@ function OnCraftSucceeded(spellID)
         if ok and tonumber(value) then remaining = tonumber(value) end
     end
     if remaining <= 0 then
-        C_Timer.After(0.3, function() AfterCraftDone(spellID) end)
+        QueueAfterCraft(spellID)
     end
 end
 
@@ -500,7 +784,7 @@ stopPrompts = { queue = {}, waiting = {} }
 
 function UntrackRecipe(recipeID)
     for key, item in pairs(trackedItems) do
-        if item.recipeID == recipeID and not item.quest and not item.container then
+        if item.recipeID == recipeID and not item.container then
             trackedItems[key] = nil
         end
     end
@@ -554,7 +838,7 @@ end
 function CheckSkillLimits()
     local messages, colorCache, asks = {}, {}, {}
     for key, item in pairs(trackedItems) do
-        if item.recipeID and not item.quest and not item.container
+        if item.recipeID and not item.container
             and (item.untilSkill or item.untilColor) then
             local label = DisplayName(item)
             if item.untilSkill then
@@ -611,7 +895,7 @@ end
 function SetStopRule(recipeID, level, color, quiet)
     local item
     for _, other in pairs(trackedItems) do
-        if other.recipeID == recipeID and not other.quest and not other.container then
+        if other.recipeID == recipeID and not other.container then
             other.untilSkill, other.untilColor = level, color
             item = item or other
         end
@@ -689,7 +973,7 @@ function StopMenuEntry(item)
         function()
             local ask = not item.stopAsk or nil
             for _, other in pairs(trackedItems) do
-                if other.recipeID == recipeID and not other.quest and not other.container then
+                if other.recipeID == recipeID and not other.container then
                     other.stopAsk = ask
                 end
             end
@@ -727,7 +1011,8 @@ for _, skillEvent in ipairs({ "SKILL_LINES_CHANGED", "CHAT_MSG_SKILL", "PLAYER_E
     pcall(skillWatcher.RegisterEvent, skillWatcher, skillEvent)
 end
 skillCheckPending = false
-skillWatcher:SetScript("OnEvent", function()
+skillWatcher:SetScript("OnEvent", function(_, event)
+    if event == "CHAT_MSG_SKILL" or event == "SKILL_LINES_CHANGED" then CraftLog("skill event " .. event) end
     -- Skill info can lag the event a moment; many events come in a burst.
     if skillCheckPending then return end
     skillCheckPending = true
@@ -762,8 +1047,20 @@ function ScanProducers()
     for itemID, entry in pairs(mine) do
         if entry.profession == profession then mine[itemID] = nil end
     end
+    -- Every recipe of the profession by name, learned or not, so a recipe
+    -- item ("Pattern: Red Woolen Bag") can be matched to its recipe.
+    settings.recipeIndex = settings.recipeIndex or {}
+    local index = settings.recipeIndex[CharacterKey()] or {}
+    settings.recipeIndex[CharacterKey()] = index
+    for name, entry in pairs(index) do
+        if entry.profession == profession then index[name] = nil end
+    end
     for _, recipeID in ipairs(ids) do
         local okRecipe, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        if okRecipe and type(info) == "table" and info.name then
+            index[string.lower(info.name)] = { recipeID = recipeID, profession = profession,
+                skillLineID = base.professionID }
+        end
         if okRecipe and type(info) == "table" and info.learned then
             local okSchematic, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
             local output = okSchematic and type(schematic) == "table" and schematic.outputItemID
@@ -797,7 +1094,16 @@ function FindProducer(itemName)
 end
 
 -- Bars for the recipe that makes this bar's material, sized to the shortfall.
-function TrackChain(parentKey)
+-- How many crafts of the producing recipe cover what the bar is short of.
+function ChainShortfallCrafts(item, producer)
+    local short = item.goal - GetBarCount(item)
+    if short <= 0 then return 0 end
+    return math.ceil(short / producer.qty)
+end
+
+-- whole: size the new bars to the bar's whole shortfall (Alt-click);
+-- otherwise one craft.
+function TrackChain(parentKey, whole)
     local parent = trackedItems[parentKey]
     if not parent then return end
     local producer = FindProducer(parent.name)
@@ -817,7 +1123,7 @@ function TrackChain(parentKey)
         return
     end
 
-    local crafts = math.ceil(short / producer.qty)
+    local crafts = whole and math.ceil(short / producer.qty) or 1
     local recipeName = producer.recipeName or GetRecipeName(producer.recipeID) or parent.name
     local parts = {}
     for index, reagent in ipairs(reagents) do
@@ -825,10 +1131,11 @@ function TrackChain(parentKey)
         local key = RecipeKey(reagent.name, producer.recipeID)
         local item = trackedItems[key]
         if item then
-            if item.goal < goal then item.goal = goal end
+            if item.goal < goal then item.goal, item.countFrom, item.countDone = goal, nil, nil end
         else
             trackedItems[key] = {
                 name = reagent.name,
+                itemID = reagent.itemID,
                 start = 0,
                 goal = goal,
                 recipeID = producer.recipeID,
@@ -845,19 +1152,20 @@ function TrackChain(parentKey)
     NormalizeOrder()
     UpdateBars()
     Print(("Tracking how to make %d %s for %s: %d craft(s) of %s, needing %s."):format(
-        short, parent.name, DisplayName(parent), crafts, recipeName, table.concat(parts, ", ")))
+        crafts * producer.qty, parent.name, DisplayName(parent), crafts, recipeName,
+        table.concat(parts, ", ")))
 end
 
 -- The recipe that makes this bar's material, unless you already track it.
 function CanTrackChain(item)
-    if item.quest or item.container then return nil end
+    if item.container then return nil end
     local producer = FindProducer(item.name)
     if producer and not IsTrackedRecipe(producer.recipeID) then return producer end
 end
 
 -- Tooltip lines: what this bar feeds, and whether you can make its material.
 function AddChainLines(item)
-    if item.quest or item.container then return end
+    if item.container then return end
     local fed = item.chainFor and trackedItems[item.chainFor]
     if fed then
         GameTooltip:AddLine("Makes " .. fed.name .. " for " .. DisplayName(fed), 0.8, 0.8, 0.8)
@@ -870,7 +1178,8 @@ function AddChainLines(item)
             how = producer.profession .. " (" .. producer.recipeName .. ")"
         end
         GameTooltip:AddLine("You can make " .. item.name .. " with " .. how
-            .. "; right-click to track that too.", 0.5, 1, 0.5, true)
+            .. "; right-click to track that too (one craft, or Alt-click the menu for all you're short).",
+            0.5, 1, 0.5, true)
     end
 end
 
@@ -881,14 +1190,990 @@ for _, tradeEvent in ipairs({ "TRADE_SKILL_SHOW", "TRADE_SKILL_LIST_UPDATE",
     pcall(producerWatcher.RegisterEvent, producerWatcher, tradeEvent)
 end
 producerScanPending = false
-producerWatcher:SetScript("OnEvent", function()
+producerWatcher:SetScript("OnEvent", function(_, event, arg1)
+    if event == "NEW_RECIPE_LEARNED" and arg1 then
+        -- Appearance offers are only made for recipes you know, so a mark on
+        -- one you're only now learning is stray (an older trainer window).
+        if settings.appearanceOffered and settings.appearanceOffered[CharacterKey()] then
+            settings.appearanceOffered[CharacterKey()][arg1] = nil
+        end
+        Safe("trainer", ActivateLearnedRecipe)(arg1)
+        C_Timer.After(1, function() Safe("appearances", CheckNewRecipe)(arg1, 1) end)
+    end
     if producerScanPending then return end
     producerScanPending = true
     C_Timer.After(0.5, function()
         producerScanPending = false
         pcall(ScanProducers)
+        Safe("trainer", CheckLearnedRecipes)()
+        Safe("appearances", ScanAppearanceRecipes)()
     end)
 end)
+
+-- Appearances ------------------------------------------------------------------
+-- Optionally (settings.appearanceRecipes), recipes that make gear whose
+-- appearance you haven't collected get bars: one craft's worth of each
+-- ingredient, untracked after crafting. Checked when you learn a recipe and
+-- whenever a profession loads. Each recipe is offered once per character
+-- (settings.appearanceOffered), so untracking one keeps it gone.
+-- Recipes that no longer give skill (green, gray) are left out unless
+-- settings.appearanceAllColors is on.
+
+-- Which ingredients get bars (settings.appearanceBars).
+APPEARANCE_MODES = {
+    { key = "ask", name = "Ask which ingredients to track" },
+    { key = "main", name = "Track the main ingredient only" },
+    { key = "all", name = "Track every ingredient" },
+}
+appearanceQueue = {} -- recipes waiting for you to pick ingredients
+appearanceSettled = {} -- recipeID -> true: not gear, can't collect, or collected (this session)
+
+-- "uncollected", "collected", "none" (not gear), "unusable" (this character
+-- can't collect it) or "loading" (ask again later).
+function AppearanceStatus(itemID)
+    local T = C_TransmogCollection
+    if not (itemID and T and T.GetItemInfo) then return "none" end
+    if not IsItemLoaded(itemID) then
+        if C_Item and C_Item.RequestLoadItemDataByID then
+            pcall(C_Item.RequestLoadItemDataByID, itemID)
+        end
+        return "loading"
+    end
+    local ok, appearanceID, sourceID = pcall(T.GetItemInfo, itemID)
+    if not ok or not appearanceID then return "none" end
+    if sourceID and T.PlayerCanCollectSource then
+        local okCan, hasData, canCollect = pcall(T.PlayerCanCollectSource, sourceID)
+        if okCan and hasData and not canCollect then return "unusable" end
+    end
+    -- Any item with the same look counts, not just this one.
+    if sourceID and T.GetAppearanceInfoBySource then
+        local okInfo, info = pcall(T.GetAppearanceInfoBySource, sourceID)
+        if okInfo and type(info) == "table" and info.appearanceIsCollected ~= nil then
+            return info.appearanceIsCollected and "collected" or "uncollected"
+        end
+    end
+    if sourceID and T.GetSourceInfo then
+        local okInfo, info = pcall(T.GetSourceInfo, sourceID)
+        if okInfo and type(info) == "table" and info.isCollected then return "collected" end
+    end
+    if T.PlayerHasTransmog then
+        local okHas, has = pcall(T.PlayerHasTransmog, itemID)
+        if okHas and has then return "collected" end
+    end
+    return "uncollected"
+end
+
+-- A copy already crafted (bags, bank or an alt) just needs
+-- equipping or disenchanting, not another craft.
+function OwnsCopy(itemID)
+    if CountWhere(itemID, true, false) > 0 then return true end
+    for _, snapshot in pairs(settings.inventory or {}) do
+        if ((snapshot.bags or {})[itemID] or 0) + ((snapshot.bank or {})[itemID] or 0) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+function AppearanceOffered()
+    settings.appearanceOffered = settings.appearanceOffered or {}
+    local key = CharacterKey()
+    settings.appearanceOffered[key] = settings.appearanceOffered[key] or {}
+    return settings.appearanceOffered[key]
+end
+
+-- Whether the recipe's color lets it in. Unknown colors (profession not
+-- loaded) count: a newly learned recipe is almost always orange.
+function AppearanceColorOK(recipeID)
+    if settings.appearanceAllColors then return true end
+    local color = GetRecipeColor(recipeID)
+    return color ~= "green" and color ~= "gray"
+end
+
+-- The profession a recipe belongs to, named the way BarTab's headings are
+-- (the name your other bars or recipes of that skill line already use).
+function RecipeProfession(recipeID)
+    local id, name
+    if C_TradeSkillUI and C_TradeSkillUI.GetTradeSkillLineForRecipe then
+        local ok, lineID, lineName, parentID, parentName = pcall(C_TradeSkillUI.GetTradeSkillLineForRecipe, recipeID)
+        if ok then
+            if parentID and parentID > 0 then
+                id, name = parentID, parentName
+            else
+                id, name = lineID, lineName
+            end
+        end
+    end
+    if id then
+        for _, item in pairs(trackedItems) do
+            if item.skillLineID == id and item.profession then return item.profession, id end
+        end
+        local mine = settings.producers and settings.producers[CharacterKey()]
+        for _, entry in pairs(mine or {}) do
+            if entry.skillLineID == id and entry.profession then return entry.profession, id end
+        end
+    end
+    local loaded, loadedID = LoadedProfession()
+    if loaded and (not id or loadedID == id) then return loaded, loadedID end
+    if name and name ~= "" then return name, id end
+    return loaded, loadedID
+end
+
+-- The ingredient needed most (Heavy Leather for Hillman's Cloak, not its
+-- thread or hide); the first one listed wins a tie.
+function MainReagentIndex(reagents)
+    local best = 1
+    for index, reagent in ipairs(reagents) do
+        if reagent.need > reagents[best].need then best = index end
+    end
+    return best
+end
+
+-- Adds one craft's worth of bars for the recipe: for the ingredients picked
+-- (a set of indexes), else every ingredient (which = "all") or the main one.
+-- Bars go to Inactive when settings.appearanceInactive is on. Returns the
+-- recipe's name, or nil.
+function TrackRecipeForAppearance(recipeID, outputID, profession, skillLineID, picks, which, kind)
+    local forAppearance = kind == nil or kind == "appearance"
+    local reagents = GetRecipeReagents(recipeID)
+    if not reagents or #reagents == 0 then return nil end
+    if not picks then
+        picks = {}
+        if (which or settings.appearanceBars) == "all" then
+            for index in ipairs(reagents) do picks[index] = true end
+        else
+            picks[MainReagentIndex(reagents)] = true
+        end
+    end
+    local recipeName = GetRecipeName(recipeID) or GetItemNameByID(outputID) or ("recipe " .. recipeID)
+    for index, reagent in ipairs(reagents) do
+        local key = RecipeKey(reagent.name, recipeID)
+        if picks[index] and not trackedItems[key] then
+            trackedItems[key] = {
+                name = reagent.name,
+                itemID = reagent.itemID,
+                start = 0,
+                goal = reagent.need,
+                recipeID = recipeID,
+                profession = profession,
+                skillLineID = skillLineID,
+                label = recipeName,
+                afterCraft = forAppearance and "untrack" or nil,
+                forAppearance = forAppearance and outputID or nil,
+                inactive = forAppearance and settings.appearanceInactive or nil,
+                order = NextOrder(),
+            }
+        end
+    end
+    if forAppearance then AppearanceOffered()[recipeID] = true end
+    return recipeName
+end
+
+-- Checks one recipe. Returns a candidate { recipeID, outputID, profession,
+-- skillLineID } if it qualifies, "retry" if its item hasn't loaded yet,
+-- else nil.
+function ConsiderAppearanceRecipe(recipeID, profession, skillLineID)
+    local offered = AppearanceOffered()
+    if appearanceSettled[recipeID] or offered[recipeID] or IsTrackedRecipe(recipeID)
+        or IsAppearanceQueued(recipeID) then
+        return nil
+    end
+    local outputID = GetRecipeOutput(recipeID)
+    if not outputID then return nil end
+    local status = AppearanceStatus(outputID)
+    if status == "loading" then return "retry" end
+    if status == "none" or status == "unusable" or status == "collected" then
+        appearanceSettled[recipeID] = true
+        return nil
+    end
+    if status ~= "uncollected" or OwnsCopy(outputID) or not AppearanceColorOK(recipeID) then
+        return nil
+    end
+    return { recipeID = recipeID, outputID = outputID, profession = profession, skillLineID = skillLineID }
+end
+
+function AnnounceAppearanceBars(names, kind)
+    if #names == 0 then return end
+    UpdateBars()
+    if kind == "favorite" then
+        if #names == 1 then
+            Print("Tracking " .. names[1] .. " (one craft).")
+        else
+            Print("Tracking " .. #names .. " favorite recipes (one craft each): " .. table.concat(names, ", ") .. ".")
+        end
+        return
+    end
+    local where = settings.appearanceInactive and "; in Inactive" or ""
+    if #names == 1 then
+        Print("Tracking " .. names[1] .. " for an appearance you haven't collected (one craft"
+            .. where .. "; untracked after crafting).")
+    else
+        Print("Tracking " .. #names .. " recipes for appearances you haven't collected (one craft each"
+            .. where .. "; untracked after crafting): " .. table.concat(names, ", ") .. ".")
+    end
+end
+
+-- Adds bars for each candidate; which = "main" or "all".
+-- Whether every ingredient of these recipes has its name loaded (an item
+-- the game hasn't loaded yet reads "item 1529"). Asks the game for any
+-- that aren't.
+function ReagentNamesLoaded(recipeIDs)
+    local ready = true
+    for _, recipeID in ipairs(recipeIDs) do
+        for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
+            if reagent.name == "item " .. tostring(reagent.itemID) then ready = false end
+        end
+    end
+    return ready
+end
+
+-- Runs fn once the ingredients' names have loaded (or after 3 seconds).
+function WhenReagentNamesLoaded(recipeIDs, fn, tries)
+    tries = tries or 0
+    if tries >= 10 or ReagentNamesLoaded(recipeIDs) then return fn() end
+    C_Timer.After(0.3, function() WhenReagentNamesLoaded(recipeIDs, fn, tries + 1) end)
+end
+
+-- Places a BarTab window beside the settings window when that's open, so
+-- neither hides the other; otherwise near the top of the screen.
+function PlaceBesideSettings(frame)
+    frame:ClearAllPoints()
+    if configFrame and configFrame:IsShown() then
+        frame:SetPoint("TOPLEFT", configFrame, "TOPRIGHT", 8, 0)
+    else
+        frame:SetPoint("TOP", UIParent, "TOP", 0, -135)
+    end
+end
+
+function TrackAppearanceCandidates(list, which)
+    local ids = {}
+    for _, entry in ipairs(list) do ids[#ids + 1] = entry.recipeID end
+    WhenReagentNamesLoaded(ids, function() TrackAppearanceCandidatesNow(list, which) end)
+end
+
+function TrackAppearanceCandidatesNow(list, which)
+    local names = {}
+    for _, entry in ipairs(list) do
+        local name = TrackRecipeForAppearance(entry.recipeID, entry.outputID,
+            entry.profession, entry.skillLineID, nil, which, entry.kind)
+        if name then names[#names + 1] = name end
+    end
+    AnnounceAppearanceBars(names, list[1] and list[1].kind)
+end
+
+-- One recipe: ask which ingredients, or add it as the setting says.
+function OfferAppearanceRecipe(entry)
+    if (settings.appearanceBars or "ask") == "ask" then
+        appearanceQueue[#appearanceQueue + 1] = entry
+        ShowAppearancePrompt()
+    else
+        TrackAppearanceCandidates({ entry })
+    end
+end
+
+-- Whether BarTab may ask now: not while a window is already up, and not
+-- again this session after you closed one with "Later" (profession loads
+-- also happen when you just hover a bar).
+function AppearanceAskBlocked()
+    if appearanceSnoozed then return true end
+    if #appearanceQueue > 0 then return true end
+    if appearanceSummary and appearanceSummary:IsShown() then return true end
+    return false
+end
+
+-- A recipe you just learned.
+function CheckNewRecipe(recipeID, attempt)
+    if not settings.appearanceRecipes or appearanceSnoozed then return end
+    if appearanceSummary and appearanceSummary:IsShown() then return end
+    local profession, skillLineID = RecipeProfession(recipeID)
+    local result = ConsiderAppearanceRecipe(recipeID, profession, skillLineID)
+    if result == "retry" then
+        if attempt < 4 then
+            C_Timer.After(2, function() Safe("appearances", CheckNewRecipe)(recipeID, attempt + 1) end)
+        end
+    elseif result then
+        OfferAppearanceRecipe(result)
+    end
+end
+
+-- Every learned recipe of the loaded profession. Several at once (your first
+-- scan, usually) get one summary window instead of a window each.
+function ScanAppearanceRecipes()
+    if not settings.appearanceRecipes or AppearanceAskBlocked() then return end
+    if not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then return end
+    local profession, professionID = LoadedProfession()
+    if not profession then return end
+    local ok, ids = pcall(C_TradeSkillUI.GetAllRecipeIDs)
+    if not ok or type(ids) ~= "table" then return end
+    local list = {}
+    for _, recipeID in ipairs(ids) do
+        local okRecipe, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        if okRecipe and type(info) == "table" and info.learned then
+            local result = ConsiderAppearanceRecipe(recipeID, profession, professionID)
+            if type(result) == "table" then list[#list + 1] = result end
+        end
+    end
+    if #list == 1 then
+        OfferAppearanceRecipe(list[1])
+    elseif #list > 1 then
+        ShowAppearanceSummary(list, profession)
+    end
+end
+
+-- The summary window: N recipes found; track them all (main or every
+-- ingredient), choose each, skip them all, or decide later.
+function CreateAppearanceSummary()
+    local ok, frame = pcall(CreateFrame, "Frame", "BarTabAppearanceSummary", UIParent,
+        "BasicFrameTemplateWithInset")
+    if not ok then
+        frame = CreateFrame("Frame", "BarTabAppearanceSummary", UIParent, "BackdropTemplate")
+        if frame.SetBackdrop then
+            frame:SetBackdrop({
+                bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+                tile = true, tileSize = 32, edgeSize = 32,
+                insets = { left = 11, right = 12, top = 12, bottom = 11 },
+            })
+        end
+        local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", -4, -4)
+    end
+    frame:SetWidth(360)
+    frame:SetPoint("TOP", UIParent, "TOP", 0, -135)
+    -- Above BarTab's settings window (turning the option on there can
+    -- open this) and other dialogs.
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetToplevel(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetClampedToScreen(true)
+    tinsert(UISpecialFrames, "BarTabAppearanceSummary") -- Escape closes it (Later)
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    title:SetPoint("TOP", 0, -6)
+    title:SetText("BarTab: new appearances")
+
+    frame.text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.text:SetPoint("TOPLEFT", 16, -32)
+    frame.text:SetPoint("RIGHT", -16, 0)
+    frame.text:SetJustifyH("LEFT")
+
+    frame.names = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.names:SetPoint("TOPLEFT", frame.text, "BOTTOMLEFT", 0, -6)
+    frame.names:SetPoint("RIGHT", -16, 0)
+    frame.names:SetJustifyH("LEFT")
+
+    local all = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    all:SetSize(24, 24)
+    if type(all.Text) == "table" then all.Text:SetText("") end
+    all.label = all:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    all.label:SetPoint("LEFT", all, "RIGHT", 4, 0)
+    all.label:SetText("ALL INGREDIENTS (not just the main one)")
+    frame.allCheck = all
+
+    local function button(text, onClick)
+        local b = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        b:SetSize(158, 22)
+        b:SetText(text)
+        b:SetScript("OnClick", onClick)
+        return b
+    end
+    frame.trackButton = button("Track main ingredients", function() AnswerAppearanceSummary("track") end)
+    frame.trackButton:SetPoint("BOTTOMRIGHT", frame, "BOTTOM", -4, 40)
+    local each = button("Choose each", function() AnswerAppearanceSummary("each") end)
+    each:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 40)
+    frame.skipButton = button("Skip all", function() AnswerAppearanceSummary("skip") end)
+    frame.skipButton:SetPoint("BOTTOMRIGHT", frame, "BOTTOM", -4, 12)
+    frame.laterButton = button("Later", function() AnswerAppearanceSummary("later") end)
+    frame.laterButton:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 12)
+    frame.title = title
+
+    all:SetScript("OnClick", function(self)
+        frame.trackButton:SetText(self:GetChecked() and "Track all ingredients" or "Track main ingredients")
+    end)
+
+    -- Closed with X or Escape: the same as Later (for favorites, Cancel).
+    frame:SetScript("OnHide", function(self)
+        if self.list and self.kind == "favorite" then
+            self.list = nil
+        elseif self.list then
+            self.list = nil
+            appearanceSnoozed = true
+            Print("BarTab will ask about them again next time you log in, or now with /bartab appearances scan.")
+        end
+    end)
+
+    frame:Hide()
+    return frame
+end
+
+APPEARANCE_SUMMARY_NAMES = 8
+
+function ShowAppearanceSummary(list, profession, kind)
+    local frame = appearanceSummary
+    if not frame then
+        frame = CreateAppearanceSummary()
+        appearanceSummary = frame
+    end
+    frame.list, frame.kind = list, kind
+    if kind == "favorite" then
+        frame.title:SetText("BarTab: favorite recipes")
+        frame.text:SetText(("%d of your favorite %s recipes aren't tracked yet. Track one craft of each?")
+            :format(#list, profession or ""))
+        frame.skipButton:Hide()
+        frame.laterButton:SetText(CANCEL or "Cancel")
+        frame.laterButton:ClearAllPoints()
+        frame.laterButton:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+    else
+        frame.title:SetText("BarTab: new appearances")
+        frame.text:SetText(("BarTab found %d %s recipes for appearances you haven't collected. Track one craft of each%s?")
+            :format(#list, profession or "", settings.appearanceInactive and " (in Inactive)" or ""))
+        frame.skipButton:Show()
+        frame.laterButton:SetText("Later")
+        frame.laterButton:ClearAllPoints()
+        frame.laterButton:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 12)
+    end
+    local names = {}
+    for i, entry in ipairs(list) do
+        if i > APPEARANCE_SUMMARY_NAMES then
+            names[#names + 1] = "and " .. (#list - APPEARANCE_SUMMARY_NAMES) .. " more"
+            break
+        end
+        names[#names + 1] = GetRecipeName(entry.recipeID) or GetItemNameByID(entry.outputID) or ("recipe " .. entry.recipeID)
+    end
+    frame.names:SetText(table.concat(names, ", "))
+    local checked = settings.appearanceBars == "all"
+    frame.allCheck:SetChecked(checked)
+    frame.trackButton:SetText(checked and "Track all ingredients" or "Track main ingredients")
+    local textHeight = (frame.text:GetStringHeight() or 24) + 6 + (frame.names:GetStringHeight() or 24)
+    frame.allCheck:ClearAllPoints()
+    frame.allCheck:SetPoint("TOPLEFT", 16, -38 - textHeight)
+    frame:SetHeight(38 + textHeight + 30 + 72)
+    PlaceBesideSettings(frame)
+    frame:Show()
+    frame:Raise()
+end
+
+function AnswerAppearanceSummary(answer)
+    local frame = appearanceSummary
+    local list = frame and frame.list
+    if not list then return end
+    frame.list = nil -- answered: hiding isn't "Later"
+    frame:Hide()
+    if answer == "track" then
+        TrackAppearanceCandidates(list, frame.allCheck:GetChecked() and "all" or "main")
+    elseif answer == "each" then
+        for _, entry in ipairs(list) do appearanceQueue[#appearanceQueue + 1] = entry end
+        ShowAppearancePrompt()
+    elseif frame.kind == "favorite" then
+        return -- Cancel
+    elseif answer == "skip" then
+        local offered = AppearanceOffered()
+        for _, entry in ipairs(list) do offered[entry.recipeID] = true end
+        Print("Skipped " .. #list .. " recipes; BarTab won't offer them again. New recipes you learn will still be offered.")
+    else
+        appearanceSnoozed = true
+        Print("BarTab will ask about them again next time you log in, or now with /bartab appearances scan.")
+    end
+end
+
+function IsAppearanceQueued(recipeID)
+    for _, entry in ipairs(appearanceQueue) do
+        if entry.recipeID == recipeID then return true end
+    end
+    return false
+end
+
+-- The "which ingredients?" window, one recipe at a time. Track adds bars for
+-- the ticked ones; Not this one skips the recipe for good; closing it asks
+-- again next session (or with /bartab appearances scan).
+APPEARANCE_PROMPT_ROWS = 6
+
+function CreateAppearancePrompt()
+    local ok, frame = pcall(CreateFrame, "Frame", "BarTabAppearanceFrame", UIParent,
+        "BasicFrameTemplateWithInset")
+    if not ok then
+        frame = CreateFrame("Frame", "BarTabAppearanceFrame", UIParent, "BackdropTemplate")
+        if frame.SetBackdrop then
+            frame:SetBackdrop({
+                bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+                tile = true, tileSize = 32, edgeSize = 32,
+                insets = { left = 11, right = 12, top = 12, bottom = 11 },
+            })
+        end
+        local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", -4, -4)
+    end
+    frame:SetSize(320, 150)
+    frame:SetPoint("TOP", UIParent, "TOP", 0, -135)
+    -- Above BarTab's settings window (turning the option on there can
+    -- open this) and other dialogs.
+    frame:SetFrameStrata("FULLSCREEN_DIALOG")
+    frame:SetToplevel(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetClampedToScreen(true)
+    tinsert(UISpecialFrames, "BarTabAppearanceFrame") -- Escape closes it
+
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    title:SetPoint("TOP", 0, -6)
+    title:SetText("BarTab: new appearance")
+
+    frame.text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.text:SetPoint("TOPLEFT", 16, -32)
+    frame.text:SetPoint("RIGHT", -16, 0)
+    frame.text:SetJustifyH("LEFT")
+
+    frame.checks = {}
+    for i = 1, APPEARANCE_PROMPT_ROWS do
+        local check = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+        check:SetSize(24, 24)
+        if type(check.Text) == "table" then check.Text:SetText("") end
+        check.label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        check.label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+        frame.checks[i] = check
+    end
+
+    frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+
+    local track = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    track:SetSize(110, 22)
+    track:SetPoint("BOTTOMRIGHT", frame, "BOTTOM", -4, 12)
+    track:SetText("Track")
+    track:SetScript("OnClick", function() AnswerAppearancePrompt("track") end)
+
+    local skip = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    skip:SetSize(110, 22)
+    skip:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 12)
+    skip:SetText("Not this one")
+    skip:SetScript("OnClick", function() AnswerAppearancePrompt("skip") end)
+
+    -- Closed without an answer (X or Escape): ask again next session.
+    frame:SetScript("OnHide", function(self)
+        if self.answered then self.answered = nil return end
+        if self.entry then
+            local favorite = self.entry.kind == "favorite"
+            self.entry = nil
+            for i = #appearanceQueue, 1, -1 do appearanceQueue[i] = nil end
+            if not favorite then
+                appearanceSnoozed = true
+                Print("BarTab will ask again next time you log in, or now with /bartab appearances scan.")
+            end
+        end
+    end)
+
+    frame:Hide()
+    return frame
+end
+
+function ShowAppearancePrompt()
+    local frame = appearancePrompt
+    if frame and frame:IsShown() then return end
+    local entry = appearanceQueue[1]
+    if not entry then return end
+    -- Wait (up to 3 seconds) for ingredient names, so the ticks and the
+    -- bars don't read "item 1529".
+    if not ReagentNamesLoaded({ entry.recipeID }) and (entry.nameTries or 0) < 10 then
+        entry.nameTries = (entry.nameTries or 0) + 1
+        if not appearancePromptWaiting then
+            appearancePromptWaiting = true
+            C_Timer.After(0.3, function()
+                appearancePromptWaiting = nil
+                ShowAppearancePrompt()
+            end)
+        end
+        return
+    end
+    local reagents = GetRecipeReagents(entry.recipeID)
+    if not reagents or #reagents == 0 then
+        table.remove(appearanceQueue, 1)
+        return ShowAppearancePrompt()
+    end
+    if not frame then
+        frame = CreateAppearancePrompt()
+        appearancePrompt = frame
+    end
+    frame.entry, frame.reagents = entry, reagents
+    local recipeName = GetRecipeName(entry.recipeID) or GetItemNameByID(entry.outputID) or "This recipe"
+    frame.text:SetText(recipeName .. (entry.kind == "favorite" and " is a favorite recipe."
+        or entry.kind == "trainer" and (entry.notLearned and (" (not learned yet"
+            .. (entry.needSkill and ("; needs " .. entry.needSkill) or "") .. ").") or ".")
+        or " makes an appearance you haven't collected.") .. " Track one craft's worth of:")
+    local textHeight = frame.text:GetStringHeight() or 24
+    local y = -36 - textHeight
+    local main = MainReagentIndex(reagents)
+    for i, check in ipairs(frame.checks) do
+        local reagent = reagents[i]
+        if reagent then
+            check:ClearAllPoints()
+            check:SetPoint("TOPLEFT", 16, y)
+            check.label:SetText(reagent.need .. " " .. reagent.name)
+            check:SetChecked(i == main or settings.appearanceBars == "all")
+            check:Show()
+            y = y - 24
+        else
+            check:Hide()
+        end
+    end
+    local waiting = #appearanceQueue - 1
+    frame.more:ClearAllPoints()
+    frame.more:SetPoint("TOPLEFT", 20, y - 4)
+    frame.more:SetText(waiting > 0 and (waiting .. " more after this one") or "")
+    frame:SetHeight(-y + (waiting > 0 and 62 or 48))
+    PlaceBesideSettings(frame)
+    frame:Show()
+    frame:Raise()
+end
+
+function AnswerAppearancePrompt(answer)
+    local frame = appearancePrompt
+    local entry = frame and frame.entry
+    if not entry then return end
+    table.remove(appearanceQueue, 1)
+    if entry.kind == nil or entry.kind == "appearance" then AppearanceOffered()[entry.recipeID] = true end
+    if answer == "track" then
+        local picks = {}
+        for i, check in ipairs(frame.checks) do
+            if check:IsShown() and check:GetChecked() then picks[i] = true end
+        end
+        if next(picks) then
+            local name = TrackRecipeForAppearance(entry.recipeID, entry.outputID,
+                entry.profession, entry.skillLineID, picks, nil, entry.kind)
+            if name and entry.kind == "trainer" then
+                MarkTrainerBars(entry, name)
+            elseif name then
+                AnnounceAppearanceBars({ name }, entry.kind)
+            end
+        end
+    end
+    frame.entry = nil
+    frame.answered = true
+    frame:Hide()
+    if appearanceQueue[1] then ShowAppearancePrompt() end
+end
+
+-- Recipes from the trainer ----------------------------------------------------
+-- Alt-Shift-click a recipe in a profession trainer's list (or select it and
+-- type /bartab trainer) to track its ingredients, even before you've
+-- learned it. Until you do, its bars wait in Inactive, marked not learned;
+-- they can't craft and vendor buying skips them. Learning the recipe makes
+-- them ordinary active bars.
+
+-- The trainer row's recipe ID, read from its tooltip.
+function TrainerRecipeID(index)
+    local tip = GetScanTooltip()
+    if not (tip and tip.SetTrainerService and tip.GetSpell) then return nil end
+    tip:SetOwner(_G.WorldFrame or UIParent, "ANCHOR_NONE")
+    tip:ClearLines()
+    local ok = pcall(tip.SetTrainerService, tip, index)
+    local spellID
+    if ok then spellID = select(2, tip:GetSpell()) end
+    tip:Hide()
+    return spellID
+end
+
+function TrackTrainerService(index)
+    if not (index and GetTrainerServiceInfo) then return end
+    local name, status = GetTrainerServiceInfo(index)
+    if not name or status == "header" then return end
+    local recipeID = TrainerRecipeID(index)
+    if not recipeID then
+        Print("Couldn't tell which recipe " .. name .. " is.")
+        return
+    end
+    if IsTrackedRecipe(recipeID) then
+        Print(name .. " is already tracked.")
+        return
+    end
+    local reagents = GetRecipeReagents(recipeID)
+    if not reagents or #reagents == 0 then
+        Print("Couldn't read the ingredients for " .. name .. ". Open your profession window as well, then try again.")
+        return
+    end
+    local profession, skillLineID
+    local needSkill
+    if GetTrainerServiceSkillReq then
+        local skill, rank = GetTrainerServiceSkillReq(index)
+        if skill and skill ~= "" then
+            profession = skill
+            if rank and rank > 0 then needSkill = skill .. " " .. rank end
+        end
+    end
+    local lineProfession, lineID = RecipeProfession(recipeID)
+    profession = profession or lineProfession
+    skillLineID = lineID
+    local okInfo, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+    local learned = status == "used" or (okInfo and type(info) == "table" and info.learned)
+    if (appearanceSummary and appearanceSummary:IsShown()) or #appearanceQueue > 0 then
+        Print("Finish the BarTab window that's open first.")
+        return
+    end
+    appearanceQueue[1] = { recipeID = recipeID, outputID = GetRecipeOutput(recipeID),
+        profession = profession, skillLineID = skillLineID, kind = "trainer",
+        recipeName = name, notLearned = not learned or nil, needSkill = needSkill }
+    ShowAppearancePrompt()
+end
+
+-- The new bars: waiting in Inactive until the recipe is learned.
+function MarkTrainerBars(entry, name)
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == entry.recipeID then
+            item.recipeName = entry.recipeName or name
+            if entry.notLearned then
+                item.notLearned = true
+                item.inactive = true
+                item.needSkill = entry.needSkill
+                item.label = item.recipeName .. " (not learned)"
+            end
+        end
+    end
+    UpdateBars()
+    if entry.notLearned then
+        Print("Tracking " .. (entry.recipeName or name) .. " (one craft), in Inactive until you learn it"
+            .. (entry.needSkill and (" (needs " .. entry.needSkill .. ")") or "") .. ".")
+    else
+        Print("Tracking " .. (entry.recipeName or name) .. " (one craft).")
+    end
+end
+
+-- A recipe you've learned: its waiting bars become active.
+function ActivateLearnedRecipe(recipeID)
+    local name
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and item.notLearned then
+            item.notLearned, item.inactive, item.needSkill = nil, nil, nil
+            item.label = item.recipeName or GetRecipeName(recipeID) or item.label
+            name = name or item.label
+        end
+    end
+    if name then
+        UpdateBars()
+        Print(name .. " learned; its bars are now active.")
+    end
+end
+
+-- Recipes learned while BarTab wasn't looking (another addon set, an older
+-- session): checked whenever a profession loads.
+function CheckLearnedRecipes()
+    local seen = {}
+    for _, item in pairs(trackedItems) do
+        if item.notLearned and item.recipeID and not seen[item.recipeID] then
+            seen[item.recipeID] = true
+            local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, item.recipeID)
+            if ok and type(info) == "table" and info.learned then
+                ActivateLearnedRecipe(item.recipeID)
+            end
+        end
+    end
+end
+
+-- Hovering a trainer row: say how to track it.
+function TrainerHint(index)
+    if not (index and GetTrainerServiceInfo) then return nil end
+    local name, status = GetTrainerServiceInfo(index)
+    if not name or status == "header" then return nil end
+    local recipeID = TrainerRecipeID(index)
+    if not recipeID then return nil end
+    if IsTrackedRecipe(recipeID) then return "BarTab: tracking this recipe" end
+    if status == "used" or IsRecipeLearned(recipeID) then
+        return "BarTab: Alt-Shift-click to track this recipe"
+    end
+    return "BarTab: Alt-Shift-click to add this recipe to your Inactive list"
+end
+
+if GameTooltip and GameTooltip.SetTrainerService and hooksecurefunc then
+    pcall(hooksecurefunc, GameTooltip, "SetTrainerService", function(self, index)
+        if settings.itemTooltips == false then return end
+        local ok, hint = pcall(TrainerHint, index)
+        if ok and hint then
+            self:AddLine(hint, 0.4, 0.8, 1)
+            self:Show()
+        end
+    end)
+end
+
+-- Alt-Shift-click a trainer row: clicking one selects it.
+if hooksecurefunc and SelectTrainerService then
+    pcall(hooksecurefunc, "SelectTrainerService", function(index)
+        if IsAltKeyDown() and IsShiftKeyDown() and not IsControlKeyDown() then
+            Safe("trainer", TrackTrainerService)(index)
+        end
+    end)
+end
+
+-- Recipe items ("Pattern: Red Woolen Bag") -------------------------------------
+-- Alt-Shift-clicking one (at a vendor, in your bags)
+-- tracks the recipe it teaches the way the trainer does: in Inactive until
+-- you learn it. Matched by name to your professions' recipes, which BarTab
+-- notes whenever a profession loads.
+RECIPE_ITEM_PREFIXES = { "Pattern", "Recipe", "Plans", "Formula", "Schematic", "Manual", "Design", "Technique" }
+
+-- The recipe a recipe item teaches: { recipeID, profession, skillLineID }.
+function RecipeFromItemName(itemName)
+    if not itemName then return nil end
+    local rest
+    for _, prefix in ipairs(RECIPE_ITEM_PREFIXES) do
+        rest = itemName:match("^" .. prefix .. ":%s*(.+)$")
+        if rest then break end
+    end
+    if not rest then return nil end
+    local index = settings.recipeIndex and settings.recipeIndex[CharacterKey()]
+    return index and index[string.lower(rest)], rest
+end
+
+function IsRecipeLearned(recipeID)
+    local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+    return ok and type(info) == "table" and info.learned and true or false
+end
+
+-- Tooltip line for a recipe item, or nil.
+function RecipeItemHint(itemName)
+    local recipe = RecipeFromItemName(itemName)
+    if not recipe then return nil end
+    if IsTrackedRecipe(recipe.recipeID) then return "BarTab: tracking this recipe" end
+    if IsRecipeLearned(recipe.recipeID) then return nil end
+    return "BarTab: Alt-Shift-click to add this recipe to your Inactive list"
+end
+
+-- Alt-Shift-click on a recipe item. Returns true if it was one BarTab knows.
+function TrackRecipeItem(itemName)
+    local recipe, recipeName = RecipeFromItemName(itemName)
+    if not recipe then return false end
+    if IsTrackedRecipe(recipe.recipeID) then
+        Print(recipeName .. " is already tracked.")
+        return true
+    end
+    local reagents = GetRecipeReagents(recipe.recipeID)
+    if not reagents or #reagents == 0 then
+        Print("Couldn't read the ingredients for " .. recipeName .. ". Open your " .. (recipe.profession or "profession")
+            .. " window as well, then try again.")
+        return true
+    end
+    if (appearanceSummary and appearanceSummary:IsShown()) or #appearanceQueue > 0 then
+        Print("Finish the BarTab window that's open first.")
+        return true
+    end
+    appearanceQueue[1] = { recipeID = recipe.recipeID, outputID = GetRecipeOutput(recipe.recipeID),
+        profession = recipe.profession, skillLineID = recipe.skillLineID, kind = "trainer",
+        recipeName = recipeName, notLearned = not IsRecipeLearned(recipe.recipeID) or nil }
+    ShowAppearancePrompt()
+    return true
+end
+
+-- Favorite recipes ------------------------------------------------------------
+-- /bartab favorites (or the settings button) tracks the loaded profession's
+-- starred recipes that have no bars yet, through the same windows as
+-- appearances. With settings.autoFavorites, starring a recipe offers it.
+
+function FavoriteEntry(recipeID, profession, skillLineID)
+    return { recipeID = recipeID, outputID = GetRecipeOutput(recipeID),
+        profession = profession, skillLineID = skillLineID, kind = "favorite" }
+end
+
+function ImportFavoriteRecipes()
+    local profession, professionID = LoadedProfession()
+    if not profession or not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then
+        Print("Open a profession first; BarTab imports the favorites of the profession that's open.")
+        return
+    end
+    if (appearanceSummary and appearanceSummary:IsShown()) or #appearanceQueue > 0 then
+        Print("Finish the BarTab window that's open first.")
+        return
+    end
+    local ok, ids = pcall(C_TradeSkillUI.GetAllRecipeIDs)
+    if not ok or type(ids) ~= "table" then return end
+    local list, already = {}, 0
+    for _, recipeID in ipairs(ids) do
+        local okRecipe, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+        if okRecipe and type(info) == "table" and info.favorite and info.learned ~= false then
+            if IsTrackedRecipe(recipeID) then
+                already = already + 1
+            else
+                local reagents = GetRecipeReagents(recipeID)
+                if reagents and #reagents > 0 then
+                    list[#list + 1] = FavoriteEntry(recipeID, profession, professionID)
+                end
+            end
+        end
+    end
+    if #list == 0 then
+        Print(already > 0 and ("All your favorite " .. profession .. " recipes are already tracked.")
+            or ("You have no favorite " .. profession .. " recipes. Click the star beside a recipe in the profession window to make it one."))
+    elseif #list == 1 then
+        appearanceQueue[1] = list[1]
+        ShowAppearancePrompt()
+    else
+        ShowAppearanceSummary(list, profession, "favorite")
+    end
+end
+
+function OnRecipeFavorited(recipeID, favorite)
+    if not (favorite and settings.autoFavorites and recipeID) then return end
+    if IsTrackedRecipe(recipeID) or IsAppearanceQueued(recipeID) then return end
+    if appearanceSummary and appearanceSummary:IsShown() then return end
+    local profession, skillLineID = LoadedProfession()
+    if not profession then profession, skillLineID = RecipeProfession(recipeID) end
+    appearanceQueue[#appearanceQueue + 1] = FavoriteEntry(recipeID, profession, skillLineID)
+    ShowAppearancePrompt()
+end
+
+if C_TradeSkillUI and C_TradeSkillUI.SetRecipeFavorite and hooksecurefunc then
+    pcall(hooksecurefunc, C_TradeSkillUI, "SetRecipeFavorite", function(recipeID, favorite)
+        Safe("favorites", OnRecipeFavorited)(recipeID, favorite)
+    end)
+end
+
+-- Appearance bars whose appearance you've since collected some other way
+-- (looted or bought the item, an alt equipped one) are done: they follow
+-- their After crafting rule (untrack, unless you changed it).
+function CheckCollectedAppearances()
+    if not trackedItems then return end
+    local done = {}
+    for _, item in pairs(trackedItems) do
+        if item.forAppearance and item.recipeID and not done[item.recipeID]
+            and AppearanceStatus(item.forAppearance) == "collected" then
+            done[item.recipeID] = true
+        end
+    end
+    for recipeID in pairs(done) do
+        AfterCraftDone(recipeID, "appearance collected")
+    end
+end
+
+collectionWatcher = CreateFrame("Frame")
+collectionWatcher.barTabOwn = true
+pcall(collectionWatcher.RegisterEvent, collectionWatcher, "TRANSMOG_COLLECTION_UPDATED")
+pcall(collectionWatcher.RegisterEvent, collectionWatcher, "PLAYER_ENTERING_WORLD")
+collectionCheckPending = false
+collectionWatcher:SetScript("OnEvent", function()
+    if collectionCheckPending then return end
+    collectionCheckPending = true
+    C_Timer.After(2, function()
+        collectionCheckPending = false
+        Safe("appearances", CheckCollectedAppearances)()
+    end)
+end)
+
+-- After crafting gear for an appearance: crafting alone doesn't collect it.
+function RemindToEquip(recipeID)
+    if not settings.appearanceRecipes then return end
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and item.forAppearance then
+            if AppearanceStatus(item.forAppearance) == "uncollected" then
+                local name = GetItemNameByID(item.forAppearance) or DisplayName(item)
+                Print("Equip or disenchant " .. name .. " to collect its appearance (crafting it doesn't add it to your collection).")
+            end
+            return
+        end
+    end
+end
 
 -- Vendor materials -------------------------------------------------------------
 -- At a vendor, offers to buy (or just buys) what your Crafting bars are short
@@ -907,7 +2192,7 @@ function VendorMenuEntry(item)
         local list = {}
         for _, other in pairs(trackedItems) do
             if other == item or (item.recipeID and other.recipeID == item.recipeID
-                and not other.quest and not other.container) then
+                and not other.container) then
                 list[#list + 1] = other
             end
         end
@@ -931,15 +2216,69 @@ end
 -- Includes ingredients of tracked recipes that have no bar of their own
 -- (Fine Thread for Hillman's Cloak when only Heavy Leather has a bar): the
 -- recipe's bars say how many crafts are planned.
-function GetShortages()
-    local short, names = {}, {}
+-- forAuction: the auction house list, which also covers the Items section
+-- and recipes left out of vendor buying.
+-- sold: what this vendor sells ({ ids = {[id]=true}, names = {[lower]=true} }).
+-- With settings.vendorWhenReady, a recipe's vendor materials are only bought
+-- for the crafts its tracked bars (the ones this vendor doesn't sell) already
+-- cover: 8 of 10 Heavy Leather at 5 a craft -> thread for 1 craft. Ingredients
+-- without a bar don't count.
+function GetShortages(forAuction, sold)
+    local short, names, ids = {}, {}, {}   -- ids: item ID -> material key
     local barMaterials = {}   -- recipeID -> { material = true } with a bar
     local plannedCrafts = {}  -- recipeID -> crafts the bars are sized for
+
+    local function IsSold(name, itemID)
+        return (itemID and sold.ids[itemID]) or sold.names[string.lower(name)]
+    end
+
+    -- recipeID -> crafts your other ingredients cover (only with the setting).
+    local readyCrafts = {}
+    if not forAuction and settings.vendorWhenReady and sold then
+        local bars = {}   -- recipeID -> { material = bar }
+        for _, item in pairs(trackedItems) do
+            if item.recipeID and not item.container and not item.inactive then
+                bars[item.recipeID] = bars[item.recipeID] or {}
+                bars[item.recipeID][string.lower(item.name)] = item
+            end
+        end
+        -- Only the recipe's tracked bars count: an ingredient with no bar
+        -- (an Iron Buckle you'll get later) doesn't hold the purchase up.
+        for recipeID, recipeBars in pairs(bars) do
+            local crafts
+            for _, bar in pairs(recipeBars) do
+                if not IsSold(bar.name, ItemIDFor(bar)) then
+                    local perCraft = GetReagentQuantity(recipeID, bar.name)
+                    if perCraft and perCraft > 0 then
+                        local covered = math.floor(GetBarCount(bar) / perCraft)
+                        if not crafts or covered < crafts then crafts = covered end
+                    end
+                end
+            end
+            readyCrafts[recipeID] = crafts -- nil: every tracked bar is sold here
+        end
+    end
+
     for _, item in pairs(trackedItems) do
-        if not item.quest and not item.container and not item.inactive
-            and not item.noVendor and GetSection(item) == CRAFT_SECTION then
+        local section = GetSection(item)
+        -- Inactive bars only on the auction house list, and only with
+        -- settings.auctionInactive (shelved or not-yet-learned recipes).
+        if not item.container and (not item.inactive or (forAuction and settings.auctionInactive))
+            and (forAuction or not (item.noVendor or item.notLearned))
+            and (section == CRAFT_SECTION or (forAuction and section == ITEM_SECTION)) then
             local key = string.lower(item.name)
-            local missing = item.goal - GetBarCount(item)
+            local id = ItemIDFor(item)
+            if id then ids[id] = key end
+            local target = item.goal
+            local ready = item.recipeID and readyCrafts[item.recipeID]
+            if ready then
+                -- Only enough for the crafts the other ingredients cover.
+                local perCraft = GetReagentQuantity(item.recipeID, item.name)
+                if perCraft and perCraft > 0 then
+                    target = math.min(target, ready * perCraft)
+                end
+            end
+            local missing = target - GetBarCount(item)
             if missing > 0 then
                 short[key] = (short[key] or 0) + missing
                 names[key] = item.name
@@ -962,11 +2301,13 @@ function GetShortages()
     -- have (and less what other recipes already claimed above).
     local claimed = {}
     for recipeID, crafts in pairs(plannedCrafts) do
+        if readyCrafts[recipeID] then crafts = math.min(crafts, readyCrafts[recipeID]) end
         for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
             local key = string.lower(reagent.name)
             if not barMaterials[recipeID][key] then
                 claimed[key] = (claimed[key] or 0) + crafts * reagent.need
                 names[key] = names[key] or reagent.name
+                if reagent.itemID then ids[reagent.itemID] = key end
             end
         end
     end
@@ -974,7 +2315,7 @@ function GetShortages()
         local missing = needed - GetItemCount(names[key])
         if missing > 0 then short[key] = (short[key] or 0) + missing end
     end
-    return short, names
+    return short, names, ids
 end
 
 -- One merchant slot: name, price per purchase, items per purchase, stock
@@ -994,13 +2335,33 @@ function GetMerchantSlot(index)
     end
 end
 
+-- The item ID of a vendor's slot, if the game says.
+function GetMerchantSlotID(index)
+    local merchantID = GetMerchantItemID and GetMerchantItemID(index)
+    if not merchantID and GetMerchantItemLink then
+        local link = GetMerchantItemLink(index)
+        merchantID = link and tonumber(link:match("item:(%d+)"))
+    end
+    return merchantID
+end
+
 function FindVendorPurchases()
     if not GetMerchantNumItems then return {} end
-    local short, names = GetShortages()
+    -- What this vendor sells, so "only when ready" knows which bars to wait on.
+    local sold = { ids = {}, names = {} }
+    for index = 1, GetMerchantNumItems() do
+        local slotName = GetMerchantSlot(index)
+        local slotID = GetMerchantSlotID(index)
+        if slotID then sold.ids[slotID] = true end
+        if slotName then sold.names[string.lower(slotName)] = true end
+    end
+    local short, names, ids = GetShortages(false, sold)
     local list = {}
     for index = 1, GetMerchantNumItems() do
         local name, price, perPurchase, available, goldOnly = GetMerchantSlot(index)
-        local key = name and string.lower(name)
+        -- Match by item ID when the vendor says which item it is.
+        local merchantID = GetMerchantSlotID(index)
+        local key = (merchantID and ids[merchantID]) or (name and string.lower(name))
         if key and short[key] and goldOnly and price and price > 0 then
             perPurchase = math.max(1, tonumber(perPurchase) or 1)
             local purchases = math.ceil(short[key] / perPurchase)
@@ -1083,7 +2444,7 @@ end
 function SkippedNote(skipped)
     if #skipped == 0 then return nil end
     return "Left out over your " .. MoneyText(GetVendorLimit()) .. " limit: "
-        .. table.concat(skipped, ", ") .. " (change the limit in /bt config)."
+        .. table.concat(skipped, ", ") .. " (change the limit in /bartab config)."
 end
 
 function DescribePurchases(list)
@@ -1132,7 +2493,7 @@ function OnMerchantShow()
     local note = SkippedNote(skipped)
     if #list == 0 then
         Print("This vendor sells materials your bars need, but even one is over your "
-            .. MoneyText(GetVendorLimit()) .. " limit (change it in /bt config).")
+            .. MoneyText(GetVendorLimit()) .. " limit (change it in /bartab config).")
         return
     end
     if mode == "auto" or not (StaticPopupDialogs and StaticPopup_Show) then
@@ -1172,7 +2533,7 @@ vendorWatcher:SetScript("OnEvent", function(_, event)
 end)
 
 
--- Craft the next ready bar (key binding and /bt craft) -----------------------
+-- Craft the next ready bar (key binding and /bartab craft) -----------------------
 -- The first active recipe bar, in list order, that can craft now (counting
 -- only its share of a shared material), crafted as a plain click would.
 
@@ -1180,7 +2541,7 @@ function BarCraftable(item)
     local craftable = GetCraftableCount(item.recipeID)
     if not craftable then return 0 end
     local count = GetBarCount(item)
-    if count < GetItemCount(item.name) then
+    if count < CountItem(item) then
         local perCraft = GetReagentQuantity(item.recipeID, item.name)
         if perCraft and perCraft > 0 then
             craftable = math.min(craftable, math.floor(count / perCraft))
@@ -1192,7 +2553,7 @@ end
 function CraftNextReady()
     for _, key in ipairs(GetSortedKeys()) do
         local item = trackedItems[key]
-        if item.recipeID and not item.quest and not item.container and not item.inactive
+        if item.recipeID and not item.container and not item.inactive
             and IsShown(item) and BarCraftable(item) >= 1 then
             CraftItem(key, GetClickAction("click"))
             return true
@@ -1206,3 +2567,251 @@ _G.BINDING_HEADER_BARTAB = "BarTab"
 -- Shown in Key Bindings > AddOns, where the header isn't, so it names BarTab.
 _G.BINDING_NAME_BARTAB_CRAFT_NEXT = "BarTab: Craft the next ready bar"
 _G.BarTab_CraftNext = function() CraftNextReady() end
+
+
+-- Auction house shopping list ----------------------------------------------------
+-- A BarTab tab on the right edge of the auction house (beside All The
+-- Things' tab, sharing its tab strip) opens a panel listing what your bars
+-- are short of, each with a Search button that runs the auction house's own
+-- search. settings.auctionList (on by default); settings.auctionPanelOpen
+-- remembers whether it was open.
+
+function SearchAuctionHouse(name)
+    local frame = AuctionHouseFrame
+    if frame and frame.SearchBar and frame.SearchBar.SearchBox and frame.SearchBar.StartSearch then
+        -- Make sure the Buy tab is showing.
+        if frame.SetDisplayMode and AuctionHouseFrameDisplayMode and AuctionHouseFrameDisplayMode.Buy then
+            pcall(frame.SetDisplayMode, frame, AuctionHouseFrameDisplayMode.Buy)
+        end
+        frame.SearchBar.SearchBox:SetText(name)
+        frame.SearchBar:StartSearch()
+    elseif BrowseName and AuctionFrameBrowse_Search then
+        BrowseName:SetText(name)
+        AuctionFrameBrowse_Search()
+    else
+        Print("Couldn't reach the auction house search.")
+    end
+end
+
+-- { {name=, count=}, ... } sorted by name.
+function GetShoppingList()
+    local short, names = GetShortages(true)
+    local list = {}
+    for key, count in pairs(short) do
+        list[#list + 1] = { name = names[key] or key, count = count }
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+AUCTION_ROWS = 24
+AUCTION_PANEL_WIDTH = 270
+
+function CreateAuctionPanel(parent)
+    local ok, frame = pcall(CreateFrame, "Frame", "BarTabAuctionPanel", parent, "BackdropTemplate")
+    if not ok or not frame then frame = CreateFrame("Frame", "BarTabAuctionPanel", parent) end
+    if frame.SetBackdrop then
+        frame:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 14,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        frame:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+    end
+    -- A solid fill too: the tooltip background alone lets nameplates show through.
+    frame.fill = frame:CreateTexture(nil, "BACKGROUND", nil, -1)
+    frame.fill:SetPoint("TOPLEFT", 3, -3)
+    frame.fill:SetPoint("BOTTOMRIGHT", -3, 3)
+    frame.fill:SetColorTexture(0.06, 0.06, 0.055, 0.97)
+    frame:SetWidth(AUCTION_PANEL_WIDTH)
+
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.title:SetPoint("TOPLEFT", 12, -10)
+    frame.title:SetText("BarTab shopping list")
+
+    frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.empty:SetPoint("TOPLEFT", 12, -34)
+    frame.empty:SetPoint("RIGHT", -12, 0)
+    frame.empty:SetJustifyH("LEFT")
+    frame.empty:SetText("Your bars aren't short of anything.")
+
+    frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    frame.more:SetJustifyH("LEFT")
+
+    frame.rows = {}
+    for i = 1, AUCTION_ROWS do
+        local row = CreateFrame("Frame", nil, frame)
+        row:SetSize(AUCTION_PANEL_WIDTH - 24, 20)
+        row:SetPoint("TOPLEFT", 12, -32 - (i - 1) * 22)
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.label:SetPoint("LEFT", 0, 0)
+        row.label:SetPoint("RIGHT", -70, 0)
+        row.label:SetJustifyH("LEFT")
+        row.label:SetWordWrap(false)
+        row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        row.button:SetSize(64, 20)
+        row.button:SetPoint("RIGHT", 0, 0)
+        row.button:SetText(SEARCH or "Search")
+        row.button:SetScript("OnClick", function(self)
+            if self.itemName then SearchAuctionHouse(self.itemName) end
+        end)
+        frame.rows[i] = row
+    end
+    frame:Hide()
+    return frame
+end
+
+function UpdateAuctionPanel()
+    local frame = auctionPanel
+    if not (frame and frame:IsShown()) then return end
+    -- As many rows as fit the auction house's height.
+    local fit = math.max(1, math.floor(((frame:GetHeight() or 400) - 60) / 22))
+    local limit = math.min(AUCTION_ROWS, fit)
+    local list = GetShoppingList()
+    for i, row in ipairs(frame.rows) do
+        local entry = i <= limit and list[i]
+        if entry then
+            row.label:SetText(entry.count .. "  " .. entry.name)
+            row.button.itemName = entry.name
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+    frame.empty:SetShown(#list == 0)
+    if #list > limit then
+        frame.more:ClearAllPoints()
+        frame.more:SetPoint("TOPLEFT", 12, -32 - limit * 22)
+        frame.more:SetText("and " .. (#list - limit) .. " more")
+        frame.more:Show()
+    else
+        frame.more:Hide()
+    end
+end
+
+-- The tab strip on the auction house's right edge, shared with other addons
+-- (All The Things makes the same one if it gets there first).
+function GetAuctionSideBar()
+    if not _G.AuctionHouseFrameTabSideBar then
+        local bar = CreateFrame("Frame", nil, AuctionHouseFrame)
+        bar:SetWidth(1)
+        bar:SetPoint("TOPLEFT", AuctionHouseFrame, "TOPRIGHT")
+        bar:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMRIGHT")
+        bar.Tabs = {}
+        bar.selTab = 0
+        _G.AuctionHouseFrameTabSideBar = bar
+    end
+    return _G.AuctionHouseFrameTabSideBar
+end
+
+function SetAuctionTabChecked(checked)
+    local tab = auctionTab
+    if not tab then return end
+    if tab.SetChecked then pcall(tab.SetChecked, tab, checked) end
+    if type(tab.Icon) == "table" then
+        tab.Icon:SetTexture("Interface\\AddOns\\BarTab\\Media\\icon")
+        tab.Icon:SetSize(24, 24)
+    end
+end
+
+function SetAuctionPanelOpen(open)
+    local bar = GetAuctionSideBar()
+    local frame = auctionPanel
+    bar:ClearAllPoints()
+    if open then
+        -- Close whichever other addon's tab is open (the way they close ours).
+        for i, other in ipairs(bar.Tabs) do
+            if bar.selTab == i and other ~= auctionTab then
+                local handler = other:GetScript("OnMouseUp")
+                if handler then pcall(handler, other) end
+            end
+        end
+        for i, other in ipairs(bar.Tabs) do
+            if other == auctionTab then bar.selTab = i end
+        end
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", AuctionHouseFrame, "TOPRIGHT", 0, 0)
+        frame:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMRIGHT", 0, 0)
+        frame:Show()
+        UpdateAuctionPanel()
+        -- The tab strip follows the open panel's right edge.
+        bar:SetPoint("TOPLEFT", frame, "TOPRIGHT")
+        bar:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT")
+    else
+        frame:Hide()
+        bar.selTab = 0
+        bar:SetPoint("TOPLEFT", AuctionHouseFrame, "TOPRIGHT")
+        bar:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMRIGHT")
+    end
+    SetAuctionTabChecked(open)
+end
+
+function ToggleAuctionPanel()
+    local open = not (auctionPanel and auctionPanel:IsShown())
+    settings.auctionPanelOpen = open or nil
+    SetAuctionPanelOpen(open)
+end
+
+function SetUpAuctionTab()
+    if settings.auctionList == false then return end
+    if not AuctionHouseFrame then return end
+    if not auctionTab then
+        auctionPanel = auctionPanel or CreateAuctionPanel(AuctionHouseFrame)
+        local bar = GetAuctionSideBar()
+        -- Blizzard's side-tab button (the one the world map's quest log uses).
+        local ok, tab = pcall(CreateFrame, "Frame", "BarTabAuctionHouseTab", bar,
+            "QuestLogTabButtonTemplate")
+        if not ok or not tab then
+            tab = CreateFrame("Button", "BarTabAuctionHouseTab", bar)
+            tab:SetSize(32, 32)
+            tab.Icon = tab:CreateTexture(nil, "ARTWORK")
+            tab.Icon:SetPoint("CENTER")
+        end
+        if QuestLogDisplayMode then tab.displayMode = QuestLogDisplayMode.Quests end
+        tab.tooltipText = "|cff66ccffBarTab|r shopping list"
+        bar.Tabs[#bar.Tabs + 1] = tab
+        -- Below the tabs already there (All The Things' sits at the top).
+        local slot = #bar.Tabs
+        if slot == 1 and C_AddOns and C_AddOns.IsAddOnLoaded
+            and C_AddOns.IsAddOnLoaded("AllTheThings") then
+            slot = 2 -- leave its spot free even if its tab isn't made yet
+        end
+        local height = math.max(tab:GetHeight() or 0, 40)
+        tab:SetPoint("TOPLEFT", bar, "TOPRIGHT", -2, -52 - (slot - 1) * (height + 4))
+        if tab.SetCustomOnMouseUpHandler then
+            tab:SetCustomOnMouseUpHandler(ToggleAuctionPanel)
+        else
+            tab:EnableMouse(true)
+            tab:SetScript("OnMouseUp", ToggleAuctionPanel)
+        end
+        if not tab.tooltipText or not tab.GetScript or not tab:GetScript("OnEnter") then
+            tab:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("BarTab shopping list")
+                GameTooltip:Show()
+            end)
+            tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        auctionTab = tab
+        AuctionHouseFrame:HookScript("OnHide", function()
+            if auctionPanel and auctionPanel:IsShown() then SetAuctionPanelOpen(false) end
+        end)
+    end
+    auctionTab:Show()
+    SetAuctionTabChecked(false)
+    if settings.auctionPanelOpen then SetAuctionPanelOpen(true) end
+end
+
+auctionWatcher = CreateFrame("Frame")
+for _, auctionEvent in ipairs({ "AUCTION_HOUSE_SHOW", "BAG_UPDATE_DELAYED" }) do
+    pcall(auctionWatcher.RegisterEvent, auctionWatcher, auctionEvent)
+end
+auctionWatcher:SetScript("OnEvent", function(_, event)
+    if event == "AUCTION_HOUSE_SHOW" then
+        -- The auction house window is built on first open; wait a moment.
+        C_Timer.After(0.2, function() pcall(SetUpAuctionTab) end)
+    elseif auctionPanel and auctionPanel:IsShown() then
+        pcall(UpdateAuctionPanel)
+    end
+end)

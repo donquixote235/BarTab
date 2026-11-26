@@ -4,37 +4,78 @@ local _, ns = ...
 setfenv(1, ns)
 
 do
--- /bt help ---------------------------------------------------------------------
+-- /bartab help ---------------------------------------------------------------------
+-- In chat, "|" starts a formatting code ("|r" ends a color), so a literal bar
+-- in a message is written "||".
 
-HELP_LINES = {
-    "|cffffd100BarTab|r tracks items you're collecting as progress bars in the objective tracker, in up to three sections:",
-    "  |cffffd100Crafting|r - materials, optionally tied to a recipe so you can craft from the bar.",
-    "  |cffffd100Quests|r - items your quests ask for, added when you accept the quest.",
-    "  |cffffd100Items|r - fill-up items like Waylaid Crates, added when they reach your bags.",
-    "|cffffd100Crafting examples:|r",
-    "  |cff80c0ff/bt track Light Leather 20|r - a bar counting Light Leather up to 20.",
-    "  |cffffd100Alt-Shift-click|r any item (bags, chat links, auction house) to track it as an item, a crafting material, or for the open recipe.",
-    "  |cff80c0ff/bt assign Heavy Leather|r - with Hillman's Cloak selected in your profession window: a bar for that recipe, sized to one craft.",
-    "  |cff80c0ff/bt assign Heavy Leather 0-12|r - the same, with your own bar size.",
-    "  On a recipe bar (by default): click crafts 1, Shift-click as many as fit the bar, Alt-click all you can. Change these in /bt config.",
-    "  |cff80c0ff/bt craft|r (or a key: |cffffd100BarTab: Craft the next ready bar|r in Key Bindings > AddOns) crafts the next bar that's ready.",
-    "|cffffd100Quests and Items:|r",
-    "  |cff80c0ff/bt quests|r - add items for quests already in your log.",
-    "  |cff80c0ff/bt item Waylaid Crate|r - add a fill-up item by hand (shift-clicked links work too).",
-    "  When a bar says Ready, click it to use the quest item or fill the crate (not in combat).",
-    "|cffffd100Managing bars:|r",
-    "  Right-click a bar: assign/unassign a recipe, what to do after crafting it, stop at a skill level or recipe color, move to Inactive, untrack.",
-    "  Right-click a section or subsection heading: move all to Inactive, untrack all.",
-    "  Ctrl-drag a bar onto another to reorder. Hover a bar for details, including what you've gained this session and time to goal (|cff80c0ff/bt session reset|r starts over).",
-    "  |cff80c0ff/bt untrack Light Leather|r, |cff80c0ff/bt unassign Hillman's Cloak|r - by name.",
-    "  Each character has its own bars; |cff80c0ff/bt copy Alinda|r copies another character's bars to this one.",
-    "  |cff80c0ff/bt share|r gives you a text string of your bars to paste to a friend; |cff80c0ff/bt import|r adds bars from one. Right-click a bar or heading to share just those.",
-    "  If another addon hides the objective tracker, BarTab shows in its own window instead (drag a section heading to move it; |cff80c0ff/bt window|r).",
-    "|cffffd100Settings:|r |cff80c0ff/bt config|r, the minimap button, or Options > AddOns > BarTab.",
+-- Short enough to read without scrolling: an overview, then one topic at a
+-- time (/bartab help crafting, shopping, items, bars).
+local function cmd(text) return "|cff80c0ff" .. text .. "|r" end
+local function head(text) return "|cffffd100" .. text .. "|r" end
+
+HELP_TOPICS = {
+    overview = {
+        head("BarTab") .. " shows what you're collecting as progress bars in the objective tracker:",
+        "  " .. head("Crafting") .. " - materials, often tied to a recipe you can craft from the bar.",
+        "  " .. head("Items") .. " - fill-up items like Waylaid Crates, and anything else you're collecting.",
+        "Start: open a profession, pick a recipe, click the BarTab button by the favorite star.",
+        "More: " .. cmd("/bartab help") .. " crafting, shopping, items or bars. "
+            .. cmd("/btab") .. " works too.",
+        "Settings: " .. cmd("/bartab config") .. ", the minimap button, or Options > AddOns > BarTab.",
+    },
+    crafting = {
+        head("Crafting:"),
+        "  " .. cmd("/bartab track Light Leather 20") .. " - a bar counting Light Leather up to 20.",
+        "  " .. cmd("/bartab assign Heavy Leather") .. " - a bar for the selected recipe, one craft's worth (or "
+            .. cmd("0-12") .. ").",
+        "  Alt-Shift-click any item (bags, bank, chat links, loot) to track it.",
+        "  Click a recipe bar to craft 1, Shift-click as many as fit, Alt-click all you can (change in " .. cmd("/bartab config") .. ").",
+        "  " .. cmd("/bartab craft") .. " or a key (Key Bindings > AddOns) crafts the next bar that's ready.",
+        "  Right-click a recipe bar to count it down as you craft, or to untrack it when done.",
+        "  Right-click a bar to also track how to make its material (one craft; Alt-click for all you're short).",
+        "  " .. cmd("/bartab favorites") .. " (profession open) tracks your starred recipes.",
+        "  At a trainer, Alt-Shift-click a recipe to track it before you learn it.",
+        "  " .. cmd("/bartab appearances on") .. " tracks recipes for appearances you haven't collected (" .. cmd("scan") .. " asks again).",
+    },
+    shopping = {
+        head("Shopping:"),
+        "  At a vendor that sells what your recipes are short of (thread, dye, vials), BarTab asks to buy it.",
+        "  " .. cmd("/bartab config") .. " > Crafting: buy automatically or never, a spend limit, or only for crafts your bars cover.",
+        "  Untick \"Buy materials at vendors\" on a bar's right-click menu to leave that recipe out.",
+        "  At the auction house, the BarTab tab on the right edge lists what you're short of, with Search buttons.",
+        "  Hover any item you track to see lines like \"BarTab: 4/5 for Hillman's Cloak\".",
+    },
+    items = {
+        head("Items:"),
+        "  Fill-up items like Waylaid Crates get a bar per bundle when they reach your bags.",
+        "  " .. cmd("/bartab item Waylaid Crate") .. " adds one by hand; split stacks are combined for you.",
+        "  When a crate bar says Ready, click it to fill the crate. Not in combat.",
+        "  Alt-Shift-click anything else (a potion, a reagent) to collect it here with a goal.",
+    },
+    bars = {
+        head("Managing bars:"),
+        "  Right-click a bar: assign or unassign a recipe, after-crafting and stop rules, move to Inactive, untrack.",
+        "  Right-click a heading: move all to Inactive, share, untrack all. Ctrl-drag a bar to reorder; Ctrl-click opens its recipe.",
+        "  Hover a bar for details: shopping list, bank and alt counts, this session's gains and time to goal.",
+        "  " .. cmd("/bartab untrack Light Leather") .. ", " .. cmd("/bartab unassign Hillman's Cloak") .. " - by name.",
+        "  " .. cmd("/bartab copy Alinda") .. " copies another character's bars; " .. cmd("/bartab share") .. " and "
+            .. cmd("/bartab import") .. " pass bars as text.",
+        "  If another addon hides the objective tracker, BarTab gets its own window (" .. cmd("/bartab window") .. ").",
+    },
 }
+HELP_ALIASES = { craft = "crafting", shop = "shopping", vendor = "shopping", vendors = "shopping",
+    auction = "shopping", ah = "shopping", item = "items", crate = "items", crates = "items",
+    bar = "bars", manage = "bars" }
 
-ShowHelp = function()
-    for _, line in ipairs(HELP_LINES) do
+ShowHelp = function(topic)
+    topic = string.lower(topic or "")
+    topic = HELP_ALIASES[topic] or topic
+    local lines = HELP_TOPICS[topic]
+    if not lines then
+        if topic ~= "" then Print("No help topic \"" .. topic .. "\"; here's the overview.") end
+        lines = HELP_TOPICS.overview
+    end
+    for _, line in ipairs(lines) do
         DEFAULT_CHAT_FRAME:AddMessage(line)
     end
 end
@@ -48,6 +89,11 @@ end
 -- Tidies a list loaded from saved data (old link names, old key formats).
 local function TidyList()
     CleanSavedNames()
+
+    -- Quest tracking was removed in 1.6: drop quest bars.
+    for key, item in pairs(trackedItems) do
+        if item.quest then trackedItems[key] = nil end
+    end
 
     -- Repair: an assign used to be able to take over a crate's bar, leaving
     -- one bar that was both a crate bar and a recipe bar. Split it back into
@@ -80,7 +126,7 @@ local function TidyList()
     -- Recipe bars use "material@recipeID" keys (one bar per recipe).
     local moves = {}
     for key, item in pairs(trackedItems) do
-        if item.recipeID and not item.quest then
+        if item.recipeID then
             local wanted = string.lower(item.name) .. "@" .. item.recipeID
             if key ~= wanted and not trackedItems[wanted] then
                 moves[key] = wanted
@@ -94,10 +140,70 @@ local function TidyList()
     NormalizeOrder()
 end
 
-function BindCharacterList()
+-- Lists saved under a key missing its realm ("Alinda-"), from a login where
+-- the game hadn't reported the realm yet: merged into the real list.
+function MergeBrokenCharacterKeys(db, key)
+    local name = UnitName("player")
+    if not name or name == "" then return end
+    local merged = 0
+    for brokenKey, list in pairs(db.characters) do
+        if brokenKey ~= key and (brokenKey == name .. "-" or brokenKey == name .. "-?") then
+            local real = db.characters[key]
+            for itemKey, item in pairs(list) do
+                local existing = real[itemKey]
+                if not existing then
+                    item.order = NextOrderIn(real)
+                    real[itemKey] = item
+                    merged = merged + 1
+                elseif existing.inactive and not item.inactive then
+                    existing.inactive = nil -- you made it active again since
+                end
+            end
+            db.characters[brokenKey] = nil
+            -- Per-character settings saved under the broken key: keep what
+            -- matters (offered recipes, untracked crates), drop the rest
+            -- (they're rebuilt as you play).
+            for _, store in ipairs({ "appearanceOffered", "dismissedContainers" }) do
+                local t = settings[store]
+                if t and t[brokenKey] then
+                    t[key] = t[key] or {}
+                    for k, v in pairs(t[brokenKey]) do
+                        if t[key][k] == nil then t[key][k] = v end
+                    end
+                    t[brokenKey] = nil
+                end
+            end
+            for _, store in ipairs({ "inventory", "producers", "recipeIndex" }) do
+                if settings[store] then settings[store][brokenKey] = nil end
+            end
+        end
+    end
+    if merged > 0 then
+        C_Timer.After(5, function()
+            Print("Recovered " .. merged .. " bar(s) saved while the game hadn't reported your realm yet.")
+        end)
+    end
+end
+
+function NextOrderIn(list)
+    local highest = 0
+    for _, item in pairs(list) do highest = math.max(highest, item.order or 0) end
+    return highest + 1
+end
+
+function BindCharacterList(tries)
+    -- The game can report the realm a moment after login; until it does,
+    -- don't pick (or create) a list, or the bars land under "Name-".
+    tries = tries or 0
+    if not CharacterKnown() and tries < 20 then
+        C_Timer.After(0.5, function() BindCharacterList(tries + 1) end)
+        return
+    end
     local db = _G.BarTabDB
     db.characters = db.characters or {}
+    boundCharacterKey = nil
     local key = CharacterKey()
+    if CharacterKnown() then boundCharacterKey = key end
 
     if not db.characters[key] then
         -- One-time move of the old shared list.
@@ -112,7 +218,7 @@ function BindCharacterList()
             db.characters[key] = legacy
             C_Timer.After(5, function()
                 Print("Bars are now kept per character. Your existing bars are on this character; "
-                    .. "others start empty. Use /bt copy <character> on another character to copy them.")
+                    .. "others start empty. Use /bartab copy <character> on another character to copy them.")
             end)
         else
             db.characters[key] = {}
@@ -120,16 +226,17 @@ function BindCharacterList()
     end
 
     trackedItems = db.characters[key]
+    if boundCharacterKey then MergeBrokenCharacterKeys(db, key) end
     TidyList()
     UpdateBars()
 end
 
--- /bt copy <character>: adds that character's bars to this one's.
+-- /bartab copy <character>: adds that character's bars to this one's.
 local function CopyFromCharacter(text)
     local db = _G.BarTabDB
     local wanted = string.lower(text or "")
     if wanted == "" then
-        Print("Use: /bt copy <character name>")
+        Print("Use: /bartab copy <character name>")
         return
     end
     local me = CharacterKey()
@@ -149,7 +256,7 @@ local function CopyFromCharacter(text)
         return
     elseif #matches > 1 then
         Print(text .. " matches several characters: " .. table.concat(matches, ", ")
-            .. ". Use the full name shown, e.g. /bt copy " .. matches[1])
+            .. ". Use the full name shown, e.g. /bartab copy " .. matches[1])
         return
     end
 
@@ -172,7 +279,27 @@ local function CopyFromCharacter(text)
     Print("Copied " .. added .. " bar(s) from " .. matches[1] .. ".")
 end
 
-_G.SLASH_BARTAB1 = "/bt"
+_G.SLASH_BARTAB1 = "/bartab"
+_G.SLASH_BARTAB2 = "/btab"
+
+-- /bt is also BarTab's, but only when no other addon uses it (Bartender4,
+-- for one, does). Checked after login, once other addons have registered
+-- their commands.
+function ClaimShortSlash()
+    for key, value in pairs(_G) do
+        if type(key) == "string" and type(value) == "string"
+            and key:find("^SLASH_") and string.lower(value) == "/bt"
+            and not key:find("^SLASH_BARTAB%d") then
+            if not settings.shortSlashNotice then
+                settings.shortSlashNotice = true
+                Print("Another addon uses /bt, so BarTab's commands are /bartab or /btab.")
+            end
+            return false
+        end
+    end
+    _G.SLASH_BARTAB3 = "/bt"
+    return true
+end
 SlashCmdList.BARTAB = function(message)
     local command, args = message:match("^%s*(%S+)%s*(.-)%s*$")
     command = string.lower(command or "")
@@ -181,7 +308,7 @@ SlashCmdList.BARTAB = function(message)
     if command == "track" then
         local name, startCount, goal, err = ParseTrackArgs(StripLinks(args))
         if not name then
-            Print(err or "Use: /bt track Item Name [max] or /bt track Item Name min-max")
+            Print(err or "Use: /bartab track Item Name [max] or /bartab track Item Name min-max")
             return
         end
 
@@ -200,7 +327,7 @@ SlashCmdList.BARTAB = function(message)
         end
 
         if name == "" then
-            Print("Use: /bt assign Item Name [min-max] (with a recipe selected)")
+            Print("Use: /bartab assign Item Name [min-max] (with a recipe selected)")
             return
         end
 
@@ -225,9 +352,12 @@ SlashCmdList.BARTAB = function(message)
 
     elseif command == "untrack" then
         if args == "" then
-            for key in pairs(trackedItems) do
+            local removed = {}
+            for key, item in pairs(trackedItems) do
+                removed[#removed + 1] = item
                 trackedItems[key] = nil
             end
+            NoteUntrackedContainers(removed)
             UpdateBars()
             Print("Stopped tracking all items.")
         else
@@ -237,20 +367,8 @@ SlashCmdList.BARTAB = function(message)
             end
         end
 
-    elseif command == "quests" then
-        ImportAllQuests()
-
-    elseif command == "inline" then
-        local value = string.lower(args)
-        if value == "on" or value == "off" then
-            SetInlineQuests(value == "on")
-        end
-        Print("Quest bars under their quests in the quest tracker: "
-            .. (inlineQuestsActive and "on" or "off")
-            .. ". Use /bt inline on or /bt inline off to change it.")
-
     elseif command == "debug" then
-        -- Troubleshooting only; not listed in /bt help or the README.
+        -- Troubleshooting only; not listed in /bartab help or the README.
         local itemFilter = args:match("^[Ii][Tt][Ee][Mm]%s+(.+)$")
         if string.lower(args) == "name" then
             Print("Character name sources:")
@@ -259,12 +377,19 @@ SlashCmdList.BARTAB = function(message)
             end
         elseif itemFilter then
             DebugItems(itemFilter)
+        elseif string.lower(args) == "tracker" then
+            Safe("debug", DebugTracker)()
+        elseif string.lower(args) == "craft" then
+            settings.debugCraft = not settings.debugCraft or nil
+            if settings.debugCraft then settings.debugLog = { "BarTab craft log" } end
+            Print("Craft log " .. (settings.debugCraft and "on: craft, then /reload to save it. Type /bartab debug craft again to stop."
+                or "off.") )
         else
-            DebugQuests(args)
+            Print("Debug: /bartab debug name, /bartab debug item <part of a name>, /bartab debug craft, /bartab debug tracker.")
         end
 
     elseif command == "help" or command == "" or command == "?" then
-        ShowHelp()
+        ShowHelp(args)
 
     elseif command == "config" or command == "options" or command == "settings" then
         ToggleConfig()
@@ -299,7 +424,22 @@ SlashCmdList.BARTAB = function(message)
                 or settings.displayMode == "tracker" and "off" or "auto")
                 .. (panelActive and " (showing)" or " (not showing)")
                 .. (IsTrackerHidden() and ", the objective tracker is hidden" or "")
-                .. ". Use /bt window auto|on|off|reset|lock|unlock.")
+                .. ". Use /bartab window auto||on||off||reset||lock||unlock.")
+        end
+
+    elseif command == "errors" then
+        local log = settings.errorLog or {}
+        if string.lower(args) == "clear" then
+            settings.errorLog = nil
+            Print("Error log cleared.")
+        elseif #log == 0 then
+            Print("No errors recorded.")
+        else
+            Print(#log .. " recent error(s), newest first (/bartab errors clear to empty the list):")
+            for i, entry in ipairs(log) do
+                DEFAULT_CHAT_FRAME:AddMessage(("  %d. %s %s (v%s) - %s"):format(i, entry.when or "",
+                    entry.where or "?", entry.version or "?", (entry.message or ""):gsub("|", "||")))
+            end
         end
 
     elseif command == "session" then
@@ -308,7 +448,7 @@ SlashCmdList.BARTAB = function(message)
             UpdateBars()
             Print("Session stats reset.")
         else
-            Print("Session stats (gained, rate, time to goal) are in each bar's tooltip and start over at login or /reload. Use /bt session reset to start over now.")
+            Print("Session stats (gained, rate, time to goal) are in each bar's tooltip and start over at login or /reload. Use /bartab session reset to start over now.")
         end
 
     elseif command == "copy" then
@@ -317,9 +457,45 @@ SlashCmdList.BARTAB = function(message)
     elseif command == "item" then
         local filter = string.lower(StripLinks(args))
         if filter == "" then
-            Print("Use: /bt item <item name or shift-clicked link>, e.g. /bt item Waylaid Crate")
+            Print("Use: /bartab item <item name or shift-clicked link>, e.g. /bartab item Waylaid Crate")
         else
             ScanForContainers(filter)
+        end
+
+    elseif command == "trainer" then
+        if GetTrainerSelectionIndex and GetTrainerSelectionIndex() and GetTrainerSelectionIndex() > 0 then
+            Safe("trainer", TrackTrainerService)(GetTrainerSelectionIndex())
+        else
+            Print("Open a profession trainer and select a recipe first (or Alt-Shift-click it).")
+        end
+
+    elseif command == "favorites" or command == "favourites" or command == "favs" then
+        Safe("favorites", ImportFavoriteRecipes)()
+
+    elseif (command == "appearances" or command == "appearance") and string.lower(args) == "scan" then
+        if not settings.appearanceRecipes then
+            Print("Turn it on first: /bartab appearances on")
+        elseif not LoadedProfession() then
+            appearanceSnoozed = nil
+            Print("Open a profession and BarTab will check its recipes.")
+        else
+            appearanceSnoozed = nil
+            Safe("appearances", ScanAppearanceRecipes)()
+        end
+
+    elseif command == "appearances" or command == "appearance" then
+        local value = string.lower(args)
+        if value == "on" or value == "off" then
+            settings.appearanceRecipes = (value == "on")
+            if value == "on" then appearanceSnoozed = nil end
+        end
+        Print("Tracking recipes for appearances you haven't collected is "
+            .. (settings.appearanceRecipes and "on" or "off") .. ". Use /bartab appearances on or off to change it.")
+        if value == "on" then
+            Safe("appearances", ScanAppearanceRecipes)()
+            if not LoadedProfession() then
+                Print("Open a profession and BarTab will check its recipes.")
+            end
         end
 
     elseif command == "autoitems" then
@@ -328,20 +504,11 @@ SlashCmdList.BARTAB = function(message)
             settings.autoItems = (value == "on")
         end
         Print("Auto-tracking fill-up items (like Waylaid Crates) when they reach your bags is "
-            .. (settings.autoItems and "on" or "off") .. ". Use /bt autoitems on or off to change it.")
-
-    elseif command == "auto" then
-        local value = string.lower(args)
-        if value == "on" or value == "off" then
-            settings.autoQuests = (value == "on")
-        end
-        Print("Auto-tracking quest items when you accept a quest is "
-            .. (settings.autoQuests and "on" or "off")
-            .. ". Use /bt auto on or /bt auto off to change it.")
+            .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands: /bt help, /bt config, /bt track, /bt assign, /bt unassign, /bt untrack, /bt copy, /bt share, /bt import, /bt window, /bt craft, /bt session reset, /bt quests, /bt item, /bt auto on|off, /bt autoitems on|off, /bt inline on|off")
-        Print("Type /bt help for a quick guide with examples.")
+        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, item, autoitems on||off, favorites, trainer, appearances on||off")
+        Print("Type /bartab help for a quick guide with examples.")
     end
 end
 
@@ -352,6 +519,7 @@ function QueueContainerScan(delay)
     containerScanPending = true
     C_Timer.After(delay, function()
         containerScanPending = false
+        UpdateDismissedContainers()
         if settings.autoItems then
             ScanForContainers(nil)
         end
@@ -371,6 +539,7 @@ if not pcall(events.RegisterEvent, events, "BAG_UPDATE_DELAYED") then
 end
 
 events.barTabOwn = true -- never muted by SilentLoad
+pcall(events.RegisterEvent, events, "GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("PLAYER_REGEN_DISABLED")
 -- Session stats leave out items taken from the bank or guild bank.
 for _, bankEvent in ipairs({ "BANKFRAME_OPENED", "BANKFRAME_CLOSED",
@@ -388,9 +557,6 @@ for _, castEvent in ipairs({ "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_SUCCEEDED",
         pcall(events.RegisterEvent, events, castEvent)
     end
 end
-for _, questEvent in ipairs({ "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN" }) do
-    pcall(events.RegisterEvent, events, questEvent)
-end
 
 events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
     if event == "ADDON_LOADED" then
@@ -401,17 +567,9 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             trackedItems = {}
             _G.BarTabSettings = _G.BarTabSettings or {}
             settings = _G.BarTabSettings
-            if settings.autoQuests == nil then
-                settings.autoQuests = true
-            end
-            -- Inline quest bars run inside Blizzard's quest-tracker layout,
-            -- which on this client can break the tracker (quests stop
-            -- updating). Off by default since 1.5; switched off once for
-            -- everyone who had the old default.
-            if settings.inlineQuests == nil or not settings.inlineDefaultOff then
-                settings.inlineQuests = false
-            end
-            settings.inlineDefaultOff = true
+            -- Quest tracking was removed in 1.6: drop its settings.
+            settings.autoQuests, settings.inlineQuests = nil, nil
+            settings.inlineDefaultOff, settings.questsUsableOnly = nil, nil
             if settings.autoItems == nil then
                 settings.autoItems = true
             end
@@ -420,28 +578,34 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             settings.palette = settings.palette or "colorblind"
             settings.hiddenSections = settings.hiddenSections or {}
             ApplyPalette(settings.palette)
-            if settings.inlineQuests then
-                inlineQuestsActive = InstallInlineHooks()
-            end
-            -- Carry over zone collapse states from the old "Quests" section.
+            settings.hiddenSections["BarTab: Quests"] = nil
             if settings.collapsed then
-                local moved = {}
-                for key, value in pairs(settings.collapsed) do
-                    local zone = type(key) == "string" and key:match("^Quests/(.+)$")
-                    if zone then moved[key] = zone end
-                end
-                for key, zone in pairs(moved) do
-                    settings.collapsed[QUEST_SECTION .. "/" .. zone] = settings.collapsed[key]
-                    settings.collapsed[key] = nil
+                for key in pairs(settings.collapsed) do
+                    if type(key) == "string" and (key:find("^BarTab: Quests") or key:find("^Quests/")) then
+                        settings.collapsed[key] = nil
+                    end
                 end
             end
             self:UnregisterEvent("ADDON_LOADED")
         end
     elseif event == "PLAYER_LOGIN" then
         BindCharacterList()
+        C_Timer.After(3, function() Safe("names", FixPlaceholderNames)() end)
+        C_Timer.After(1, function() pcall(ClaimShortSlash) end)
+    elseif event == "GET_ITEM_INFO_RECEIVED" then
+        if arg1 and placeholderPending[arg1] then
+            C_Timer.After(0.1, function() Safe("names", FixPlaceholderNames)() end)
+        end
+        -- A fill-up item's tooltip wasn't loaded when we first looked.
+        if arg1 and fillOptionsPending[arg1] then
+            fillOptionsPending[arg1] = nil
+            fillOptionsCache[arg1], fillOptionsTries[arg1] = nil, nil
+            QueueContainerScan(0.3)
+        end
     elseif event:find("^UNIT_SPELLCAST_") then
         -- Follow our craft so the silently loaded profession isn't closed under it.
         if arg1 == "player" then
+            CraftLog(event:gsub("UNIT_SPELLCAST_", "cast ") .. " " .. tostring(arg3))
             if crafting then crafting.last = GetTime() end
             if event == "UNIT_SPELLCAST_SUCCEEDED" and arg3 then
                 OnCraftSucceeded(arg3)
@@ -451,22 +615,14 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             end
         end
     elseif event == "TRADE_SKILL_SHOW" then
+        CraftLog("profession opened (TRADE_SKILL_SHOW)")
         OnTradeSkillShow()
     elseif event == "TRADE_SKILL_CLOSE" then
+        CraftLog("profession closed (TRADE_SKILL_CLOSE)")
         silent.loaded = nil
     elseif event == "PLAYER_REGEN_DISABLED" then
         -- Last chance to switch secure overlays off before combat lockdown.
         HideAllOverlays()
-    elseif event == "QUEST_ACCEPTED" then
-        -- Retail passes questID; some clients pass (logIndex, questID).
-        local questID = arg2 or arg1
-        if settings.autoQuests and questID then
-            ImportQuestWhenReady(questID, true)
-        end
-    elseif event == "QUEST_REMOVED" or event == "QUEST_TURNED_IN" then
-        if arg1 then
-            RemoveQuest(arg1)
-        end
     elseif event == "BANKFRAME_OPENED" or event == "GUILDBANKFRAME_OPENED" then
         UpdateBars()
         bankOpen = true
@@ -481,22 +637,16 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             return
         end
         trackerSetupTried = true
-        HookQuestTrackerMenu()
         RegisterOptionsPage()
         UpdateMinimapButton()
-        -- In case the quest tracker wasn't loaded yet when BarTab loaded.
-        if settings.inlineQuests and not inlineQuestsActive then
-            inlineQuestsActive = InstallInlineHooks()
-        end
-        C_Timer.After(0.5, function()
-            if not SetUpTracker() then
-                Print("Couldn't add a section to the objective tracker; using standalone bars.")
-            end
-            UpdateBars()
-        end)
+        C_Timer.After(0.5, function() TrySetUpTracker(1) end)
         RequestUpdate(1)
         QueueContainerScan(2)
     else
+        if event == "BAG_UPDATE_DELAYED" or event == "BAG_UPDATE" then
+            RunPendingAfterCraft()
+            Safe("names", FixPlaceholderNames)()
+        end
         RequestUpdate(0.2)
         QueueContainerScan(0.3)
     end
