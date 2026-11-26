@@ -142,6 +142,15 @@ function BuildConfigFrame()
     title:SetPoint("TOP", 0, -6)
     title:SetText("BarTab Settings")
 
+    -- The user's guide, from the title bar.
+    local guideButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    guideButton:SetSize(110, 18)
+    guideButton:SetPoint("TOPLEFT", 8, -3)
+    guideButton:SetText("User's guide")
+    guideButton:SetFrameLevel(frame:GetFrameLevel() + 5)
+    guideButton:SetScript("OnClick", function() ShowGuide() end)
+    AddTooltip(guideButton, "User's guide", "Every BarTab feature explained, section by section (/bartab guide).")
+
     -- Tabs along the top; each shows one page of settings.
     local TABS = {
         { key = "general", name = "General" },
@@ -206,6 +215,10 @@ function BuildConfigFrame()
         "Adds where else you have a bar's item: your bank and other characters (once you've logged into them).",
         function() return settings.storageCounts ~= false end,
         function(v) settings.storageCounts = v end)
+    y = AddCheck(page, y, "Mention the guide at every login",
+        "A line in chat at login about /bartab guide and /bartab help. BarTab always mentions it once when it's new, and after an update.",
+        function() return settings.loginTip end,
+        function(v) settings.loginTip = v or nil end)
     y = AddCheck(page, y, "Show minimap button",
         "A BarTab button on the edge of the minimap: click to open these settings, drag to move it around the minimap.",
         function() return settings.minimapButton ~= false end,
@@ -475,6 +488,10 @@ function BuildConfigFrame()
         "Tells you when a profession reaches its limit (75, 150, 225) and needs the next rank, and when recipes you saw at a trainer but couldn't learn yet are within reach. A profession at its limit also shows its skill in orange.",
         function() return settings.trainingReminders ~= false end,
         function(v) settings.trainingReminders = v end)
+    y = AddCheck(page, y, "\"Track Recipe\" tracks in BarTab",
+        "The Track Recipe checkbox under a recipe in the profession window opens BarTab's Track with settings window (pick the ingredients, crafts and rules) instead of the game's own recipe tracking; unticking it untracks the recipe's bars. The checkbox then shows whether the recipe has BarTab bars.",
+        function() return settings.trackCheckboxBarTab end,
+        function(v) settings.trackCheckboxBarTab = v or nil end)
 
     y = AddHeading(page, y - 6, "Favorite recipes")
     AddButton(page, 24, y, 170, "Import favorites",
@@ -563,6 +580,26 @@ function BuildConfigFrame()
             if palette.key == settings.palette then name = palette.name end
         end
         colors:SetText("Colors: " .. name)
+    end)
+    y = y - 30
+
+    local markButton = AddButton(page, 24, y, 350, "",
+        "How a recipe bar's name shows the recipe's difficulty: skill-up arrows like the profession window (3 orange, 2 yellow, 1 green, none gray), the name in the recipe's color, or no marking.",
+        function()
+            local current, index = settings.difficultyMark or "arrows", 1
+            for i, mode in ipairs(DIFFICULTY_MARKS) do
+                if mode.key == current then index = i end
+            end
+            settings.difficultyMark = DIFFICULTY_MARKS[index % #DIFFICULTY_MARKS + 1].key
+            UpdateBars()
+            Safe("difficulty", RefreshTracker)(true)
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local current = settings.difficultyMark or "arrows"
+        for _, mode in ipairs(DIFFICULTY_MARKS) do
+            if mode.key == current then markButton:SetText("Difficulty: " .. mode.name) end
+        end
     end)
     y = y - 30
 
@@ -687,11 +724,14 @@ function CreateMinimapButton()
     border:SetSize(53, 53)
     border:SetPoint("TOPLEFT")
 
-    button:SetScript("OnClick", function() ToggleConfig() end)
+    button:SetScript("OnClick", function(_, mouseButton)
+        if mouseButton == "RightButton" then ShowGuide() else ToggleConfig() end
+    end)
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:SetText("BarTab")
         GameTooltip:AddLine("Click: settings", 1, 1, 1)
+        GameTooltip:AddLine("Right-click: user's guide", 1, 1, 1)
         GameTooltip:AddLine("Drag: move around the minimap", 0.7, 0.7, 0.7)
         GameTooltip:Show()
     end)

@@ -598,12 +598,36 @@ function RecipeListScrollBox()
     return list and list.ScrollBox
 end
 
+-- The skill-up arrows the profession window draws for each recipe color,
+-- noted from its recipe list so bar names can use the very same icons
+-- (settings.skillUpIcons[color] = { atlas= } or { file=, coords= }).
+function NoteSkillUpIcon(row, recipeInfo)
+    local icon = row.SkillUps and (row.SkillUps.Icon or row.SkillUps.icon)
+    if not (icon and icon.IsShown and icon:IsShown()) then return end
+    local difficulty = recipeInfo.relativeDifficulty
+    if difficulty == nil then difficulty = recipeInfo.difficulty end
+    local color = difficulty ~= nil and DIFFICULTY_COLORS[difficulty]
+    if not color or color == "gray" then return end
+    settings.skillUpIcons = settings.skillUpIcons or {}
+    local atlas = icon.GetAtlas and icon:GetAtlas()
+    if atlas and atlas ~= "" then
+        settings.skillUpIcons[color] = { atlas = atlas }
+        return
+    end
+    local file = icon.GetTexture and icon:GetTexture()
+    if file then
+        local coords = { icon:GetTexCoord() }
+        settings.skillUpIcons[color] = { file = file, coords = coords }
+    end
+end
+
 function MarkRecipeRow(row, elementData)
     if not row then return end
     elementData = elementData or (row.GetElementData and row:GetElementData())
     local data = elementData and elementData.GetData and elementData:GetData()
     local recipeInfo = type(data) == "table" and data.recipeInfo
     local recipeID = type(recipeInfo) == "table" and recipeInfo.recipeID
+    if recipeID then pcall(NoteSkillUpIcon, row, recipeInfo) end
     local show = settings.recipeListMarks ~= false and recipeID and IsTrackedRecipe(recipeID) or false
     if show and not row.barTabMark then
         local mark = row:CreateTexture(nil, "OVERLAY")
@@ -830,6 +854,54 @@ do
         mark:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
         mark:Hide()
         button.trackedMark = mark
+        -- Blizzard's "Track Recipe" checkbox, optionally tracking in BarTab.
+        local box = form.TrackRecipeCheckbox
+        if box and box.Checkbox then box = box.Checkbox end
+        local boxLabel = form.TrackRecipeCheckbox and (form.TrackRecipeCheckbox.text
+            or form.TrackRecipeCheckbox.Text or (box and (box.text or box.Text)))
+        local originalLabel = boxLabel and boxLabel.GetText and boxLabel:GetText()
+        -- While BarTab is in charge, a button laid over the checkbox (and its
+        -- label) takes the clicks, so the game's own tracking never runs.
+        local cover
+        if box then
+            local outer = form.TrackRecipeCheckbox
+            cover = CreateFrame("Button", nil, form)
+            cover:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
+            if boxLabel and boxLabel.GetRight then
+                cover:SetPoint("BOTTOMRIGHT", boxLabel, "BOTTOMRIGHT", 2, -2)
+            elseif outer and outer ~= box then
+                cover:SetAllPoints(outer)
+            else
+                cover:SetAllPoints(box)
+            end
+            cover:SetFrameLevel((box:GetFrameLevel() or 1) + 10)
+            cover:RegisterForClicks("LeftButtonUp")
+            cover:SetScript("OnClick", function()
+                Safe("track checkbox", function()
+                    local recipeID = GetSelectedRecipeID()
+                    if not recipeID then return end
+                    local name = GetRecipeName(recipeID) or "the recipe"
+                    if IsTrackedRecipe(recipeID) then
+                        UntrackRecipe(recipeID)
+                        Print("Stopped tracking " .. name .. ".")
+                    else
+                        -- The "Track with settings" window: ingredients,
+                        -- crafts and rules, chosen up front.
+                        TrackWithOptions(recipeID)
+                    end
+                    box:SetChecked(IsTrackedRecipe(recipeID))
+                end)()
+            end)
+            cover:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetText("Track in BarTab")
+                GameTooltip:AddLine("Opens BarTab's Track with settings window for this recipe, or untracks its bars if it has some. Change this in BarTab's settings (Recipes tab).", 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+            cover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            cover:Hide()
+        end
+
         local elapsedSince = 1
         button:SetScript("OnUpdate", function(_, elapsed)
             elapsedSince = elapsedSince + (elapsed or 0)
@@ -837,6 +909,19 @@ do
             elapsedSince = 0
             local ok, count = pcall(RecipeBarCount, GetSelectedRecipeID())
             mark:SetShown(ok and count > 0)
+            -- The checkbox shows BarTab's tracking while it's in charge.
+            if cover then cover:SetShown(settings.trackCheckboxBarTab and box:IsVisible() or false) end
+            if box and settings.trackCheckboxBarTab then
+                box:SetChecked(ok and count > 0)
+                if boxLabel and boxLabel.SetText then boxLabel:SetText("Track in BarTab") end
+            elseif boxLabel and originalLabel and boxLabel.GetText and boxLabel:GetText() ~= originalLabel then
+                boxLabel:SetText(originalLabel)
+                if box and C_TradeSkillUI and C_TradeSkillUI.IsRecipeTracked then
+                    local recipeID = GetSelectedRecipeID()
+                    local okTracked, tracked = pcall(C_TradeSkillUI.IsRecipeTracked, recipeID, false)
+                    if recipeID and okTracked then box:SetChecked(tracked and true or false) end
+                end
+            end
         end)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end

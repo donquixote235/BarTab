@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.60.1.8
+
+**Restart the game after installing (not just /reload): this version adds a new file.**
+
+- A user's guide window (`/bartab guide`, "User's guide" in the settings window's title bar, or right-click the minimap button): every feature explained in sections, What's new, Getting started, Reading a bar, Crafting from bars, Chain crafting, Goals and rules, Profit and leveling, Shopping, Fill-up items, Managing bars, Settings and Commands, with a list on the left and a scrolling page. `/bartab guide chain` opens a section by name. At login BarTab mentions the guide once when it's new to you, and once after each update (opening on What's new); tick "Mention the guide at every login" (General tab) to see it every time.
+- Updated help: `/bartab help` has new topics, goals (make until, rules, training reminders) and profit (the profit window and what to craft next), and covers chain crafting, the "could make" stretch, bank withdraw, undo and the Shopping settings tab. The README matches.
+- Recipe difficulty on bar names: recipe bars show the recipe's difficulty next to their name, the way the profession window does, with skill-up arrows (3 for orange, 2 yellow, 1 green, none for gray), using the same icons as the profession window once BarTab has seen its recipe list. Settings (Display tab): skill-up arrows, the name in the recipe's color instead, or no marking. BarTab remembers each recipe's color from when the profession was last loaded, so it shows with the window closed too.
+- Optional: the profession window's "Track Recipe" checkbox can track the recipe in BarTab, through the Track with settings window (ingredients, crafts and rules), instead of the game's own recipe tracking, and untrack it again; its label then reads "Track in BarTab" and it shows whether the recipe has bars. Turn it on in settings (Recipes tab).
+- "Only buy for crafts your bars cover" counts what chain crafting could make, too: with 9 Thick Leather and enough Heavy Leather for 16 more on a 25-leather Thick Armor Kit bar, the vendor offers Silken Thread for all 5 kits, not just the 1 you have the leather for now.
+
 ## 1.60.1.7
 
 - "Could make" on material bars: when you can make a bar's material yourself, a lighter stretch after what you have shows how much more the materials in your bags would make (8 / 10 Thick Leather, with Heavy Leather for 2 more: the last 2 light up), several steps deep, the same way chain crafting plans it. The tooltip says how many, and an alert (with the goal sound) tells you when you have the materials to make the rest of a bar. Turn the alert off in settings (General, Alerts).

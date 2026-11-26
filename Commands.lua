@@ -19,30 +19,42 @@ HELP_TOPICS = {
         "  " .. head("Crafting") .. " - materials, often tied to a recipe you can craft from the bar.",
         "  " .. head("Items") .. " - fill-up items like Waylaid Crates, and anything else you're collecting.",
         "Start: open a profession, pick a recipe, click the BarTab button by the favorite star.",
-        "More: " .. cmd("/bartab help") .. " crafting, shopping, items or bars. "
+        "More: " .. cmd("/bartab help") .. " crafting, goals, profit, shopping, items or bars. "
             .. cmd("/btab") .. " works too.",
         "Settings: " .. cmd("/bartab config") .. ", the minimap button, or Options > AddOns > BarTab.",
+        "The full user's guide, section by section: " .. cmd("/bartab guide") .. ".",
     },
     crafting = {
         head("Crafting:"),
-        "  " .. cmd("/bartab track Light Leather 20") .. " - a bar counting Light Leather up to 20.",
         "  " .. cmd("/bartab assign Heavy Leather") .. " - a bar for the selected recipe, one craft's worth (or "
-            .. cmd("0-12") .. ").",
+            .. cmd("0-12") .. "). " .. cmd("/bartab track Light Leather 20") .. " - a plain bar up to 20.",
         "  Alt-Shift-click any item (bags, bank, chat links, loot) to track it.",
         "  Click a recipe bar to craft 1, Shift-click as many as fit, Alt-click all you can (change in " .. cmd("/bartab config") .. ").",
+        "  Short of a material you can make? A click makes it first, then the recipe (chain crafting). Click again to stop.",
+        "  A lighter stretch on a bar shows how much more your bags could make; an alert says when it's enough.",
         "  " .. cmd("/bartab craft") .. " or a key (Key Bindings > AddOns) crafts the next bar that's ready.",
-        "  Right-click a recipe bar to count it down as you craft, or to untrack it when done.",
-        "  Right-click a bar to also track how to make its material (one craft; Alt-click for all you're short).",
-        "  " .. cmd("/bartab favorites") .. " (profession open) tracks your starred recipes.",
-        "  At a trainer, Alt-Shift-click a recipe to track it before you learn it.",
-        "  " .. cmd("/bartab make 52") .. " (recipe selected) crafts it until you have 52; or the BarTab button by the star.",
+        "  Arrows by a bar's name show the recipe's difficulty, like the profession window (Display settings).",
+        "  " .. cmd("/bartab favorites") .. " (profession open) tracks your starred recipes. At a trainer, Alt-Shift-click a recipe to track it before you learn it.",
         "  " .. cmd("/bartab appearances on") .. " tracks recipes for appearances you haven't collected (" .. cmd("scan") .. " asks again).",
+    },
+    goals = {
+        head("Goals and rules:"),
+        "  " .. cmd("/bartab make 52") .. " (recipe selected) crafts it until you have 52; or Goals on the BarTab button.",
+        "  Make until I reach... crafts until your skill gets there, and clears the bars when it does.",
+        "  Right-click a recipe bar: Crafts (1, 5, 10, a stack, any number), After crafting, Count down, Stop tracking.",
+        "  Training reminders say when a profession needs its next rank, and when a trainer's recipes come within reach.",
+    },
+    profit = {
+        head("Profit and leveling:"),
+        "  " .. cmd("/bartab profit") .. " (profession open) - what each recipe earns sold to a vendor or at auction, your way of counting materials.",
+        "  " .. cmd("/bartab next") .. " - what to craft next: recipes ranked by what a skill point costs (or takes).",
+        "  In the list: hover for the breakdown, click to show the recipe, Shift-click to search the auction house, right-click to track.",
     },
     shopping = {
         head("Shopping:"),
         "  At a vendor that sells what your recipes are short of (thread, dye, vials), BarTab asks to buy it.",
-        "  " .. cmd("/bartab config") .. " > Crafting: buy automatically or never, a spend limit, or only for crafts your bars cover.",
-        "  Untick \"Buy materials at vendors\" on a bar's right-click menu to leave that recipe out.",
+        "  At your bank, it offers to take out what your bars are short of (" .. cmd("/bartab bank") .. " asks again).",
+        "  " .. cmd("/bartab config") .. " > Shopping: ask, automatic or off; a spend limit; only buy for crafts your bars cover.",
         "  At the auction house, the BarTab tab on the right edge lists what you're short of, with Search buttons.",
         "  Hover any item you track to see lines like \"BarTab: 4/5 for Hillman's Cloak\".",
     },
@@ -55,10 +67,10 @@ HELP_TOPICS = {
     },
     bars = {
         head("Managing bars:"),
-        "  Right-click a bar: assign or unassign a recipe, after-crafting and stop rules, move to Inactive, untrack.",
+        "  Right-click a bar: Crafting, Rules and This bar (assign, move to Inactive, untrack...).",
         "  Right-click a heading: move all to Inactive, share, untrack all. Ctrl-drag a bar to reorder; Ctrl-click opens its recipe.",
+        "  Removed one by mistake? " .. cmd("/bartab undo") .. " brings it back (" .. cmd("/bartab undo list") .. " for more).",
         "  Hover a bar for details: shopping list, bank and alt counts, this session's gains and time to goal.",
-        "  " .. cmd("/bartab untrack Light Leather") .. ", " .. cmd("/bartab unassign Hillman's Cloak") .. " - by name.",
         "  " .. cmd("/bartab copy Alinda") .. " copies another character's bars; " .. cmd("/bartab share") .. " and "
             .. cmd("/bartab import") .. " pass bars as text.",
         "  If another addon hides the objective tracker, BarTab gets its own window (" .. cmd("/bartab window") .. ").",
@@ -66,7 +78,8 @@ HELP_TOPICS = {
 }
 HELP_ALIASES = { craft = "crafting", shop = "shopping", vendor = "shopping", vendors = "shopping",
     auction = "shopping", ah = "shopping", item = "items", crate = "items", crates = "items",
-    bar = "bars", manage = "bars" }
+    bar = "bars", manage = "bars", goal = "goals", rules = "goals", training = "goals",
+    leveling = "profit", next = "profit", money = "profit", bank = "shopping", chain = "crafting" }
 
 ShowHelp = function(topic)
     topic = string.lower(topic or "")
@@ -501,6 +514,9 @@ SlashCmdList.BARTAB = function(message)
             RestoreRemoved(tonumber(args) or 1)
         end
 
+    elseif command == "guide" then
+        Safe("guide", ShowGuide)(args)
+
     elseif command == "bank" then
         if bankWindowOpen then
             Safe("bank", OfferBankWithdrawals)(true)
@@ -556,7 +572,7 @@ SlashCmdList.BARTAB = function(message)
             .. (settings.autoItems and "on" or "off") .. ". Use /bartab autoitems on or off to change it.")
 
     else
-        Print("Commands (after /bartab or /btab): help, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], bank, appearances on||off")
+        Print("Commands (after /bartab or /btab): help, guide, config, track, assign, unassign, untrack, copy, share, import, window, craft, session reset, errors, refresh, undo [list||number], item, autoitems on||off, favorites, trainer, make <count>, profit, next [profession], bank, appearances on||off")
         Print("Type /bartab help for a quick guide with examples.")
     end
 end
@@ -614,6 +630,8 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             -- Each character's bars are picked at PLAYER_LOGIN (the
             -- character's name isn't reliably known before that).
             trackedItems = {}
+            -- No saved settings at all: a brand-new install (for the login tip).
+            brandNewInstall = _G.BarTabSettings == nil
             _G.BarTabSettings = _G.BarTabSettings or {}
             settings = _G.BarTabSettings
             -- Quest tracking was removed in 1.6: drop its settings.
@@ -645,6 +663,7 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         BindCharacterList()
         C_Timer.After(3, function() Safe("names", FixPlaceholderNames)() end)
         C_Timer.After(1, function() pcall(ClaimShortSlash) end)
+        C_Timer.After(6, function() Safe("guide", ShowLoginTip)() end)
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         if arg1 and placeholderPending[arg1] then
             C_Timer.After(0.1, function() Safe("names", FixPlaceholderNames)() end)

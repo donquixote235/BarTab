@@ -754,6 +754,81 @@ end
 trackerAvailable = false
 sectionModules = {} -- section name -> tracker module
 
+-- Recipe difficulty on bar names ------------------------------------------------
+-- settings.difficultyMark: "arrows" (default, like the profession window's
+-- skill-up arrows: 3 orange, 2 yellow, 1 green, none gray), "color" (the
+-- name in the recipe's color) or "none".
+DIFFICULTY_MARKS = {
+    { key = "arrows", name = "Skill-up arrows (like the profession window)" },
+    { key = "color", name = "Name in the recipe's color" },
+    { key = "none", name = "No marking" },
+}
+DIFFICULTY_ARROWS = { orange = 3, yellow = 2, green = 1, gray = 0 }
+DIFFICULTY_ATLAS = { orange = "Professions-Icon-Skill-High", yellow = "Professions-Icon-Skill-Medium",
+    green = "Professions-Icon-Skill-Low" }
+
+-- The recipe's color, remembered per character for when the profession
+-- isn't loaded (the game only says while it is). Display only: stop rules
+-- read the live color.
+function RecipeColorForDisplay(recipeID)
+    if not recipeID then return nil end
+    settings.recipeColors = settings.recipeColors or {}
+    local key = CharacterKey()
+    settings.recipeColors[key] = settings.recipeColors[key] or {}
+    local known = settings.recipeColors[key]
+    local color = GetRecipeColor(recipeID)
+    if color then known[recipeID] = color end
+    return known[recipeID]
+end
+
+function AtlasExists(atlas)
+    if not (C_Texture and C_Texture.GetAtlasInfo) then return false end
+    local ok, info = pcall(C_Texture.GetAtlasInfo, atlas)
+    return ok and info ~= nil
+end
+
+-- "Thick Armor Kit" with its difficulty marking.
+function MarkedName(item)
+    local name = DisplayName(item)
+    local mode = settings.difficultyMark or "arrows"
+    if mode == "none" or not item.recipeID or item.container then return name end
+    local color = RecipeColorForDisplay(item.recipeID)
+    if not color then return name end
+    if mode == "color" then
+        return "|c" .. (COLOR_CODES[color] or "ffffffff") .. name .. "|r"
+    end
+    local arrows = DIFFICULTY_ARROWS[color] or 0
+    if arrows == 0 then return name end
+    -- The profession window's own icon for this color, once BarTab has seen it.
+    local seen = settings.skillUpIcons and settings.skillUpIcons[color]
+    if seen and seen.atlas then
+        return "|A:" .. seen.atlas .. ":14:14|a " .. name
+    elseif seen and seen.file and seen.coords and #seen.coords >= 8 then
+        -- GetTexCoord gives the four corners; |T wants left, right, top, bottom in pixels of a 256 square.
+        local c = seen.coords
+        local left, right, top, bottom = c[1], c[7], c[2], c[8]
+        return ("|T%s:14:14:0:0:256:256:%d:%d:%d:%d|t "):format(tostring(seen.file),
+            math.floor(left * 256 + 0.5), math.floor(right * 256 + 0.5),
+            math.floor(top * 256 + 0.5), math.floor(bottom * 256 + 0.5)) .. name
+    end
+    local atlas = DIFFICULTY_ATLAS[color]
+    if atlas and AtlasExists(atlas) then
+        return "|A:" .. atlas .. ":14:14|a " .. name
+    end
+    -- No atlas: that many small up-arrows, tinted the recipe's color.
+    local hex = (COLOR_CODES[color] or "ffffffff"):sub(3)
+    local r, g, b = tonumber(hex:sub(1, 2), 16), tonumber(hex:sub(3, 4), 16), tonumber(hex:sub(5, 6), 16)
+    local arrow = ("|TInterface\\Buttons\\Arrow-Up-Up:10:8:0:0:32:32:0:32:0:32:%d:%d:%d|t"):format(r, g, b)
+    return arrow:rep(arrows) .. " " .. name
+end
+
+-- MarkedName, falling back to the plain name if anything goes wrong (this
+-- runs inside the tracker's own update).
+function HeaderName(item)
+    local ok, text = pcall(MarkedName, item)
+    return ok and text or DisplayName(item)
+end
+
 -- Adds one tracked item (name + bar) to a section. Returns false when the
 -- tracker is out of room.
 function LayoutItemBlock(module, key, section, group, shownBars)
@@ -761,7 +836,7 @@ function LayoutItemBlock(module, key, section, group, shownBars)
     local block = module:GetBlock(key)
     block.itemKey = key
     block.groupKey = nil
-    block:SetHeader(DisplayName(item))
+    block:SetHeader(HeaderName(item))
 
     local bar = GetBar(key, section)
     bar.section = section
@@ -1680,7 +1755,7 @@ function UpdatePanel()
                             local item = trackedItems[key]
                             local row = GetPanelNameRow(section .. "\0" .. key)
                             row.itemKey = key
-                            row.label:SetText(DisplayName(item))
+                            row.label:SetText(HeaderName(item))
                             place(row, row:GetHeight(), 10)
                             shownRows[row] = true
 

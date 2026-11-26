@@ -3906,7 +3906,13 @@ function GetShortages(forAuction, sold)
                 if not IsSold(bar.name, ItemIDFor(bar)) then
                     local perCraft = GetReagentQuantity(recipeID, bar.name)
                     if perCraft and perCraft > 0 then
-                        local covered = math.floor(GetBarCount(bar) / perCraft)
+                        -- What you have, plus what you could make of it
+                        -- first (Heavy Leather into Thick Leather): chain
+                        -- crafting will.
+                        local have = GetBarCount(bar)
+                        local okMake, makeable = pcall(MakeableCount, bar, have)
+                        if okMake and makeable then have = have + makeable end
+                        local covered = math.floor(have / perCraft)
                         if not crafts or covered < crafts then crafts = covered end
                     end
                 end
