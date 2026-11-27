@@ -3765,9 +3765,10 @@ function ScanTrainer()
     if GetTrainerServiceTypeFilter and SetTrainerServiceTypeFilter then
         saved = {}
         for _, kind in ipairs({ "available", "unavailable", "used" }) do
+            -- On/off is true/false on this client (1/0 on older ones).
             local value = GetTrainerServiceTypeFilter(kind)
-            saved[kind] = (value and value ~= 0) and 1 or 0
-            if saved[kind] == 0 then SetTrainerServiceTypeFilter(kind, 1) end
+            saved[kind] = (value == true or value == 1) and 1 or 0
+            if saved[kind] == 0 then pcall(SetTrainerServiceTypeFilter, kind, true) end
         end
     end
     local data = TrainingData()
@@ -3800,7 +3801,7 @@ function ScanTrainer()
     end)
     if saved then
         for kind, value in pairs(saved) do
-            if value == 0 then SetTrainerServiceTypeFilter(kind, 0) end
+            if value == 0 then pcall(SetTrainerServiceTypeFilter, kind, false) end
         end
     end
     if not ok then error(err) end
