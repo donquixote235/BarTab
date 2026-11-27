@@ -202,23 +202,21 @@ function CraftNow(item, amount)
         return
     end
     -- A profession just loaded behind the scenes (switching from another,
-    -- say Blacksmithing to Mining) can ignore the first request without a
-    -- word. No cast after a moment: ask once more, then say so.
+    -- say Blacksmithing to Mining) can ignore the request without a word,
+    -- and asking again outside a click is blocked. No cast after a moment:
+    -- say so, and let the next click pick up where this left off.
     local started = crafting
-    local function Check(tries)
+    C_Timer.After(1.5, function()
         if crafting ~= started or started.cast or CastingNow() then return end
-        if tries < 2 then
-            CraftLog("no cast yet; asking again")
-            pcall(C_TradeSkillUI.CraftRecipe, item.recipeID, math.max(1, amount - (started.done or 0)))
-            C_Timer.After(1.5, function() Check(tries + 1) end)
-        else
-            CraftLog("no cast; giving up")
-            crafting = nil
-            Print(("The game didn't start crafting %s. Open your %s window and click again."):format(
-                GetRecipeName(item.recipeID) or DisplayName(item), item.profession or "profession"))
+        CraftLog("no cast; waiting for another click")
+        crafting = nil
+        if chainJob then
+            chainJob.paused = true
+            chainJob.index = chainJob.index - 1
         end
-    end
-    C_Timer.After(1.0, function() Check(1) end)
+        Print(("The game didn't start crafting %s; click the bar again (%s is ready now)."):format(
+            GetRecipeName(item.recipeID) or DisplayName(item), item.profession or "the profession"))
+    end)
     -- Long batches say how long they'll take.
     local each = CraftSeconds(item.recipeID)
     if each and each * amount >= 30 then
@@ -267,9 +265,28 @@ end
 
 -- Hovering a crafting bar loads its profession ahead of the click.
 function PreloadProfession(item)
-    if item and item.recipeID and not IsProfessionLoaded(item) then
-        SilentLoad(item)
+    if not (item and item.recipeID) then return end
+    -- A click that makes a material in another profession first (smelting
+    -- Copper Bar for a Copper Mace) needs that profession ready instead:
+    -- the game ignores a craft asked for the moment a profession switches.
+    local ok, first = pcall(ChainFirstStep, item)
+    local target = (ok and first) or item
+    if not IsProfessionLoaded(target) then
+        SilentLoad(target)
     end
+end
+
+-- The recipe a click on the bar would craft first, as a bar-like table:
+-- the bar itself, or the first material its chain would make.
+function ChainFirstStep(item)
+    if (GetCraftableCount(item.recipeID) or 0) >= 1 then return item end
+    if (settings.chainCraft or "auto") == "menu" then return item end
+    local wanted = ChainWanted(item, GetClickAction("click")) or 1
+    local plan = PlanChain(item, wanted) or PlanChain(item, wanted, true) or PartialChainPlan(item, "one")
+    local step = plan and plan.steps and plan.steps[1]
+    if not step or not step.profession then return item end
+    return { recipeID = step.recipeID, profession = step.profession, skillLineID = step.skillLineID,
+        name = step.name }
 end
 
 -- Closes a silently loaded profession once nothing needs it. Never during a
@@ -1979,6 +1996,12 @@ function TryChainCraft(item, chosen, forced)
         Print("Stopped making materials first; a craft in progress still finishes.")
         return true
     end
+    -- Waiting on a click after the game ignored a craft: carry on.
+    if chainJob and chainJob.paused then
+        chainJob.paused = nil
+        RunChainStep()
+        return true
+    end
     local mode = settings.chainCraft or "auto"
     if mode == "menu" and not forced then return false end
     if InCombatLockdown and InCombatLockdown() then return false end
@@ -2034,7 +2057,7 @@ end
 -- doesn't count, so the next click starts afresh instead of "stopping" it.
 function ChainActive()
     local job = chainJob
-    if not job then return false end
+    if not job or job.paused then return false end
     if craftJob or crafting or CastingNow() then return true end
     if job.started and GetTime() - job.started < 3 then return true end
     chainJob = nil
@@ -2042,7 +2065,9 @@ function ChainActive()
 end
 
 -- One step at a time: craft it, wait until the batch is over, then the next.
-function RunChainStep()
+-- fromTimer: between steps, not from a click. A step in a profession that
+-- isn't loaded then waits for a click: loading one outside a click doesn't work.
+function RunChainStep(fromTimer)
     local job = chainJob
     if not job then return end
     job.index = job.index + 1
@@ -2061,6 +2086,13 @@ function RunChainStep()
             .. ": the materials aren't there. Stopped.")
         return
     end
+    if fromTimer and not IsProfessionLoaded(stepItem) then
+        job.paused = true
+        job.index = job.index - 1
+        Print(("Next: %d %s (%s). Click the bar again to go on."):format(amount,
+            GetRecipeName(step.recipeID) or step.name or "", stepItem.profession or "another profession"))
+        return
+    end
     TryCraft(stepItem, amount)
     job.started = GetTime()
     C_Timer.After(0.5, WaitChainStep)
@@ -2068,7 +2100,7 @@ end
 
 function WaitChainStep()
     local job = chainJob
-    if not job then return end
+    if not job or job.paused then return end
     -- Still loading the profession, crafting, or casting. (The game can say
     -- it's still repeating a batch a stop rule ended; not for long.)
     local busy = craftJob or crafting or CastingNow()
@@ -2084,7 +2116,7 @@ function WaitChainStep()
     job.repeatWaits = nil
     job.started = GetTime()
     -- A moment for the bags to catch up, then the next step.
-    C_Timer.After(0.6, function() Safe("chain", RunChainStep)() end)
+    C_Timer.After(0.6, function() Safe("chain", RunChainStep)(true) end)
 end
 
 -- Recipe chains ----------------------------------------------------------------
@@ -5283,6 +5315,11 @@ function HandleMaterialBarClick(item)
     if ChainActive() then
         chainJob = nil
         Print("Stopped crafting; a craft in progress still finishes.")
+        return
+    end
+    if chainJob and chainJob.paused then
+        chainJob.paused = nil
+        RunChainStep()
         return
     end
     local list = MaterialRecipes(item)

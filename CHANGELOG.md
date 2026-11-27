@@ -6,7 +6,7 @@
 
 - Making materials first says what will still be missing afterward ("Making 2 Copper Bar now, toward 1 Copper Mace (still missing 1 Weak Flux)") instead of "not enough for all of it yet", and that clicking the bar again stops it.
 
-- Fixed: making materials in another profession first (smelting Copper Bar for a Copper Mace) could do nothing: the game ignored the craft right after BarTab switched professions behind the scenes. BarTab now asks again when no craft starts, and says so if it still doesn't.
+- Fixed: making materials in another profession first (smelting Copper Bar for a Copper Mace) could do nothing: the game ignored the craft right after BarTab switched professions behind the scenes. Hovering such a bar now gets the profession of the first material ready (Mining, not Blacksmithing), and if the game still ignores a craft, BarTab says so and the next click carries on from there.
 
 ## 1.60.1.11
 
