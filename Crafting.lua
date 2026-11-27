@@ -305,6 +305,12 @@ C_Timer.NewTicker(0.5, function() CraftTick() end)
 function OpenBarRecipe(itemKey)
     local item = itemKey and trackedItems[itemKey]
     if not item then return end
+    -- A recipe or material bar opens (the first of) its recipes.
+    if item.virtual then
+        local real = item.recipes and item.recipes[1]
+        if real and trackedItems[real] then OpenBarRecipe(real) end
+        return
+    end
     if not item.recipeID or item.container then
         Print(DisplayName(item) .. " has no recipe. Right-click it to assign one, with the recipe selected in the profession window.")
         return
