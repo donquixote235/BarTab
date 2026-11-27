@@ -407,8 +407,14 @@ SlashCmdList.BARTAB = function(message)
             if settings.debugCraft then settings.debugLog = { "BarTab craft log" } end
             Print("Craft log " .. (settings.debugCraft and "on: craft, then /reload to save it. Type /bartab debug craft again to stop."
                 or "off.") )
+        elseif string.lower(args) == "log" then
+            local log = settings.debugLog or {}
+            if #log <= 1 then Print("The craft log is empty.") end
+            for i = 2, #log do DEFAULT_CHAT_FRAME:AddMessage("  " .. log[i]) end
+        elseif args == "" then
+            ShowDebugWindow()
         else
-            Print("Debug: /bartab debug name, /bartab debug item <part of a name>, /bartab debug craft, /bartab debug tracker.")
+            Print("Debug: /bartab debug (window), name, item <part of a name>, craft, log, perf, recipes, tracker.")
         end
 
     elseif command == "help" or command == "" or command == "?" then
@@ -743,3 +749,117 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         QueueContainerScan(0.3)
     end
 end)
+
+-- The debug window (/bartab debug): every troubleshooting switch and
+-- report in one place, plus Reload. Not listed in the help.
+do
+    local REPORTS = {
+        { "Craft log", "debug log", "Print the craft log in chat." },
+        { "Errors", "errors", "Print BarTab's recent errors." },
+        { "Clear errors", "errors clear", "Empty the error list." },
+        { "Character names", "debug name", "Where BarTab gets your characters' names." },
+        { "Performance", "debug perf", "How long BarTab's updates take." },
+        { "Reset counters", "debug perf reset", "Start the performance counts from now." },
+        { "Recipe list", "debug recipes", "What the open profession's recipe list says." },
+        { "Tracker", "debug tracker", "The objective tracker's state, section by section." },
+    }
+
+    function ShowDebugWindow()
+        local frame = BarTabDebugFrame
+        if not frame then
+            local ok
+            ok, frame = pcall(CreateFrame, "Frame", "BarTabDebugFrame", UIParent, "BasicFrameTemplateWithInset")
+            if not ok then
+                frame = CreateFrame("Frame", "BarTabDebugFrame", UIParent, "BackdropTemplate")
+                frame:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32,
+                    edgeSize = 32, insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+                local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+                close:SetPoint("TOPRIGHT", -4, -4)
+            end
+            frame:SetSize(330, 330)
+            frame:SetPoint("CENTER")
+            frame:SetFrameStrata("DIALOG")
+            frame:SetMovable(true)
+            frame:EnableMouse(true)
+            frame:RegisterForDrag("LeftButton")
+            frame:SetScript("OnDragStart", frame.StartMoving)
+            frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+            frame:SetClampedToScreen(true)
+            tinsert(UISpecialFrames, "BarTabDebugFrame")
+
+            local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            title:SetPoint("TOP", 0, -6)
+            title:SetText("BarTab debug")
+
+            -- Switches.
+            local check = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+            check:SetSize(24, 24)
+            check:SetPoint("TOPLEFT", 16, -32)
+            if type(check.Text) == "table" then check.Text:SetText("") end
+            check.label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            check.label:SetPoint("LEFT", check, "RIGHT", 4, 0)
+            check:SetScript("OnClick", function() SlashCmdList.BARTAB("debug craft"); frame:Refresh() end)
+            frame.craftCheck = check
+
+            -- Reports: two columns of buttons.
+            for index, report in ipairs(REPORTS) do
+                local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+                button:SetSize(140, 22)
+                local column, row = (index - 1) % 2, math.floor((index - 1) / 2)
+                button:SetPoint("TOPLEFT", 16 + column * 150, -70 - row * 28)
+                button:SetText(report[1])
+                button:SetScript("OnClick", function() SlashCmdList.BARTAB(report[2]); frame:Refresh() end)
+                button:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    GameTooltip:SetText(report[1])
+                    GameTooltip:AddLine(report[3] .. " (/bartab " .. report[2] .. ")", 1, 1, 1, true)
+                    GameTooltip:Show()
+                end)
+                button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            end
+
+            -- Item lookup.
+            local itemLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            itemLabel:SetPoint("TOPLEFT", 18, -190)
+            itemLabel:SetText("Look up an item (part of its name):")
+            local box = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+            box:SetSize(200, 20)
+            box:SetPoint("TOPLEFT", 22, -206)
+            box:SetAutoFocus(false)
+            local find = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+            find:SetSize(80, 22)
+            find:SetPoint("LEFT", box, "RIGHT", 8, 0)
+            find:SetText("Look up")
+            local function Lookup()
+                local text = box:GetText() or ""
+                if text ~= "" then SlashCmdList.BARTAB("debug item " .. text) end
+                box:ClearFocus()
+            end
+            find:SetScript("OnClick", Lookup)
+            box:SetScript("OnEnterPressed", Lookup)
+            box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+            -- Reload, to save the logs (and load changed files).
+            local reload = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+            reload:SetSize(140, 26)
+            reload:SetPoint("BOTTOM", 0, 16)
+            reload:SetText("Reload UI")
+            reload:SetScript("OnClick", function() ReloadUI() end)
+            local note = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            note:SetPoint("BOTTOM", reload, "TOP", 0, 6)
+            note:SetText("Reloading saves the logs to disk.")
+            frame.note = note
+
+            function frame:Refresh()
+                local on = settings.debugCraft and true or false
+                local lines = math.max(0, #(settings.debugLog or {}) - 1)
+                self.craftCheck:SetChecked(on)
+                self.craftCheck.label:SetText("Craft log" .. (on and (" (on, " .. lines .. " lines)") or " (off)"))
+            end
+            frame:SetScript("OnShow", function(self) self:Refresh() end)
+        end
+        frame:Show()
+        frame:Refresh()
+    end
+end
