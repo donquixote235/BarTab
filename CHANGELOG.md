@@ -1,5 +1,7 @@
 # Changelog
 
+## 1.60.1.13
+
 ## 1.60.1.12
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.
