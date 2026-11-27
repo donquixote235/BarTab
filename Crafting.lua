@@ -4739,6 +4739,7 @@ end
 -- letter is then filled and sent at once.
 function SendMailNow(sends, inClick)
     if mailJob then return end
+    CraftLog("mailing: " .. DescribeMailSends(sends):gsub("\n", "; "))
     if not ClickSendMailItemButton then
         Print("Couldn't reach the mail window.")
         return
@@ -4807,6 +4808,7 @@ function TrySendLetter()
         if GetSendMailItem and GetSendMailItem(i) then attached = attached + 1 end
     end
     if attached < job.attached then return false end
+    CraftLog("SendMail to " .. tostring(job.letter.address))
     SendMail(job.letter.address, "BarTab: materials", "")
     return true
 end
@@ -4897,7 +4899,13 @@ function MailStep()
         local amount = math.min(stack, send.left)
         if amount < stack then split(fromBag, fromSlot, amount) else pickup(fromBag, fromSlot) end
         job.attached = job.attached + 1
+        CraftLog(("mail to %s: slot %d gets %d %s (bag %d slot %d holds %d; %s)"):format(tostring(letter.to),
+            job.attached, amount, tostring(send.name), fromBag, fromSlot, stack, amount < stack and "split" or "whole stack"))
         ClickSendMailItemButton(job.attached)
+        if GetSendMailItem then
+            local _, _, _, attachedCount = GetSendMailItem(job.attached)
+            CraftLog("  the letter's slot now holds " .. tostring(attachedCount))
+        end
         if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
         send.left = send.left - amount
         send.sentNow = (send.sentNow or 0) + amount
@@ -4945,6 +4953,7 @@ function MailStep()
 end
 
 function OnMailSent(success)
+    CraftLog("mail " .. (success and "sent" or "failed"))
     local job = mailJob
     if not (job and job.waitingSend) then return end
     job.waitingSend = false
