@@ -2071,10 +2071,10 @@ function ChainActive()
     local job = chainJob
     if not job or job.paused then return false end
     -- A batch the game stopped without a word (opening another profession's
-    -- window mid-smelt) leaves crafting set: only casting, repeating or
-    -- recent progress counts.
-    if craftJob or CastingNow() or IsRepeatingCraft() then return true end
-    if crafting and crafting.last and GetTime() - crafting.last < 3 then return true end
+    -- window mid-smelt) leaves crafting set, and the game can still say it's
+    -- repeating: only a cast now, or one that just ended, counts.
+    if craftJob or CastingNow() then return true end
+    if crafting and crafting.castAt and GetTime() - crafting.castAt < 2 then return true end
     crafting = nil
     if job.started and GetTime() - job.started < 3 then return true end
     chainJob = nil

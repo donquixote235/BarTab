@@ -697,6 +697,7 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
             CraftLog(event:gsub("UNIT_SPELLCAST_", "cast ") .. " " .. tostring(arg3))
             if crafting then
                 crafting.last = GetTime()
+                crafting.castAt = GetTime()
                 if event ~= "UNIT_SPELLCAST_FAILED" then crafting.cast = true end
             end
             if event == "UNIT_SPELLCAST_START" and arg3 then
