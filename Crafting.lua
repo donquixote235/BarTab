@@ -240,17 +240,21 @@ function RunCraftJob()
     end
 end
 
--- Runs from the click.
+-- Runs from the click. Returns false when it couldn't start (and said why).
 function TryCraft(item, amount)
     if InCombatLockdown() then
         Print("Nothing can be crafted in combat.")
-        return
+        return false
     end
     if IsProfessionLoaded(item) then
         CraftNow(item, amount)
     elseif ProfessionsOpen() then
-        Print("The profession window is showing another profession; switch it to "
-            .. (item.profession or "the right one") .. " or close it, then click again.")
+        local open = LoadedProfession() or "another profession"
+        Print(("Can't make %s while the %s window is open: close it (BarTab opens %s by itself), then click again."):format(
+            -- A chain step names what it makes (Copper Bar), a bar its recipe.
+            (item.goal == nil and item.name) or GetRecipeName(item.recipeID) or DisplayName(item),
+            open, item.profession or "the right profession"))
+        return false
     else
         craftJob = { item = item, amount = amount, time = GetTime() }
         if SilentLoad(item) then
@@ -259,8 +263,10 @@ function TryCraft(item, amount)
             craftJob = nil
             Print("Open your " .. (item.profession or "profession") .. " window to craft "
                 .. DisplayName(item) .. ".")
+            return false
         end
     end
+    return true
 end
 
 -- Hovering a crafting bar loads its profession ahead of the click.
@@ -2093,7 +2099,11 @@ function RunChainStep(fromTimer)
             GetRecipeName(step.recipeID) or step.name or "", stepItem.profession or "another profession"))
         return
     end
-    TryCraft(stepItem, amount)
+    -- Couldn't start (another profession's window is open): stop here; it said why.
+    if TryCraft(stepItem, amount) == false then
+        chainJob = nil
+        return
+    end
     job.started = GetTime()
     C_Timer.After(0.5, WaitChainStep)
 end
