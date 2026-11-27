@@ -6,6 +6,8 @@
 
 - Recipe bars share what's in your bags between recipes in list order, like ingredient bars do, including ingredients without a bar: one Rough Grinding Stone counts for the first recipe that takes it, so the second shows it still needs one.
 
+- Mailing keeps what you'd make your own short materials from: Vespera, short of Copper Bar for her Blacksmithing and able to smelt, keeps her Copper Ore instead of offering it to Ein.
+
 ## 1.60.1.12
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.

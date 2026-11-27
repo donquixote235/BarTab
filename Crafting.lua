@@ -4752,8 +4752,28 @@ end
 -- rest goes to the first character who needs it).
 function FindMailSends(allSpare)
     local scan = ScanBags()
-    -- What's spare here: bags less your own bars' goals.
+    -- What's spare here: bags less your own bars' goals, and less what
+    -- you'd make your own short materials from (Copper Ore for the Copper
+    -- Bar your Blacksmithing needs, when you can smelt).
     local myNeeds = BarNeeds(trackedItems)
+    local mine = settings.producers and settings.producers[CharacterKey()]
+    if mine then
+        local extra = {}
+        for id, need in pairs(myNeeds) do
+            local short = need - (scan.byID[id] or 0)
+            local producer = short > 0 and mine[id]
+            if producer and producer.recipeID then
+                local crafts = math.ceil(short / math.max(1, producer.qty or 1))
+                local okReagents, reagents = pcall(GetRecipeReagents, producer.recipeID)
+                for _, reagent in ipairs((okReagents and reagents) or {}) do
+                    if reagent.itemID and reagent.itemID ~= id then
+                        extra[reagent.itemID] = (extra[reagent.itemID] or 0) + reagent.need * crafts
+                    end
+                end
+            end
+        end
+        for id, count in pairs(extra) do myNeeds[id] = (myNeeds[id] or 0) + count end
+    end
     local spare = {}
     for id, count in pairs(scan.byID) do
         local left = count - (myNeeds[id] or 0)
