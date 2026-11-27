@@ -5087,16 +5087,18 @@ function RecipeBarCounts(item)
     for _, row in ipairs(rows) do
         if not row.vendor then counted = true end
     end
-    local units, needed, have = 0, 0, nil
+    -- whole: units in whole crafts' worth of each ingredient.
+    local units, needed, have, whole = 0, 0, nil, 0
     for _, row in ipairs(rows) do
         if not row.vendor or not counted then
             units = units + math.min(row.count, row.goal)
             needed = needed + row.goal
             local covers = math.floor(row.count / math.max(1, row.perCraft))
             if not have or covers < have then have = covers end
+            whole = whole + math.min(covers, planned) * math.max(1, row.perCraft)
         end
     end
-    return units, math.max(1, needed), have or 0, planned
+    return units, math.max(1, needed), have or 0, planned, whole
 end
 
 function SyncMaterialBars()

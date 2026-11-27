@@ -367,29 +367,44 @@ function UpdateSegments(bar, item, count, craftable)
         return
     end
 
-    -- Material bars: blue for what your ready crafts would use, orange for
-    -- what you have that's waiting on another ingredient. Recipe bars: blue
-    -- for the materials of whole crafts you have, orange for the rest.
+    -- Material and recipe bars, as on ingredient bars: blue for what crafts
+    -- you can make now would use, orange for whole crafts' worth waiting on
+    -- another ingredient, and the bar's plain fill for part of a craft.
     if item.matBar or item.recBar then
         local range = item.goal - item.start
         local width = bar:GetWidth()
         if range <= 0 or not width or width <= 0 or count <= 0 then return end
-        local used = 0
+        local used, whole = 0, 0
         if item.recBar then
             -- What you can really craft (vials and other uncounted
-            -- ingredients included): the rest shows orange.
-            local _, needed, have, planned = RecipeBarCounts(item)
+            -- ingredients included).
+            local _, needed, have, planned, wholeUnits = RecipeBarCounts(item)
             local craftable = GetCraftableCount(item.forRecipe)
             if craftable then have = math.min(have, craftable) end
             used = math.floor(needed * math.min(have, planned) / planned)
+            whole = wholeUnits or 0
         else
+            local left = count
             for _, recipe in ipairs(MaterialRecipes(item)) do
-                used = used + (recipe.ready or 0) * (recipe.perCraft or 0)
+                local perCraft = recipe.perCraft or 0
+                used = used + (recipe.ready or 0) * perCraft
+                left = left - (recipe.ready or 0) * perCraft
+            end
+            whole = used
+            -- What's left, in whole crafts of the recipes in list order.
+            for _, recipe in ipairs(MaterialRecipes(item)) do
+                local perCraft = recipe.perCraft or 0
+                if perCraft > 0 and left >= perCraft then
+                    local crafts = math.floor(left / perCraft)
+                    whole = whole + crafts * perCraft
+                    left = left - crafts * perCraft
+                end
             end
         end
         local have = math.min(count, item.goal)
         used = math.min(used, have)
-        local pieces = { { 0, used, READY_FILL }, { used, have, BLOCKED_FILL } }
+        whole = math.max(used, math.min(whole, have))
+        local pieces = { { 0, used, READY_FILL }, { used, whole, BLOCKED_FILL } }
         local index = 0
         for _, piece in ipairs(pieces) do
             if piece[2] > piece[1] then
