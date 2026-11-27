@@ -2378,8 +2378,16 @@ end
 
 -- The ingredient needed most (Heavy Leather for Hillman's Cloak, not its
 -- thread or hide); the first one listed wins a tie.
+-- The ingredient a recipe is mostly about: the one it takes most of, not
+-- counting vendor-bought ones (vials, thread) unless that's all there is.
 function MainReagentIndex(reagents)
-    local best = 1
+    local best
+    for index, reagent in ipairs(reagents) do
+        local vendor = IsVendorMaterial and IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID })
+        if not vendor and (not best or reagent.need > reagents[best].need) then best = index end
+    end
+    if best then return best end
+    best = 1
     for index, reagent in ipairs(reagents) do
         if reagent.need > reagents[best].need then best = index end
     end
@@ -5012,12 +5020,22 @@ function IsVendorMaterial(item)
     return false
 end
 
--- An ingredient bar hidden for being vendor-bought.
+-- An ingredient bar hidden for being vendor-bought. Shown after all when
+-- it's all a recipe has left in the "each ingredient" layout, so the
+-- recipe doesn't vanish (material and recipe bars read the whole recipe).
 function HidesVendorMaterial(item)
     if settings.showVendorMats or not item.recipeID or item.container or item.virtual or item.altNeed then
         return false
     end
-    return not IsOutputBar(item) and IsVendorMaterial(item)
+    if IsOutputBar(item) or not IsVendorMaterial(item) then return false end
+    if MaterialMode(GetGroup(item)) ~= "ingredient" then return true end
+    for _, other in pairs(trackedItems) do
+        if other ~= item and other.recipeID == item.recipeID and not other.virtual and not other.altNeed
+            and not other.container and not IsOutputBar(other) and not IsVendorMaterial(other) then
+            return true
+        end
+    end
+    return false
 end
 
 -- A recipe bar's materials: units you have (each ingredient counted up to
