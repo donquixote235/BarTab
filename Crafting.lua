@@ -1943,7 +1943,7 @@ end
 -- From a click: true if it started (or asked about) a chain.
 function TryChainCraft(item, chosen, forced)
     if not (item and item.recipeID) or item.container or item.notLearned then return false end
-    if chainJob then
+    if ChainActive() then
         chainJob = nil
         Print("Stopped making materials first; a craft in progress still finishes.")
         return true
@@ -1997,6 +1997,18 @@ function StartChain(plan)
     RunChainStep()
 end
 
+-- Whether a chain is really still going: crafting, or between steps. One
+-- that ended without BarTab noticing (a stop rule, an interrupted cast)
+-- doesn't count, so the next click starts afresh instead of "stopping" it.
+function ChainActive()
+    local job = chainJob
+    if not job then return false end
+    if craftJob or crafting or CastingNow() then return true end
+    if job.started and GetTime() - job.started < 3 then return true end
+    chainJob = nil
+    return false
+end
+
 -- One step at a time: craft it, wait until the batch is over, then the next.
 function RunChainStep()
     local job = chainJob
@@ -2025,11 +2037,20 @@ end
 function WaitChainStep()
     local job = chainJob
     if not job then return end
-    -- Still loading the profession, crafting, or casting.
-    if craftJob or crafting or CastingNow() or IsRepeatingCraft() then
+    -- Still loading the profession, crafting, or casting. (The game can say
+    -- it's still repeating a batch a stop rule ended; not for long.)
+    local busy = craftJob or crafting or CastingNow()
+    if not busy and IsRepeatingCraft() then
+        job.repeatWaits = (job.repeatWaits or 0) + 1
+        busy = job.repeatWaits <= 6
+    end
+    if busy then
+        if craftJob or crafting or CastingNow() then job.repeatWaits = nil end
         C_Timer.After(0.5, WaitChainStep)
         return
     end
+    job.repeatWaits = nil
+    job.started = GetTime()
     -- A moment for the bags to catch up, then the next step.
     C_Timer.After(0.6, function() Safe("chain", RunChainStep)() end)
 end
@@ -5112,7 +5133,7 @@ end
 -- Click: pick a recipe. Shift-click: all that's ready of the first recipe
 -- that's ready. Alt-click: everything that's ready, one recipe after another.
 function HandleMaterialBarClick(item)
-    if chainJob then
+    if ChainActive() then
         chainJob = nil
         Print("Stopped crafting; a craft in progress still finishes.")
         return
