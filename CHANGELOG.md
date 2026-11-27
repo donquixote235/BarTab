@@ -2,27 +2,18 @@
 
 ## 1.60.1.12
 
-- Material and recipe bars color like ingredient bars: blue for what crafts you can make now would use, orange for whole crafts' worth waiting on another ingredient, and the plain fill for part of a craft (1 of the 2 Frilled Lichen a Cerulean Dye takes).
-
-- Making materials first says what will still be missing afterward ("Making 2 Copper Bar now, toward 1 Copper Mace (still missing 1 Weak Flux)") instead of "not enough for all of it yet", and that clicking the bar again stops it.
-
-- Fixed: making materials in another profession first (smelting Copper Bar for a Copper Mace) could do nothing: the game ignored the craft right after BarTab switched professions behind the scenes. Hovering such a bar now gets the profession of the first material ready (Mining, not Blacksmithing), and if the game still ignores a craft, BarTab says so and the next click carries on from there.
-
-- Fixed: "Mail all I have of each" gave all the extra to the first character who needed an item; it's now shared out evenly between everyone getting it.
-
-- Your other characters' needs (mailing, "For your other characters" bars) and what you keep for yourself count every ingredient of a tracked recipe, not just the ones with bars: the Linen Cloth a Copper Mace takes when only its Copper Bar is tracked. Vendor-bought ingredients are left out.
-
-- Fixed: with "Send letters in one press", the craft key typed into the letter's name box instead of sending the next letter. BarTab now takes the cursor out of the letter once it's filled in.
-
-- Fixed: mailing part of a stack sent the whole stack (all 5 Linen Cloth instead of 2). BarTab now splits it into an empty slot of a regular bag first (it needs one free), and sends a stack whole when it's no bigger than what's needed.
-- Mailing uses one attachment per item where it can, since postage is per attachment: it splits what's needed from a bigger stack, or merges small stacks first, instead of sending a stack of 2 and a stack of 1.
-- Mailing checks each attachment: if a whole stack went in instead of the part BarTab split off (5 Linen Cloth instead of 2), it takes it back out and tries again, or asks you to split it yourself.
-
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.
-
+- Your other characters' needs (mailing, "For your other characters" bars) and what you keep for yourself count every ingredient of a tracked recipe, not just the ones with bars: the Linen Cloth a Copper Mace takes when only its Copper Bar is tracked. Vendor-bought ingredients are left out.
+- Making materials first says what will still be missing afterward ("Making 1 Copper Bar now, toward 1 Copper Mace (still missing 2 Linen Cloth)") instead of "not enough for all of it yet", and that clicking the bar again stops it.
+- Material and recipe bars color like ingredient bars: blue for what crafts you can make now would use, orange for whole crafts' worth waiting on another ingredient, and the plain fill for part of a craft (1 of the 2 Frilled Lichen a Cerulean Dye takes).
+- Mailing uses one attachment per item where it can, since postage is per attachment: it splits what's needed from a bigger stack, or merges small stacks first, instead of sending a stack of 2 and a stack of 1.
+- Mailing checks each attachment: if a whole stack went in instead of the part BarTab split off, it takes it back out and tries again, or asks you to split it yourself.
+- Fixed: making materials in another profession first (smelting Copper Bar for a Copper Mace) could do nothing: the game ignored the craft right after BarTab switched professions behind the scenes. Hovering such a bar now gets the profession of the first material ready (Mining, not Blacksmithing), and if the game still ignores a craft, BarTab says so and the next click carries on from there.
+- Fixed: with a profession window open, making a material in another profession (smelting Copper Bar with Blacksmithing showing) went on to the next step and said its materials weren't there. It now says "Can't make Copper Bar while the Blacksmithing window is open: close it (BarTab opens Mining by itself), then click again." and stops.
+- Fixed: mailing part of a stack sent the whole stack (all 5 Linen Cloth instead of 2). BarTab now splits it into an empty slot of a regular bag first (it needs one free).
+- Fixed: "Mail all I have of each" gave all the extra to the first character who needed an item; it's now shared out evenly between everyone getting it.
+- Fixed: with "Send letters in one press", the craft key typed into the letter's name box instead of sending the next letter.
 - Fixed: tracking a recipe could take over a "For your other characters" bar for the same material (Copper Chain Boots turned "Copper Bar for Vespera" into its own bar, 0 / 64).
-
-- Making materials in another profession with a profession window open (smelting Copper Bar with Blacksmithing showing) now says so and stops: "Can't make Copper Bar while the Blacksmithing window is open: close it (BarTab opens Mining by itself), then click again." Before, it went on to the next step and said its materials weren't there.
 
 ## 1.60.1.11
 

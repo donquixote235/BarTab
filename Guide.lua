@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.11: bar layouts") .. "\n\n"
+        text = H("New in 1.60.1.12: whole recipes") .. "\n\n"
+            .. B .. "Right-click a recipe bar for \"Also track its other ingredients\".\n"
+            .. B .. "Your other characters' needs count every ingredient of their tracked recipes, bars or not.\n"
+            .. B .. "Making materials first says what's still missing; mail sends one stack per item where it can.\n\n"
+            .. H("New in 1.60.1.11: bar layouts") .. "\n\n"
             .. B .. "Right-click a profession's heading to show its recipes as one bar per ingredient, per material (" .. C("Peacebloom 2 / 3") .. ") or per recipe (" .. C("Minor Mana Potion: 1 / 3 materials") .. "). Alt-click a material bar to craft everything that's ready.\n"
             .. B .. "Vendor-bought ingredients (vials, thread) are left off recipe bars; BarTab still buys them for you.\n"
             .. B .. "\"Send letters in one press\" (Shopping settings): Mail sends the first letter, your craft key each one after. \"Mail all I have of each\" sends everything spare.\n\n"
