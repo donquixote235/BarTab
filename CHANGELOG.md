@@ -9,6 +9,8 @@
 - Letters to your other characters have a subject but no body text, so once you've taken the items they disappear on their own instead of having to be deleted.
 - When a recipe can't be crafted, clicking its bar says what's missing ("Can't craft Minor Mana Potion: missing Empty Vial (0 / 1, sold by vendors).") instead of "Nothing to craft within this bar", and a recipe bar's tooltip says the same.
 - Fixed: after a stop rule ended a craft partway through Alt-click "craft everything ready" (or making materials first), the next click said "Stopped crafting" instead of starting again. BarTab now notices the crafting has already ended.
+- Material bars count every ingredient of your tracked recipes, including ones without a bar of their own, so a herb two recipes share always gets its bar (and Alt-click on it crafts both).
+- A profession heading's "Untrack all" and "Move all to Inactive" include the bars hidden behind material and recipe bars and the hidden vendor-bought ones.
 - Ctrl-clicking a recipe bar's name opens its recipe in the profession window, as on any recipe bar (a material bar opens its first recipe).
 - Fixed: an error at profession trainers ("Missing on/off parameter"), which kept BarTab from noting recipes you can't learn yet.
 - Fixed: mailing your other characters skipped anything in your reagent bag (herbs, leather), so a letter could go without it, or a later letter come up empty. All your bags are used now, everything for one character goes in one letter, and BarTab says if it couldn't find something to attach.

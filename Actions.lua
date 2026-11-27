@@ -536,6 +536,17 @@ function GetGroupKeys(section, group)
             end
         end
     end
+    -- Bars hidden behind material or recipe bars, or for being vendor-bought
+    -- (vials), belong to the group too.
+    for _, key in ipairs(GetSortedKeys()) do
+        local item = trackedItems[key]
+        if not seen[key] and not item.virtual and not item.altNeed and GetSection(item) == section
+            and (not group or GetGroup(item) == group)
+            and (IsMaterialModeBar(item) or HidesVendorMaterial(item)) then
+            seen[key] = true
+            keys[#keys + 1] = key
+        end
+    end
     return keys
 end
 

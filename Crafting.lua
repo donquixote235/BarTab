@@ -5080,7 +5080,7 @@ function RecipeBarCounts(item)
 end
 
 function SyncMaterialBars()
-    local wanted = {}
+    local wanted, recipesSeen = {}, {}
     for key, item in pairs(trackedItems) do
         if IsMaterialModeBar(item) and MaterialMode(GetGroup(item)) == "recipe" then
             local recKey = "rec:" .. item.recipeID
@@ -5092,18 +5092,53 @@ function SyncMaterialBars()
             end
             entry.recipes[#entry.recipes + 1] = key
             if (item.order or 0) < entry.order then entry.order = item.order or 0 end
-        elseif IsMaterialModeBar(item) and not HidesVendorMaterial(item) then
-            local group = GetGroup(item)
-            local id = ItemIDFor(item)
-            local matKey = "mat:" .. group .. ":" .. tostring(id or string.lower(item.name))
-            local entry = wanted[matKey]
-            if not entry then
-                entry = { profession = group, name = item.name, itemID = id, goal = 0, recipes = {}, order = item.order or 0 }
-                wanted[matKey] = entry
+        elseif IsMaterialModeBar(item) then
+            -- Material bars: gathered per recipe first (below), so every
+            -- ingredient a recipe takes gets counted, tracked as a bar or not.
+            local recipe = recipesSeen[item.recipeID]
+            if not recipe then
+                recipe = { recipeID = item.recipeID, group = GetGroup(item), keys = {}, planned = 1 }
+                recipesSeen[item.recipeID] = recipe
             end
-            entry.goal = entry.goal + (item.goal or 0)
-            entry.recipes[#entry.recipes + 1] = key
-            if (item.order or 0) < entry.order then entry.order = item.order or 0 end
+            recipe.keys[#recipe.keys + 1] = key
+            local perCraft = GetReagentQuantity(item.recipeID, item.name)
+            if perCraft and perCraft > 0 then
+                recipe.planned = math.max(recipe.planned, math.ceil((item.goal or 0) / perCraft))
+            end
+        end
+    end
+    local function AddMaterial(group, id, name, goal, key, order)
+        local matKey = "mat:" .. group .. ":" .. tostring(id or string.lower(name))
+        local entry = wanted[matKey]
+        if not entry then
+            entry = { profession = group, name = name, itemID = id, goal = 0, recipes = {}, order = order }
+            wanted[matKey] = entry
+        end
+        entry.goal = entry.goal + goal
+        entry.recipes[#entry.recipes + 1] = key
+        if order < entry.order then entry.order = order end
+    end
+    for _, recipe in pairs(recipesSeen) do
+        table.sort(recipe.keys, function(a, b)
+            return (trackedItems[a].order or 0) < (trackedItems[b].order or 0)
+        end)
+        local first = recipe.keys[1]
+        local order = trackedItems[first].order or 0
+        local reagents = GetRecipeReagents(recipe.recipeID)
+        if reagents and #reagents > 0 then
+            for _, reagent in ipairs(reagents) do
+                if settings.showVendorMats or not IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID }) then
+                    AddMaterial(recipe.group, reagent.itemID, reagent.name, reagent.need * recipe.planned, first, order)
+                end
+            end
+        else
+            -- The recipe can't be read yet: its bars, as tracked.
+            for _, key in ipairs(recipe.keys) do
+                local bar = trackedItems[key]
+                if not HidesVendorMaterial(bar) then
+                    AddMaterial(recipe.group, ItemIDFor(bar), bar.name, bar.goal or 0, key, bar.order or 0)
+                end
+            end
         end
     end
     for key, item in pairs(trackedItems) do
