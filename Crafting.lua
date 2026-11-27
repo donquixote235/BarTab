@@ -1896,9 +1896,10 @@ function PartialChainPlan(item, chosen)
     target = math.min(target, CHAIN_MOST)
     local reagents = GetRecipeReagents(item.recipeID)
     if not reagents then return nil end
-    local steps = {}
+    local steps, missing = {}, {}
     for _, reagent in ipairs(reagents) do
         local short = reagent.need * target - reagent.have
+        local made = 0
         local producer = short > 0 and ProducerFor(reagent.itemID, reagent.name)
         local allowed = producer and (settings.chainOtherProfessions or not (item.profession and producer.profession)
             or string.lower(item.profession) == string.lower(producer.profession))
@@ -1918,15 +1919,18 @@ function PartialChainPlan(item, chosen)
                 if sub then low, best = mid, sub else high = mid - 1 end
             end
             if low > 0 then
+                made = low * qty
                 for _, step in ipairs(best) do steps[#steps + 1] = step end
                 steps[#steps + 1] = { recipeID = producer.recipeID, crafts = low, qty = qty,
                     name = producer.name or reagent.name, profession = producer.profession,
                     skillLineID = producer.skillLineID }
             end
         end
+        -- What still holds the recipe up after this: "1 Weak Flux".
+        if short > made then missing[#missing + 1] = (short - made) .. " " .. reagent.name end
     end
     if #steps == 0 then return nil end
-    return { crafts = target, steps = steps, item = item, prepOnly = true, partial = true }
+    return { crafts = target, steps = steps, item = item, prepOnly = true, partial = true, missing = missing }
 end
 
 function ChainText(plan)
@@ -1936,8 +1940,9 @@ function ChainText(plan)
     end
     local recipeName = GetRecipeName(plan.item.recipeID) or DisplayName(plan.item)
     if plan.partial then
-        return ("%s now, toward %d %s (not enough for all of it yet)"):format(JoinNames(parts, 6),
-            plan.crafts, recipeName)
+        local still = plan.missing and #plan.missing > 0
+            and ("still missing " .. JoinNames(plan.missing, 4)) or "not enough for all of it yet"
+        return ("%s now, toward %d %s (%s)"):format(JoinNames(parts, 6), plan.crafts, recipeName, still)
     end
     if plan.prepOnly then
         local buy = {}
@@ -2001,7 +2006,8 @@ function StartChain(plan)
     end
     chainJob = { steps = steps, index = 0 }
     Print("Making " .. ChainText(plan)
-        .. ((plan.prepOnly and not plan.partial) and " (BarTab offers it when you visit one)." or "."))
+        .. ((plan.prepOnly and not plan.partial) and " (BarTab offers it when you visit one)." or ".")
+        .. " Click the bar again to stop.")
     RunChainStep()
 end
 

@@ -4,6 +4,8 @@
 
 - Material and recipe bars color like ingredient bars: blue for what crafts you can make now would use, orange for whole crafts' worth waiting on another ingredient, and the plain fill for part of a craft (1 of the 2 Frilled Lichen a Cerulean Dye takes).
 
+- Making materials first says what will still be missing afterward ("Making 2 Copper Bar now, toward 1 Copper Mace (still missing 1 Weak Flux)") instead of "not enough for all of it yet", and that clicking the bar again stops it.
+
 ## 1.60.1.11
 
 - One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules, countdowns and the craft-next key (`/bartab craft`) work as before.
