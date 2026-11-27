@@ -206,7 +206,8 @@ function CraftNow(item, amount)
     -- and asking again outside a click is blocked. No cast after a moment:
     -- say so, and let the next click pick up where this left off.
     local started = crafting
-    C_Timer.After(1.5, function()
+    -- (Allows for the global cooldown after a craft that just finished.)
+    C_Timer.After(3, function()
         if crafting ~= started or started.cast or CastingNow() then return end
         CraftLog("no cast; waiting for another click")
         crafting = nil
@@ -5631,6 +5632,11 @@ function HandleMaterialBarClick(item)
     local list = MaterialRecipes(item)
     if #list == 0 then return end
     local modifier = CurrentModifier()
+    -- Only one recipe uses it: no menu, the click crafts it as its own bar would.
+    if #list == 1 then
+        CraftItem(list[1].key)
+        return
+    end
     if modifier == "click" then
         local entries = {}
         for _, recipe in ipairs(list) do

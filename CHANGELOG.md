@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.60.1.14
+
+- A material bar used by only one recipe crafts it when clicked (Shift- and Alt-click too), as that recipe's own bar would, instead of showing a menu with one entry.
+- Fixed: "The game didn't start crafting..." could show for a craft that did start, a moment late after another craft finished.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
