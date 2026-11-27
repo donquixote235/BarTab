@@ -75,8 +75,9 @@ function AssignMaterial(name, recipeID, startCount, goal)
     item = trackedItems[key]
     if not item then
         for otherKey, other in pairs(trackedItems) do
-            -- Only a plain material bar; never a crate bar.
-            if not other.container and not other.recipeID
+            -- Only a plain material bar of your own; never a crate bar, or a
+            -- bar for another character ("Copper Bar for Vespera").
+            if not other.container and not other.recipeID and not other.altNeed and not other.virtual
                 and string.lower(other.name) == string.lower(name) then
                 key, item = otherKey, other
                 break
