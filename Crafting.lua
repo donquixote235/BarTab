@@ -5003,30 +5003,23 @@ function IsVendorMaterial(item)
     return false
 end
 
--- An ingredient bar hidden for being vendor-bought (unless its recipe has
--- nothing else to show).
+-- An ingredient bar hidden for being vendor-bought.
 function HidesVendorMaterial(item)
     if settings.showVendorMats or not item.recipeID or item.container or item.virtual or item.altNeed then
         return false
     end
-    if IsOutputBar(item) or not IsVendorMaterial(item) then return false end
-    for _, other in pairs(trackedItems) do
-        if other ~= item and other.recipeID == item.recipeID and not other.virtual and not other.altNeed
-            and not other.container and not IsOutputBar(other) and not IsVendorMaterial(other) then
-            return true
-        end
-    end
-    return false
+    return not IsOutputBar(item) and IsVendorMaterial(item)
 end
 
 -- A recipe bar's materials: units you have (each ingredient counted up to
 -- what it needs, so 1 of 1 Peacebloom and 0 of 2 Earthroot fills a third),
 -- units needed, crafts your materials cover, and crafts planned.
-function RecipeBarCounts(item)
+function RecipeBarCounts(item, withVendor)
     local units, needed, have, planned = 0, 0, nil, nil
     for _, key in ipairs(item.recipes or {}) do
         local bar = trackedItems[key]
-        local perCraft = bar and not HidesVendorMaterial(bar) and GetReagentQuantity(bar.recipeID, bar.name)
+        local perCraft = bar and (withVendor or not HidesVendorMaterial(bar))
+            and GetReagentQuantity(bar.recipeID, bar.name)
         if perCraft and perCraft > 0 then
             local count, goal = CountItem(bar), bar.goal or 0
             units = units + math.min(count, goal)
@@ -5037,6 +5030,8 @@ function RecipeBarCounts(item)
             if not planned or size > planned then planned = size end
         end
     end
+    -- Only vendor-bought ingredients left on it: count those after all.
+    if needed == 0 and not withVendor then return RecipeBarCounts(item, true) end
     return units, math.max(1, needed), have or 0, math.max(1, planned or 1)
 end
 
