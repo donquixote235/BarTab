@@ -5291,6 +5291,51 @@ end
 -- A recipe bar's rows: every ingredient the recipe takes (tracked as a bar
 -- or not, so 0 / 2 Mageroyal counts even after its bar is gone), sized for
 -- the crafts its bars plan: { name, count, goal, perCraft, vendor }, crafts.
+-- What each tracked recipe can count of each of its ingredients, shared out
+-- in list order like ingredient bars: one Rough Grinding Stone in your bags
+-- counts for the first recipe that takes it, not for both.
+-- { [recipeID] = { [lower-case name] = count } }, worked out once a frame.
+function RecipeClaims()
+    local now = GetTime()
+    if recipeClaims and recipeClaims.time == now then return recipeClaims.claims end
+    local recipes, order = {}, {}
+    for _, item in pairs(trackedItems) do
+        if item.recipeID and not item.container and not item.virtual and not item.altNeed
+            and not item.inactive and not IsOutputBar(item) then
+            local recipe = recipes[item.recipeID]
+            if not recipe then
+                recipe = { recipeID = item.recipeID, order = item.order or 0, planned = 1, bars = {} }
+                recipes[item.recipeID] = recipe
+                order[#order + 1] = recipe
+            end
+            recipe.bars[string.lower(item.name)] = item
+            if (item.order or 0) < recipe.order then recipe.order = item.order or 0 end
+            local perCraft = GetReagentQuantity(item.recipeID, item.name)
+            if perCraft and perCraft > 0 then
+                recipe.planned = math.max(recipe.planned, math.ceil((item.goal or 0) / perCraft))
+            end
+        end
+    end
+    table.sort(order, function(a, b) return a.order < b.order end)
+    local claims, left = {}, {}
+    for _, recipe in ipairs(order) do
+        local mine = {}
+        claims[recipe.recipeID] = mine
+        for _, reagent in ipairs(GetRecipeReagents(recipe.recipeID) or {}) do
+            local name = string.lower(reagent.name)
+            local bar = recipe.bars[name]
+            local id = reagent.itemID or name
+            if left[id] == nil then left[id] = bar and CountItem(bar) or reagent.have end
+            local wanted = bar and (bar.goal or 0) or reagent.need * recipe.planned
+            local count = math.max(0, math.min(left[id], wanted))
+            mine[name] = count
+            left[id] = left[id] - count
+        end
+    end
+    recipeClaims = { time = now, claims = claims }
+    return claims
+end
+
 function RecipeBarRows(item)
     local tracked, planned = {}, 1
     for _, key in ipairs(item.recipes or {}) do
@@ -5305,12 +5350,15 @@ function RecipeBarRows(item)
     end
     local rows = {}
     local reagents = GetRecipeReagents(item.forRecipe)
+    local claimed = RecipeClaims()[item.forRecipe] or {}
     if reagents then
         for _, reagent in ipairs(reagents) do
             local bar = tracked[string.lower(reagent.name)]
             local vendor = not settings.showVendorMats
                 and IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID })
-            rows[#rows + 1] = { name = reagent.name, count = bar and CountItem(bar) or reagent.have,
+            local count = claimed[string.lower(reagent.name)]
+            if count == nil then count = bar and CountItem(bar) or reagent.have end
+            rows[#rows + 1] = { name = reagent.name, count = count,
                 goal = reagent.need * planned, perCraft = reagent.need, vendor = vendor }
         end
     else
