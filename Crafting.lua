@@ -4279,7 +4279,13 @@ end
 vendorWatcher = CreateFrame("Frame")
 pcall(vendorWatcher.RegisterEvent, vendorWatcher, "MERCHANT_SHOW")
 pcall(vendorWatcher.RegisterEvent, vendorWatcher, "MERCHANT_CLOSED")
+pcall(vendorWatcher.RegisterEvent, vendorWatcher, "MERCHANT_UPDATE")
 vendorWatcher:SetScript("OnEvent", function(_, event)
+    if event == "MERCHANT_UPDATE" then
+        -- Item details that arrived late (the list fills in as they load).
+        pcall(RecordVendorPrices)
+        return
+    end
     if event == "MERCHANT_CLOSED" then
         if StaticPopup_Hide then StaticPopup_Hide("BARTAB_VENDOR_BUY") end
         return
@@ -5421,13 +5427,20 @@ end)
 function RecordVendorPrices()
     if not GetMerchantNumItems then return end
     settings.vendorPrices = settings.vendorPrices or {}
+    local newItems = false
     for index = 1, GetMerchantNumItems() do
         local _, price, quantity, numAvailable, goldOnly = GetMerchantSlot(index)
         local itemID = GetMerchantSlotID(index)
         -- Unlimited stock only: limited items aren't a steady source.
         if itemID and goldOnly and price and price > 0 and numAvailable == -1 then
+            if not settings.vendorPrices[itemID] then newItems = true end
             settings.vendorPrices[itemID] = price / math.max(1, quantity or 1)
         end
+    end
+    -- Newly seen vendor items drop off recipe bars straight away.
+    if newItems and not settings.showVendorMats then
+        UpdateBars()
+        Safe("vendor items", RefreshTracker)(true)
     end
 end
 
