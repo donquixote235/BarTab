@@ -15,6 +15,7 @@
 - Fixed: with "Send letters in one press", the craft key typed into the letter's name box instead of sending the next letter. BarTab now takes the cursor out of the letter once it's filled in.
 
 - Fixed: mailing part of a stack sent the whole stack (all 5 Linen Cloth instead of 2). BarTab now splits it into an empty slot of a regular bag first (it needs one free), and sends a stack whole when it's no bigger than what's needed.
+- Mailing uses one attachment per item where it can, since postage is per attachment: it splits what's needed from a bigger stack, or merges small stacks first, instead of sending a stack of 2 and a stack of 1.
 - Mailing checks each attachment: if a whole stack went in instead of the part BarTab split off (5 Linen Cloth instead of 2), it takes it back out and tries again, or asks you to split it yourself.
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.

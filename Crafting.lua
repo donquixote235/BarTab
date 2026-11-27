@@ -4896,32 +4896,56 @@ function MailStep()
         -- A stack of it in your bags that isn't mid-move.
         -- Every bag you carry, the reagent bag included (herbs and leather
         -- often sit there).
-        -- A stack no bigger than what's left to send goes in whole (the
-        -- biggest such); otherwise the first stack, split.
+        -- One attachment per item where possible (postage is per item):
+        -- a stack of exactly what's left goes in whole; else the smallest
+        -- bigger stack is split; else stacks are merged first; else the
+        -- biggest goes in whole and the rest follows.
         local fromBag, fromSlot, stack, busy
-        local wholeBag, wholeSlot, wholeStack
+        local exact, bigger, largest, stacks = nil, nil, nil, {}
         for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
             for slot = 1, ContainerSlots(bag) do
                 local itemID, count, locked = ContainerItem(bag, slot)
                 if itemID == send.itemID then
                     if locked then busy = true
                     else
-                        if not fromBag then fromBag, fromSlot, stack = bag, slot, count end
-                        if count <= send.left and (not wholeStack or count > wholeStack) then
-                            wholeBag, wholeSlot, wholeStack = bag, slot, count
-                        end
+                        local entry = { bag = bag, slot = slot, count = count }
+                        stacks[#stacks + 1] = entry
+                        if count == send.left and not exact then exact = entry end
+                        if count > send.left and (not bigger or count < bigger.count) then bigger = entry end
+                        if not largest or count > largest.count then largest = entry end
                     end
                 end
             end
         end
-        if wholeBag then fromBag, fromSlot, stack = wholeBag, wholeSlot, wholeStack end
         -- Just split some off into another slot: wait for it to land.
-        if job.staged and not wholeBag and busy and (job.stageWaits or 0) < 10 then
+        if job.staged and not exact and busy and (job.stageWaits or 0) < 10 then
             job.stageWaits = (job.stageWaits or 0) + 1
             job.sync = nil
             C_Timer.After(0.3, MailStep)
             return
         end
+        if not exact and not bigger and #stacks >= 2 and not busy and (job.merges or 0) < 6 then
+            local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+            local maxStack = getInfo and select(8, getInfo(send.itemID)) or 1
+            if (tonumber(maxStack) or 1) > largest.count then
+                local other
+                for _, entry in ipairs(stacks) do
+                    if entry ~= largest and (not other or entry.count < other.count) then other = entry end
+                end
+                CraftLog(("mail: merging %d %s (bag %d slot %d) onto %d (bag %d slot %d)"):format(other.count,
+                    tostring(send.name), other.bag, other.slot, largest.count, largest.bag, largest.slot))
+                local pickupItem = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
+                pickupItem(other.bag, other.slot)
+                pickupItem(largest.bag, largest.slot)
+                if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+                job.merges = (job.merges or 0) + 1
+                job.sync = nil
+                C_Timer.After(0.4, MailStep)
+                return
+            end
+        end
+        local pick = exact or bigger or largest
+        if pick then fromBag, fromSlot, stack = pick.bag, pick.slot, pick.count end
         job.stageWaits = nil
         if not fromBag then
             if busy and job.waits < 20 then
