@@ -5021,25 +5021,62 @@ end
 -- A recipe bar's materials: units you have (each ingredient counted up to
 -- what it needs, so 1 of 1 Peacebloom and 0 of 2 Earthroot fills a third),
 -- units needed, crafts your materials cover, and crafts planned.
-function RecipeBarCounts(item, withVendor)
-    local units, needed, have, planned = 0, 0, nil, nil
+-- A recipe bar's rows: every ingredient the recipe takes (tracked as a bar
+-- or not, so 0 / 2 Mageroyal counts even after its bar is gone), sized for
+-- the crafts its bars plan: { name, count, goal, perCraft, vendor }, crafts.
+function RecipeBarRows(item)
+    local tracked, planned = {}, 1
     for _, key in ipairs(item.recipes or {}) do
         local bar = trackedItems[key]
-        local perCraft = bar and (withVendor or not HidesVendorMaterial(bar))
-            and GetReagentQuantity(bar.recipeID, bar.name)
-        if perCraft and perCraft > 0 then
-            local count, goal = CountItem(bar), bar.goal or 0
-            units = units + math.min(count, goal)
-            needed = needed + goal
-            local covers = math.floor(count / perCraft)
-            if not have or covers < have then have = covers end
-            local size = math.ceil(goal / perCraft)
-            if not planned or size > planned then planned = size end
+        if bar then
+            tracked[string.lower(bar.name)] = bar
+            local perCraft = GetReagentQuantity(bar.recipeID, bar.name)
+            if perCraft and perCraft > 0 then
+                planned = math.max(planned, math.ceil((bar.goal or 0) / perCraft))
+            end
         end
     end
-    -- Only vendor-bought ingredients left on it: count those after all.
-    if needed == 0 and not withVendor then return RecipeBarCounts(item, true) end
-    return units, math.max(1, needed), have or 0, math.max(1, planned or 1)
+    local rows = {}
+    local reagents = GetRecipeReagents(item.forRecipe)
+    if reagents then
+        for _, reagent in ipairs(reagents) do
+            local bar = tracked[string.lower(reagent.name)]
+            local vendor = not settings.showVendorMats
+                and IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID })
+            rows[#rows + 1] = { name = reagent.name, count = bar and CountItem(bar) or reagent.have,
+                goal = reagent.need * planned, perCraft = reagent.need, vendor = vendor }
+        end
+    else
+        -- The recipe can't be read yet: its bars, as tracked.
+        for _, bar in pairs(tracked) do
+            local perCraft = GetReagentQuantity(bar.recipeID, bar.name) or 1
+            rows[#rows + 1] = { name = bar.name, count = CountItem(bar), goal = bar.goal or 0,
+                perCraft = perCraft, vendor = HidesVendorMaterial(bar) }
+        end
+    end
+    return rows, planned
+end
+
+-- A recipe bar's materials: units you have (each ingredient counted up to
+-- what it needs, so 1 of 1 Peacebloom and 0 of 2 Earthroot fills a third),
+-- units needed, crafts your materials cover, and crafts planned. Vendor-bought
+-- ingredients aren't counted, unless they're all there is.
+function RecipeBarCounts(item)
+    local rows, planned = RecipeBarRows(item)
+    local counted = false
+    for _, row in ipairs(rows) do
+        if not row.vendor then counted = true end
+    end
+    local units, needed, have = 0, 0, nil
+    for _, row in ipairs(rows) do
+        if not row.vendor or not counted then
+            units = units + math.min(row.count, row.goal)
+            needed = needed + row.goal
+            local covers = math.floor(row.count / math.max(1, row.perCraft))
+            if not have or covers < have then have = covers end
+        end
+    end
+    return units, math.max(1, needed), have or 0, planned
 end
 
 function SyncMaterialBars()
@@ -5107,14 +5144,12 @@ function AddRecipeBarTooltip(item)
     GameTooltip:AddLine(("You have %d of %d materials; enough for %d of %d planned %s."):format(units, needed,
         have, planned, planned == 1 and "craft" or "crafts"), 1, 1, 1, true)
     local bought = {}
-    for _, key in ipairs(item.recipes or {}) do
-        local bar = trackedItems[key]
-        if bar and HidesVendorMaterial(bar) then
-            bought[#bought + 1] = bar.name
-        elseif bar then
-            local count = CountItem(bar)
-            local done = count >= bar.goal
-            GameTooltip:AddDoubleLine(bar.name, ("%d / %d"):format(count, bar.goal), 0.9, 0.9, 0.9,
+    for _, row in ipairs((RecipeBarRows(item))) do
+        if row.vendor then
+            bought[#bought + 1] = ("%s (%d / %d)"):format(row.name, row.count, row.goal)
+        else
+            local done = row.count >= row.goal
+            GameTooltip:AddDoubleLine(row.name, ("%d / %d"):format(row.count, row.goal), 0.9, 0.9, 0.9,
                 done and 0.3 or 1, done and 1 or 0.5, done and 0.3 or 0.25)
         end
     end
