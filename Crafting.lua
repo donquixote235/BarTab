@@ -3224,6 +3224,14 @@ function ShowAppearancePrompt()
     local textHeight = frame.text:GetStringHeight() or 24
     local y = -36 - textHeight
     local main = MainReagentIndex(reagents)
+    -- A recipe tracked already keeps its choice; a new one starts with every
+    -- ingredient but the vendor-bought ones (vials, thread).
+    local anyTracked = false
+    if entry.kind == "track" then
+        for _, reagent in ipairs(reagents) do
+            if trackedItems[RecipeKey(reagent.name, entry.recipeID)] then anyTracked = true end
+        end
+    end
     for i, check in ipairs(frame.checks) do
         local reagent = reagents[i]
         if reagent then
@@ -3231,10 +3239,14 @@ function ShowAppearancePrompt()
             check:SetPoint("TOPLEFT", 16, y)
             check.reagent = reagent
             if entry.kind == "track" then
-                -- The main ingredient, plus any the recipe already tracks.
                 local tracked = trackedItems[RecipeKey(reagent.name, entry.recipeID)] ~= nil
                 check.tracked = tracked
-                check:SetChecked(i == main or tracked)
+                if anyTracked then
+                    check:SetChecked(tracked)
+                else
+                    local vendor = IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID })
+                    check:SetChecked(i == main or not vendor)
+                end
             else
                 check.tracked = nil
                 check:SetChecked(i == main or settings.appearanceBars == "all")
@@ -5235,7 +5247,7 @@ function MaterialMode(profession)
     local own = BarModeValue(settings.materialMode and settings.materialMode[string.lower(profession)])
     if own then return own end
     if settings.materialModeDefault == false then return "ingredient" end
-    return BarModeValue(settings.materialModeDefault) or "ingredient"
+    return BarModeValue(settings.materialModeDefault) or "recipe"
 end
 
 function SetMaterialMode(profession, mode)

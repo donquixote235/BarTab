@@ -15,6 +15,9 @@
 
 - Fixed: opening another profession's window stopped a batch BarTab was making (smelting) without BarTab noticing, so the next click on the bar said it stopped instead of carrying on. The stop message now reads "still finishing a craft in progress".
 
+- Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
+- Tracking a new recipe ticks all its ingredients except vendor-bought ones (vials, thread), instead of just the main one. Reopening a tracked recipe keeps the ingredients you chose.
+
 ## 1.60.1.12
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.
