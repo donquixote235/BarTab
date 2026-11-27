@@ -4697,13 +4697,22 @@ function FindMailSends(allSpare)
                 name = need.name, count = count }
         end
     end
+    -- All you have spare: the extra shared out evenly between everyone
+    -- getting that item (5 Linen Cloth for two who need 1 each: 3 and 2),
+    -- not all to the first.
     if allSpare then
+        local byItem = {}
         for _, send in ipairs(sends) do
-            local left = spare[send.itemID] or 0
-            if left > 0 then
-                send.count = send.count + left
-                spare[send.itemID] = 0
+            byItem[send.itemID] = byItem[send.itemID] or {}
+            table.insert(byItem[send.itemID], send)
+        end
+        for itemID, list in pairs(byItem) do
+            local left = spare[itemID] or 0
+            local each, extra = math.floor(left / #list), left % #list
+            for index, send in ipairs(list) do
+                send.count = send.count + each + (index <= extra and 1 or 0)
             end
+            spare[itemID] = 0
         end
     end
     table.sort(sends, function(a, b)
