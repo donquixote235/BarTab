@@ -4694,14 +4694,52 @@ function AltShortfalls()
             if mailed and snapshot.updated and mailed.time and snapshot.updated > mailed.time then
                 settings.mailed[key], mailed = nil, nil
             end
-            local needs, names = BarNeeds(characters[key])
-            for id, need in pairs(needs) do
-                local have = ((snapshot.bags or {})[id] or 0) + ((snapshot.bank or {})[id] or 0)
+            local function Has(id)
+                return ((snapshot.bags or {})[id] or 0) + ((snapshot.bank or {})[id] or 0)
                     + ((mailed and mailed.items[id]) or 0)
-                local short = need - have
+            end
+            local needs, names = BarNeeds(characters[key])
+            local direct, byID = {}, {}
+            for id, need in pairs(needs) do
+                local short = need - Has(id)
                 if short > 0 then
-                    list[#list + 1] = { to = CharacterName(key), character = key, itemID = id,
+                    local entry = { to = CharacterName(key), character = key, itemID = id,
                         name = names[id] or GetItemNameByID(id) or ("item " .. id), short = short }
+                    list[#list + 1] = entry
+                    direct[#direct + 1] = entry
+                    byID[id] = entry
+                end
+            end
+            -- What they could make it from with their own recipes, one step
+            -- down: Copper Ore for Ein, who's short of Copper Bar and can
+            -- smelt. (Sending the material itself counts against this.)
+            local producers = settings.producers and settings.producers[key]
+            for _, entry in ipairs(producers and direct or {}) do
+                local producer = producers[entry.itemID]
+                if producer and producer.recipeID then
+                    local qty = math.max(1, producer.qty or 1)
+                    local crafts = math.ceil(entry.short / qty)
+                    local okReagents, reagents = pcall(GetRecipeReagents, producer.recipeID)
+                    for _, reagent in ipairs((okReagents and reagents) or {}) do
+                        if reagent.itemID and reagent.itemID ~= entry.itemID
+                            and not IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID }) then
+                            local have = Has(reagent.itemID)
+                            local short = reagent.need * crafts - have
+                            if short > 0 then
+                                local existing = byID[reagent.itemID]
+                                if existing then
+                                    existing.short = existing.short + short
+                                else
+                                    local made = { to = CharacterName(key), character = key, itemID = reagent.itemID,
+                                        name = reagent.name, short = short,
+                                        via = { itemID = entry.itemID, name = entry.name, short = entry.short,
+                                            qty = qty, need = reagent.need, have = have } }
+                                    list[#list + 1] = made
+                                    byID[reagent.itemID] = made
+                                end
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -4721,11 +4759,21 @@ function FindMailSends(allSpare)
         local left = count - (myNeeds[id] or 0)
         if left > 0 then spare[id] = left end
     end
-    local sends = {}
+    local sends, sent = {}, {}   -- sent: character -> itemID -> count
     for _, need in ipairs(AltShortfalls()) do
-        if (spare[need.itemID] or 0) > 0 then
-            local count = math.min(need.short, spare[need.itemID])
+        local short = need.short
+        -- Ore for bars they can smelt: only for the bars you aren't sending.
+        if need.via then
+            local bars = (sent[need.character] or {})[need.via.itemID] or 0
+            local stillShort = need.via.short - bars
+            short = stillShort > 0
+                and math.min(short, math.ceil(stillShort / need.via.qty) * need.via.need - need.via.have) or 0
+        end
+        if short > 0 and (spare[need.itemID] or 0) > 0 then
+            local count = math.min(short, spare[need.itemID])
             spare[need.itemID] = spare[need.itemID] - count
+            sent[need.character] = sent[need.character] or {}
+            sent[need.character][need.itemID] = (sent[need.character][need.itemID] or 0) + count
             sends[#sends + 1] = { to = need.to, character = need.character, itemID = need.itemID,
                 name = need.name, count = count }
         end
@@ -5575,7 +5623,7 @@ function SyncAltNeedBars()
         if item.goal ~= need.short then changed = true end
         item.name, item.itemID, item.goal = need.name, need.itemID, need.short
         item.altName, item.altCharacter = need.to, need.character
-        item.label = need.name .. " for " .. need.to
+        item.label = need.name .. " for " .. need.to .. (need.via and (" (" .. need.via.name .. ")") or "")
         order = order + 1
         item.order = item.order and item.order >= 100000 and item.order or order
     end

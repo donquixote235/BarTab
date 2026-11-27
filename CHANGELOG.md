@@ -2,6 +2,8 @@
 
 ## 1.60.1.13
 
+- Your other characters' needs include what they could make it from with their own recipes, one step down: Ein short of Copper Bar, who can smelt, also needs Copper Ore, so Padoo is offered to mail the ore ("Copper Ore for Ein (Copper Bar)"). Bars you send count against it, so you never send both.
+
 ## 1.60.1.12
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.
