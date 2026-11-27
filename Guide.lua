@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.12: whole recipes") .. "\n\n"
+        text = H("New in 1.60.1.13: smarter sharing") .. "\n\n"
+            .. B .. "One bar per recipe is the default layout; tracking a new recipe ticks every ingredient but vials and thread.\n"
+            .. B .. "Your other characters' needs go one step down (Copper Ore for the Copper Bar they can smelt), and you keep what you'd smelt yourself.\n"
+            .. B .. "Recipe bars share what you carry in list order, like ingredient bars.\n\n"
+            .. H("New in 1.60.1.12: whole recipes") .. "\n\n"
             .. B .. "Right-click a recipe bar for \"Also track its other ingredients\".\n"
             .. B .. "Your other characters' needs count every ingredient of their tracked recipes, bars or not.\n"
             .. B .. "Making materials first says what's still missing; mail sends one stack per item where it can.\n\n"
@@ -69,9 +73,9 @@ GUIDE_PAGES = {
             .. B .. C("Shift-click") .. ": craft as many as fit the bar.\n"
             .. B .. C("Alt-click") .. ": craft all you can.\n\n"
             .. "Change what each click does in the settings (Crafting tab). " .. C("/bartab craft") .. ", or a key binding (Key Bindings > AddOns), crafts the next bar that's ready.\n\n"
-            .. H("One bar per material, or per recipe") .. "\n\n"
-            .. "Professions with many small recipes (alchemy, cooking) can show one bar per material instead of one per ingredient: " .. C("Peacebloom 2 / 3") .. " for every tracked recipe that uses it. Right-click the profession's heading and choose Show one bar per material. Blue is what your ready crafts would use, orange what's waiting on another ingredient. Click the bar to pick a recipe, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready.\n\n"
-            .. "Or choose Show one bar per recipe: " .. C("Minor Mana Potion: 1 / 3 materials") .. ", filling as you gather any of its ingredients (1 Peacebloom of 1 Peacebloom and 2 Earthroot is a third). Blue is whole crafts you have materials for. Hover it for each ingredient; click it as you would the recipe's own bars. The Recipe bars button (Display settings) sets the default for every profession.\n\n"
+            .. H("Bar layouts") .. "\n\n"
+            .. "By default each tracked recipe gets one bar, " .. C("Minor Mana Potion: 1 / 3 materials") .. ", filling as you gather any of its ingredients (1 Peacebloom of 1 Peacebloom and 2 Earthroot is a third). Blue is what you can craft now, orange whole crafts waiting on another ingredient. Hover it for each ingredient; click it as you would the recipe's own bars. Right-click a profession's heading to show a bar per ingredient instead, or one per material; the Recipe bars button (Display settings) sets the default for every profession.\n\n"
+            .. "Professions with many small recipes (alchemy, cooking) can show one bar per material: " .. C("Peacebloom 2 / 3") .. " for every tracked recipe that uses it. Right-click the profession's heading and choose Show one bar per material. Blue is what your ready crafts would use, orange what's waiting on another ingredient. Click the bar to pick a recipe, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready.\n\n"
             .. "Ingredients you buy from vendors (vials, thread) get no bar and aren't counted on material or recipe bars; BarTab still buys them for you. Tick \"Show vendor-bought materials on recipe bars\" (Display settings) to see them.\n\n"
             .. H("Shared materials") .. "\n\n"
             .. "When several bars count the same material, it's shared out in list order, so the bar higher up claims it first. Ctrl-drag bars to reorder them, or change this in the settings.\n\n"

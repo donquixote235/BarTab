@@ -2,21 +2,14 @@
 
 ## 1.60.1.13
 
-- Your other characters' needs include what they could make it from with their own recipes, one step down: Ein short of Copper Bar, who can smelt, also needs Copper Ore, so Padoo is offered to mail the ore ("Copper Ore for Ein (Copper Bar)"). Bars you send count against it, so you never send both.
-
-- Recipe bars share what's in your bags between recipes in list order, like ingredient bars do, including ingredients without a bar: one Rough Grinding Stone counts for the first recipe that takes it, so the second shows it still needs one.
-
-- Mailing keeps what you'd make your own short materials from: Vespera, short of Copper Bar for her Blacksmithing and able to smelt, keeps her Copper Ore instead of offering it to Ein.
-
-- "Can't craft" messages say when recipes above it in your list already count the material it needs: "Recipes above it in your list use Copper Bar (you have 8; 0 left after them)."
-
-- Making materials first goes by the recipe's own share of what you carry: Copper Battle Axe, below recipes that already count 4 of your 12 Copper Bar, smelts the 4 it's still short instead of saying it has enough.
-- "For your other characters" bars (and the login line about them) count only what you don't keep for yourself, including the ore you'd smelt for your own recipes' Copper Bar.
-
-- Fixed: opening another profession's window stopped a batch BarTab was making (smelting) without BarTab noticing, so the next click on the bar said it stopped instead of carrying on. The stop message now reads "still finishing a craft in progress".
-
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
 - Tracking a new recipe ticks all its ingredients except vendor-bought ones (vials, thread), instead of just the main one. Reopening a tracked recipe keeps the ingredients you chose.
+- Your other characters' needs include what they could make it from with their own recipes, one step down: Ein, short of Copper Bar and able to smelt, also needs Copper Ore, so Padoo is offered to mail the ore ("Copper Ore for Ein (Copper Bar)"). Bars you send count against it, so you never send both.
+- What you keep for yourself works the same way: Vespera, short of Copper Bar for her Blacksmithing and able to smelt, keeps her Copper Ore instead of offering it to Ein. "For your other characters" bars and the login line about them count only what you don't keep.
+- Recipe bars share what's in your bags between recipes in list order, like ingredient bars do, including ingredients without a bar: one Rough Grinding Stone counts for the first recipe that takes it, so the second shows it still needs one.
+- Making materials first goes by the recipe's own share: Copper Battle Axe, below recipes that already count 4 of your 12 Copper Bar, smelts the 4 it's still short instead of saying it has enough.
+- "Can't craft" messages say when recipes above it in your list already count the material it needs: "Recipes above it in your list use Copper Bar (you have 8; 0 left after them)."
+- Fixed: opening another profession's window stopped a batch BarTab was making (smelting) without BarTab noticing, so the next click on the bar said it stopped instead of carrying on. The stop message now reads "still finishing a craft in progress".
 
 ## 1.60.1.12
 
