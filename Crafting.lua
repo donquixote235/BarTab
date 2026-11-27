@@ -1199,7 +1199,9 @@ function EndBatch()
     if C_TradeSkillUI and C_TradeSkillUI.StopRecipeRepeat then
         pcall(C_TradeSkillUI.StopRecipeRepeat)
     end
-    if silent.loaded and not ProfessionsOpen() then
+    -- Kept loaded while a craft queue still has recipes to go: loading it
+    -- again outside a click doesn't work.
+    if silent.loaded and not ProfessionsOpen() and not chainJob then
         silent.loaded, silent.idle = nil, nil
         CraftLog("closing the silently loaded profession (batch stopped)")
         if C_TradeSkillUI and C_TradeSkillUI.CloseTradeSkill then pcall(C_TradeSkillUI.CloseTradeSkill) end

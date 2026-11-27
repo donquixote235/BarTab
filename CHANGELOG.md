@@ -8,6 +8,7 @@
 - "Send letters in one press" (Shopping settings, Mailbox): clicking Mail in BarTab's prompt sends the first letter straight away, and at an open mailbox your BarTab craft key (or `/bartab craft`) sends the next one, or starts mailing without the prompt. The game allows one letter per click or key press, so each letter still takes one, but no more clicking Send.
 - Letters to your other characters have a subject but no body text, so once you've taken the items they disappear on their own instead of having to be deleted.
 - When a recipe can't be crafted, clicking its bar says what's missing ("Can't craft Minor Mana Potion: missing Empty Vial (0 / 1, sold by vendors).") instead of "Nothing to craft within this bar", and a recipe bar's tooltip says the same.
+- Fixed: when a stop rule ended one recipe of an Alt-click "craft everything ready", the next recipe couldn't start ("Couldn't load Alchemy"), because the profession had been closed behind the scenes.
 - Fixed: after a stop rule ended a craft partway through Alt-click "craft everything ready" (or making materials first), the next click said "Stopped crafting" instead of starting again. BarTab now notices the crafting has already ended.
 - Material bars count every ingredient of your tracked recipes, including ones without a bar of their own, so a herb two recipes share always gets its bar (and Alt-click on it crafts both).
 - A profession heading's "Untrack all" and "Move all to Inactive" include the bars hidden behind material and recipe bars and the hidden vendor-bought ones.
