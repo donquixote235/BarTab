@@ -1939,8 +1939,13 @@ function PartialChainPlan(item, chosen)
     local reagents = GetRecipeReagents(item.recipeID)
     if not reagents then return nil end
     local steps, missing = {}, {}
+    -- What this recipe can count, after recipes above it in your list.
+    local claimed = (RecipeClaims and RecipeClaims()[item.recipeID]) or {}
     for _, reagent in ipairs(reagents) do
-        local short = reagent.need * target - reagent.have
+        local have = reagent.have
+        local share = claimed[string.lower(reagent.name)]
+        if share and share < have then have = share end
+        local short = reagent.need * target - have
         local made = 0
         local producer = short > 0 and ProducerFor(reagent.itemID, reagent.name)
         local allowed = producer and (settings.chainOtherProfessions or not (item.profession and producer.profession)
@@ -4751,11 +4756,12 @@ end
 -- { { to = "[Alt]", character = key, itemID, name, count }, ... }
 -- allSpare: send all you have spare of each, not just what's short (the
 -- rest goes to the first character who needs it).
-function FindMailSends(allSpare)
-    local scan = ScanBags()
-    -- What's spare here: bags less your own bars' goals, and less what
-    -- you'd make your own short materials from (Copper Ore for the Copper
-    -- Bar your Blacksmithing needs, when you can smelt).
+-- What this character keeps for itself: { [itemID] = count }, its bars'
+-- needs (every ingredient of its tracked recipes) and what it would make
+-- its own short materials from (Copper Ore for the Copper Bar its
+-- Blacksmithing needs, when it can smelt).
+function MyKeepCounts(scan)
+    scan = scan or ScanBags()
     local myNeeds = BarNeeds(trackedItems)
     local mine = settings.producers and settings.producers[CharacterKey()]
     if mine then
@@ -4775,6 +4781,12 @@ function FindMailSends(allSpare)
         end
         for id, count in pairs(extra) do myNeeds[id] = (myNeeds[id] or 0) + count end
     end
+    return myNeeds
+end
+
+function FindMailSends(allSpare)
+    local scan = ScanBags()
+    local myNeeds = MyKeepCounts(scan)
     local spare = {}
     for id, count in pairs(scan.byID) do
         local left = count - (myNeeds[id] or 0)

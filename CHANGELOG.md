@@ -10,6 +10,9 @@
 
 - "Can't craft" messages say when recipes above it in your list already count the material it needs: "Recipes above it in your list use Copper Bar (you have 8; 0 left after them)."
 
+- Making materials first goes by the recipe's own share of what you carry: Copper Battle Axe, below recipes that already count 4 of your 12 Copper Bar, smelts the 4 it's still short instead of saying it has enough.
+- "For your other characters" bars (and the login line about them) count only what you don't keep for yourself, including the ore you'd smelt for your own recipes' Copper Bar.
+
 ## 1.60.1.12
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.

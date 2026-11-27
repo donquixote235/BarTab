@@ -559,12 +559,40 @@ local function BuildSharedCounts()
             table.insert(cache.users[material], item)
         end
     end
+    -- Bars for your other characters get only what you don't keep for
+    -- yourself (your recipes' ingredients, and what you'd make your own
+    -- short materials from), shared in list order.
+    local alts = {}
+    for _, list in pairs(cache.users) do
+        for _, item in ipairs(list) do
+            if item.altNeed then
+                local id = ItemIDFor(item) or item.name
+                alts[id] = alts[id] or {}
+                table.insert(alts[id], item)
+            end
+        end
+    end
+    if next(alts) then
+        local okKeep, keep = pcall(MyKeepCounts)
+        keep = okKeep and keep or {}
+        for id, list in pairs(alts) do
+            local left = math.max(0, CountItem(list[1]) - (keep[id] or 0))
+            for i, item in ipairs(list) do
+                local share = (i == #list) and left or math.min(left, math.max(0, item.goal))
+                cache.counts[item] = share
+                left = left - share
+            end
+        end
+    end
     if (settings.sharedMaterials or "share") == "share" then
         for _, list in pairs(cache.users) do
             if #list > 1 then
                 local remaining = CountItem(list[1])
                 for i, item in ipairs(list) do
                     local share = (i == #list) and remaining or math.min(remaining, math.max(0, item.goal))
+                    if item.altNeed then
+                        share = math.min(share, cache.counts[item] or share)
+                    end
                     cache.counts[item] = share
                     remaining = remaining - share
                 end
