@@ -1,12 +1,27 @@
-# BarTab 1.60.1.10: shopping for your other characters
+# BarTab 1.60.1.11: bar layouts, one-press mail
 
 A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **Shopping for your other characters (optional):** tick "Show what my other characters need" (Shopping tab in `/bartab config`) for a "For your other characters" subsection with a bar for each material your other characters' bars are short of, limited to what this character can get: gather with its own skills, make with its own recipes, or already has some of ("Copper Ore for [Alt]"). Your own bars claim what you carry first. At login, BarTab tells you what you're already carrying for them, and the mailbox prompt offers to send it. Right-click a bar to hide it.
+- **Three ways to show recipe bars:** right-click a profession's heading in BarTab: Crafting, or set the default with the Recipe bars button (Display tab in `/bartab config`).
+  - **One per ingredient**, as before.
+  - **One per material:** "Peacebloom 2 / 3" for every tracked recipe that uses it, which keeps a long list of small recipes (alchemy, cooking) short. Click it to pick a recipe, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another.
+  - **One per recipe:** "Minor Mana Potion: 1 / 3 materials", filling as you gather any of its ingredients. Blue is what you can craft now; orange is waiting on something else, such as vials.
+- **Vendor-bought ingredients are hidden:** vials, thread, flux and the like no longer get bars of their own or count on material and recipe bars. BarTab still buys them for you at vendors. Tick "Show vendor-bought materials on recipe bars" (Display tab) to bring them back.
+- **Send letters in one press:** tick it under Mailbox (Shopping tab). Clicking Mail in BarTab's prompt sends the first letter, and your BarTab craft key sends each one after. The game allows one letter per click or key press.
+- **Mail all I have of each:** a checkbox in the mail prompt sends everything you have spare of a material, not just what the other character is short.
 
 ## Improved
 
-- The profit window fills itself in while item details are still arriving from the game (common the first time you view an alt's profession), instead of asking you to search again.
-- Free gathered materials say whose skill it is: "from [Alt]'s Mining" for another character's, "from your Skinning" for your own.
+- When a recipe can't be crafted, clicking its bar says what's missing ("missing Empty Vial (0 / 1, sold by vendors)").
+- Letters to your other characters have no body text, so they disappear once you take the items.
+- Ctrl-drag reorders recipe and material bars; Ctrl-click a recipe bar's name opens the recipe.
+- Tracking a recipe with just its main ingredient no longer picks a vial or thread as the main one.
+
+## Fixed
+
+- Mailing skipped items in your reagent bag, so a letter could go out without them.
+- The craft-next key ignored recipes shown as material bars.
+- After a stop rule ended one recipe of an Alt-click "craft everything ready", the next recipe didn't start, and the next click said "Stopped crafting".
+- An error at profession trainers ("Missing on/off parameter").

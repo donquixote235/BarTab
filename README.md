@@ -24,6 +24,10 @@ A section only appears when it has something to show.
 - Colored blocks show crafts you can make now (blue) and crafts held back by
   another ingredient (orange), with a line between crafts, in a color-blind
   friendly palette.
+- Three layouts per profession (right-click its heading): a bar per
+  ingredient, one per material ("Peacebloom 2 / 3", for every recipe that
+  uses it), or one per recipe ("Minor Mana Potion: 1 / 3 materials").
+  Vendor-bought ingredients (vials, thread) stay off the bars.
 - Click a bar to craft, even with the profession window closed. By default:
   click crafts 1, Shift-click crafts as many as fit the bar, Alt-click crafts
   all you can (configurable).

@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.10: shopping for your other characters") .. "\n\n"
+        text = H("New in 1.60.1.11: bar layouts") .. "\n\n"
+            .. B .. "Right-click a profession's heading to show its recipes as one bar per ingredient, per material (" .. C("Peacebloom 2 / 3") .. ") or per recipe (" .. C("Minor Mana Potion: 1 / 3 materials") .. "). Alt-click a material bar to craft everything that's ready.\n"
+            .. B .. "Vendor-bought ingredients (vials, thread) are left off recipe bars; BarTab still buys them for you.\n"
+            .. B .. "\"Send letters in one press\" (Shopping settings): Mail sends the first letter, your craft key each one after. \"Mail all I have of each\" sends everything spare.\n\n"
+            .. H("New in 1.60.1.10: shopping for your other characters") .. "\n\n"
             .. B .. "Tick \"Show what my other characters need\" (Shopping settings) for bars of what your other characters' bars are short of and this character can get (" .. C("Copper Ore for [Alt]") .. "). At login, BarTab says what you're already carrying for them; mail it at a mailbox.\n"
             .. B .. "The profit window fills itself in while item details arrive, and says whose gathering skill makes a material free (" .. C("from [Alt]'s Mining") .. ").\n\n"
             .. H("New in 1.60.1.9: your other characters") .. "\n\n"
