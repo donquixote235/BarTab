@@ -423,9 +423,9 @@ ShowItemMenu = function(owner, itemKey)
                 SyncAltNeedBars()
             end },
             { "Turn off shopping for other characters", function()
-                settings.altShopping = nil
+                SetCharSetting("altShopping", false)
                 SyncAltNeedBars()
-                Print("Shopping for other characters is off (Shopping tab in /bartab config to turn it on).")
+                Print("Shopping for other characters is off on this character (Shopping tab in /bartab config to turn it on).")
             end },
         })
         return

@@ -903,3 +903,19 @@ else
         end
     end
 end
+
+-- Settings a character can have its own value for (a main that doesn't
+-- shop or mail for alts, gatherers that do): its own value if it has set
+-- one, else the account-wide one. settings.byCharacter[character][name].
+function CharSetting(name)
+    local mine = settings.byCharacter and settings.byCharacter[CharacterKey()]
+    if mine and mine[name] ~= nil then return mine[name] end
+    return settings[name]
+end
+
+function SetCharSetting(name, value)
+    settings.byCharacter = settings.byCharacter or {}
+    local key = CharacterKey()
+    settings.byCharacter[key] = settings.byCharacter[key] or {}
+    settings.byCharacter[key][name] = value
+end

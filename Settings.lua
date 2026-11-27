@@ -457,19 +457,19 @@ function BuildConfigFrame()
 
     y = AddHeading(page, y - 6, "Mailbox")
     local mailButton = AddButton(page, 24, y, 350, "",
-        "At a mailbox: offer to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals. Their needs come from their bars and their last saved bags and bank. /bartab mail asks again.",
+        "At a mailbox: offer to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals. Their needs come from their bars and their last saved bags and bank. /bartab mail asks again. This character only: each character keeps its own choice.",
         function()
-            local current, index = settings.mailSend or "ask", 1
+            local current, index = CharSetting("mailSend") or "ask", 1
             for i, mode in ipairs(MAIL_MODES) do
                 if mode.key == current then index = i end
             end
-            settings.mailSend = MAIL_MODES[index % #MAIL_MODES + 1].key
+            SetCharSetting("mailSend", MAIL_MODES[index % #MAIL_MODES + 1].key)
             RefreshConfig()
         end)
     table.insert(configRefreshers, function()
-        local current = settings.mailSend or "ask"
+        local current = CharSetting("mailSend") or "ask"
         for _, mode in ipairs(MAIL_MODES) do
-            if mode.key == current then mailButton:SetText(mode.name) end
+            if mode.key == current then mailButton:SetText(mode.name .. " (this character)") end
         end
     end)
     y = y - 30
@@ -479,11 +479,11 @@ function BuildConfigFrame()
         function() return settings.mailAutoSend end,
         function(on) settings.mailAutoSend = on or nil end)
 
-    y = AddCheck(page, y, "Show what my other characters need",
-        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for [Alt]\") that this character can get: gather with its own skills, make with its own recipes, or already has some of. Bars fill as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it.",
-        function() return settings.altShopping end,
+    y = AddCheck(page, y, "Show what my other characters need (this character)",
+        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for [Alt]\") that this character can get: gather with its own skills, make with its own recipes, or already has some of. Bars fill as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it. This character only: each character keeps its own choice (turn it on for your gatherers, off for your mains).",
+        function() return CharSetting("altShopping") end,
         function(v)
-            settings.altShopping = v or nil
+            SetCharSetting("altShopping", v and true or false)
             Safe("alt shopping", SyncAltNeedBars)()
         end)
 

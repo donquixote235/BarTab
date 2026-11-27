@@ -7,6 +7,8 @@
 
 - Session summary: `/bartab session` lists what you've crafted, the skill you've gained, the materials you've gathered and the gold you've spent at vendors and on postage since you logged in, plus your gold overall. At login, BarTab sums up your last session on that character (`/bartab session last` shows it again; untick "Sum up the last session at login" in Recipes settings to turn it off). `/bartab session reset` starts over.
 
+- "Show what my other characters need" and the Mailbox setting (Shopping settings) are per character now: turn them on for your gatherers and off for your mains. A character that hasn't chosen uses what you had before.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.

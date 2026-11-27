@@ -4651,7 +4651,7 @@ end)
 -- asks again while the mailbox is open. Sent items are remembered until that
 -- character next logs in, so they aren't offered twice.
 MAIL_MODES = {
-    { key = "ask", name = "Offer to mail my other characters what they need" },
+    { key = "ask", name = "Offer to mail what others need" },
     { key = "off", name = "Off (mail by hand)" },
 }
 MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
@@ -5721,7 +5721,7 @@ end
 
 function SyncAltNeedBars()
     local wanted = {}
-    if settings.altShopping then
+    if CharSetting("altShopping") then
         settings.altShopHidden = settings.altShopHidden or {}
         for _, need in ipairs(AltShortfalls()) do
             local key = AltNeedKey(need.character, need.itemID)
@@ -5758,7 +5758,7 @@ end
 -- At login: one line about what you're already carrying for your other
 -- characters (a bar that starts out full gets no goal alert).
 function AnnounceAltNeeds()
-    if not settings.altShopping then return end
+    if not CharSetting("altShopping") then return end
     local ready, partly = {}, {}
     for _, item in pairs(trackedItems) do
         if item.altNeed then
@@ -5798,7 +5798,7 @@ altShopWatcher:SetScript("OnEvent", function(_, event)
         pcall(RemoveMaterialBars)
     elseif event == "BAG_UPDATE_DELAYED" then
         -- Picking up something an alt needs can add its bar.
-        if not settings or not settings.altShopping or altShopSyncPending then return end
+        if not settings or not CharSetting("altShopping") or altShopSyncPending then return end
         altShopSyncPending = true
         C_Timer.After(2, function()
             altShopSyncPending = false
@@ -5815,7 +5815,7 @@ end)
 
 -- force: /bartab mail (asks even with the setting off).
 function OfferMailSends(force)
-    if (settings.mailSend or "ask") == "off" and not force then return end
+    if (CharSetting("mailSend") or "ask") == "off" and not force then return end
     if mailJob or (InCombatLockdown and InCombatLockdown()) then return end
     local sends = FindMailSends(settings.mailAll)
     if #sends == 0 then
