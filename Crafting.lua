@@ -4965,6 +4965,15 @@ function MailStep()
     -- No body text: a letter with text can't be deleted in one click once emptied.
     if bodyBox and bodyBox.SetText then bodyBox:SetText("") end
     if SendMailFrame_Update then pcall(SendMailFrame_Update) end
+    -- The mail window puts the cursor in the name box, which would swallow
+    -- the craft key that sends the letter: take it out.
+    if settings.mailAutoSend then
+        for _, box in ipairs({ nameBox, subjectBox, bodyBox }) do
+            if box and box.ClearFocus then box:ClearFocus() end
+        end
+        local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+        if focus and focus.ClearFocus then focus:ClearFocus() end
+    end
     local left = #job.letters - job.index
     local more = left > 0 and (" (" .. left .. " more to follow)") or ""
     if job.sync and TrySendLetter() then
