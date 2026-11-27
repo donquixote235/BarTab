@@ -8,6 +8,8 @@
 
 - Mailing keeps what you'd make your own short materials from: Vespera, short of Copper Bar for her Blacksmithing and able to smelt, keeps her Copper Ore instead of offering it to Ein.
 
+- "Can't craft" messages say when recipes above it in your list already count the material it needs: "Recipes above it in your list use Copper Bar (you have 8; 0 left after them)."
+
 ## 1.60.1.12
 
 - "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.

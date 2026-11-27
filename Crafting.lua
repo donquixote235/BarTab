@@ -482,13 +482,14 @@ function CraftItem(itemKey, action)
                     .. ((okNote and note) and ("; " .. note) or "") .. ")"
             end
         end
+        local claimed = ClaimedByEarlierText(item.recipeID)
         local chainText = ChainBlockedText(item)
         if chainText then
-            Print(chainText)
+            Print(chainText .. (claimed or ""))
             return
         end
         Print("Can't craft " .. DisplayName(item) .. " yet"
-            .. (#short > 0 and (": missing " .. table.concat(short, ", ")) or "") .. ".")
+            .. (#short > 0 and (": missing " .. table.concat(short, ", ")) or "") .. "." .. (claimed or ""))
         return
     end
 
@@ -5354,6 +5355,23 @@ function RecipeClaims()
     end
     recipeClaims = { time = now, claims = claims }
     return claims
+end
+
+-- " Copper Bar (you have 6) also goes to recipes above it in your list."
+-- for ingredients you have enough of for one craft that recipes earlier in
+-- your list count first; nil if none.
+function ClaimedByEarlierText(recipeID)
+    local claims = RecipeClaims()[recipeID]
+    if not claims then return nil end
+    local parts = {}
+    for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
+        local mine = claims[string.lower(reagent.name)]
+        if mine and reagent.have >= reagent.need and mine < reagent.need then
+            parts[#parts + 1] = ("%s (you have %d; %d left after them)"):format(reagent.name, reagent.have, mine)
+        end
+    end
+    if #parts == 0 then return nil end
+    return " Recipes above it in your list use " .. JoinNames(parts, 4) .. "."
 end
 
 function RecipeBarRows(item)

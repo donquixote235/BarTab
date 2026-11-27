@@ -454,9 +454,11 @@ function MissingMaterialsText(recipeID)
                 vendor and ", sold by vendors" or "")
         end
     end
-    if #parts == 0 then return nil end
+    local claimed = ClaimedByEarlierText and ClaimedByEarlierText(recipeID)
+    if #parts == 0 and not claimed then return nil end
     local name = (GetRecipeName and GetRecipeName(recipeID)) or "this recipe"
-    return ("Can't craft %s: missing %s."):format(name, table.concat(parts, ", "))
+    if #parts == 0 then return ("Can't craft %s for this bar:%s"):format(name, claimed) end
+    return ("Can't craft %s: missing %s.%s"):format(name, table.concat(parts, ", "), claimed or "")
 end
 
 -- How many to craft for an action; nil plus a message when there's nothing to do.
