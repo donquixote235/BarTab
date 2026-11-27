@@ -4657,7 +4657,7 @@ MAIL_MODES = {
 MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
 mailJob = nil
 mailboxOpen = false
-OfferMailText = nil
+
 
 -- item ID -> total of the goals of a bar list's active, non-crate bars.
 -- What a list of bars needs: { [itemID] = count }, { [itemID] = name }.
@@ -4970,7 +4970,7 @@ function MailKeyPress()
     end
     local sends = FindMailSends(settings.mailAll)
     if #sends == 0 then return false end
-    if StaticPopup_Hide then StaticPopup_Hide("BARTAB_MAIL_SEND") end
+    HideMailPrompt()
     SendMailNow(sends, true)
     return true
 end
@@ -5835,52 +5835,156 @@ function OfferMailSends(force)
         if force then Print("Nothing your other characters' bars need that you have spare.") end
         return
     end
-    if not (StaticPopupDialogs and StaticPopup_Show) then return end
-    local function Text(list)
-        -- The blank line at the end makes room for the checkbox.
-        return ("BarTab: your other characters' bars need things you have spare.\n\n%s\n\nMail them?\n\n "):format(
-            DescribeMailSends(list))
-    end
-    StaticPopupDialogs.BARTAB_MAIL_SEND = StaticPopupDialogs.BARTAB_MAIL_SEND or {
-        text = "%s",
-        button1 = "Mail",
-        button2 = NO or "No",
-        OnAccept = function(self, data) SendMailNow((self and self.data) or data, true) end,
-        -- "Mail all I have of each": all you have spare, not just what's short.
-        OnShow = function(self)
-            local check = self.barTabMailAll
-            if not check then
-                check = CreateFrame("CheckButton", nil, self, "UICheckButtonTemplate")
-                check:SetSize(24, 24)
-                if type(check.Text) == "table" then check.Text:SetText("") end
-                check.label = check:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                check.label:SetPoint("LEFT", check, "RIGHT", 2, 0)
-                check.label:SetText("Mail all I have of each, not just what's needed")
-                self.barTabMailAll = check
+    ShowMailPrompt(sends)
+end
+
+-- The mail prompt: a row per item and character, each with a checkbox and
+-- an amount you can change (up to what's in your bags), and "Mail all I
+-- have of each". Mail sends the ticked rows.
+MAIL_PROMPT_ROWS = 16
+
+function HideMailPrompt()
+    if mailPrompt then mailPrompt:Hide() end
+end
+
+function AcceptMailPrompt()
+    local frame = mailPrompt
+    if not frame then return end
+    local list = {}
+    for _, row in ipairs(frame.rows) do
+        if row:IsShown() and row.send and row.check:GetChecked() then
+            local amount = math.floor(tonumber(row.box:GetText()) or 0)
+            amount = math.min(amount, row.max or amount)
+            if amount > 0 then
+                local send = {}
+                for field, value in pairs(row.send) do send[field] = value end
+                send.count = amount
+                list[#list + 1] = send
             end
-            check:ClearAllPoints()
-            check:SetPoint("BOTTOMLEFT", self, "BOTTOMLEFT", 24, 44)
-            check:SetChecked(settings.mailAll and true or false)
-            check:SetScript("OnClick", function(box)
-                settings.mailAll = box:GetChecked() and true or nil
-                local list = FindMailSends(settings.mailAll)
-                self.data = list
-                if self.text or self.Text then
-                    (self.text or self.Text):SetText(OfferMailText(list))
-                end
-                if StaticPopup_Resize then pcall(StaticPopup_Resize, self, self.which) end
-            end)
-            check:Show()
-        end,
-        OnHide = function(self)
-            if self.barTabMailAll then self.barTabMailAll:Hide() end
-        end,
-        timeout = 0,
-        whileDead = false,
-        hideOnEscape = true,
-    }
-    OfferMailText = Text
-    StaticPopup_Show("BARTAB_MAIL_SEND", Text(sends), nil, sends)
+        end
+    end
+    frame:Hide()
+    if #list == 0 then
+        Print("Nothing ticked to mail.")
+        return
+    end
+    SendMailNow(list, true)
+end
+
+local function MailPromptRow(frame, index)
+    local row = frame.rows[index]
+    if row then return row end
+    row = CreateFrame("Frame", nil, frame)
+    row:SetSize(400, 24)
+    row:SetPoint("TOPLEFT", 16, -54 - (index - 1) * 26)
+    row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    row.check:SetSize(24, 24)
+    row.check:SetPoint("LEFT", 0, 0)
+    if type(row.check.Text) == "table" then row.check.Text:SetText("") end
+    row.box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+    row.box:SetSize(40, 20)
+    row.box:SetPoint("LEFT", row.check, "RIGHT", 10, 0)
+    row.box:SetAutoFocus(false)
+    if row.box.SetNumeric then row.box:SetNumeric(true) end
+    if row.box.SetMaxLetters then row.box:SetMaxLetters(4) end
+    row.box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    row.box:SetScript("OnEditFocusLost", function(self)
+        local amount = math.floor(tonumber(self:GetText()) or 0)
+        if row.max and amount > row.max then self:SetText(tostring(row.max)) end
+    end)
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.label:SetPoint("LEFT", row.box, "RIGHT", 6, 0)
+    row.label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.label:SetJustifyH("LEFT")
+    frame.rows[index] = row
+    return row
+end
+
+function ShowMailPrompt(sends)
+    local frame = mailPrompt
+    if not frame then
+        local ok
+        ok, frame = pcall(CreateFrame, "Frame", "BarTabMailPrompt", UIParent, "BasicFrameTemplateWithInset")
+        if not ok then
+            frame = CreateFrame("Frame", "BarTabMailPrompt", UIParent, "BackdropTemplate")
+            frame:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32,
+                edgeSize = 32, insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+            local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+            close:SetPoint("TOPRIGHT", -4, -4)
+        end
+        frame:SetFrameStrata("DIALOG")
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame:SetClampedToScreen(true)
+        tinsert(UISpecialFrames, "BarTabMailPrompt")
+        local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        title:SetPoint("TOP", 0, -6)
+        title:SetText("BarTab: mail your other characters")
+        frame.intro = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        frame.intro:SetPoint("TOPLEFT", 18, -32)
+        frame.intro:SetText("Their bars need these and you have them spare. Untick or change amounts:")
+        frame.rows = {}
+        frame.allCheck = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+        frame.allCheck:SetSize(24, 24)
+        if type(frame.allCheck.Text) == "table" then frame.allCheck.Text:SetText("") end
+        frame.allCheck.label = frame.allCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        frame.allCheck.label:SetPoint("LEFT", frame.allCheck, "RIGHT", 2, 0)
+        frame.allCheck.label:SetText("Mail all I have of each, not just what's needed")
+        frame.allCheck:SetScript("OnClick", function(box)
+            settings.mailAll = box:GetChecked() and true or nil
+            ShowMailPrompt(FindMailSends(settings.mailAll))
+        end)
+        frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        frame.mailButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.mailButton:SetSize(110, 24)
+        frame.mailButton:SetText("Mail")
+        frame.mailButton:SetScript("OnClick", function() AcceptMailPrompt() end)
+        frame.cancelButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.cancelButton:SetSize(110, 24)
+        frame.cancelButton:SetText(CANCEL or "Cancel")
+        frame.cancelButton:SetScript("OnClick", function() frame:Hide() end)
+        mailPrompt = frame
+    end
+    local inBags = ScanBags().byID
+    local shown = math.min(#sends, MAIL_PROMPT_ROWS)
+    for index = 1, shown do
+        local send, row = sends[index], MailPromptRow(frame, index)
+        row.send = send
+        row.max = inBags[send.itemID] or send.count
+        row.check:SetChecked(true)
+        row.box:SetText(tostring(send.count))
+        row.label:SetText(("%s to %s  |cff808080(you have %d)|r"):format(send.name, send.to, row.max))
+        row:Show()
+    end
+    for index = shown + 1, #frame.rows do
+        frame.rows[index].send = nil
+        frame.rows[index]:Hide()
+    end
+    local bottom = -54 - shown * 26
+    frame.more:ClearAllPoints()
+    frame.more:SetPoint("TOPLEFT", 22, bottom - 2)
+    frame.more:SetText(#sends > shown and ("and " .. (#sends - shown) .. " more; type /bartab mail again after sending") or "")
+    if #sends > shown then bottom = bottom - 16 end
+    frame.allCheck:ClearAllPoints()
+    frame.allCheck:SetPoint("TOPLEFT", 16, bottom - 4)
+    frame.allCheck:SetChecked(settings.mailAll and true or false)
+    frame.mailButton:ClearAllPoints()
+    frame.mailButton:SetPoint("TOPRIGHT", frame, "TOP", -6, bottom - 36)
+    frame.cancelButton:ClearAllPoints()
+    frame.cancelButton:SetPoint("TOPLEFT", frame, "TOP", 6, bottom - 36)
+    frame:SetSize(440, -(bottom - 36) + 40)
+    frame:ClearAllPoints()
+    if MailFrame and MailFrame.IsShown and MailFrame:IsShown() then
+        frame:SetPoint("TOPLEFT", MailFrame, "TOPRIGHT", 12, 0)
+    else
+        frame:SetPoint("CENTER")
+    end
+    frame:Show()
 end
 
 mailWatcher = CreateFrame("Frame")
@@ -5895,7 +5999,7 @@ mailWatcher:SetScript("OnEvent", function(_, event)
         end)
     elseif event == "MAIL_CLOSED" then
         mailboxOpen = false
-        if StaticPopup_Hide then StaticPopup_Hide("BARTAB_MAIL_SEND") end
+        HideMailPrompt()
     elseif event == "MAIL_SEND_SUCCESS" then
         Safe("mail", OnMailSent)(true)
     elseif event == "MAIL_FAILED" then

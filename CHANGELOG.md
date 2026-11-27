@@ -11,6 +11,8 @@
 
 - Right-click a "For your other characters" bar to stop shopping for that item, for one of that character's recipes ("Don't shop for Vespera's Copper Battle Axe"), for that character altogether, or for anyone on this character. "Shop for the hidden ones again" (Shopping settings) undoes them. Recipes and characters you skip are left out of mailing too.
 
+- The mailbox prompt is a window with a row for each item and character: untick what you don't want to send, or change the amount (up to what you have). "Mail all I have of each" is still there and refills the amounts.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
