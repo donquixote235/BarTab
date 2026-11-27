@@ -4962,14 +4962,34 @@ function ReagentItemID(recipeID, itemName)
     end
 end
 
+-- Crafting supplies every trade-goods vendor sells, so they count as
+-- vendor-bought before you've opened a vendor that has them.
+KNOWN_VENDOR_ITEMS = {
+    [3371] = true, [3372] = true, [8925] = true, [18256] = true, -- vials
+    [2320] = true, [2321] = true, [4291] = true, [8343] = true, [14341] = true, -- thread
+    [2880] = true, [3466] = true, -- flux
+    [4289] = true, -- salt
+    [6217] = true, [4470] = true, -- copper rod, simple wood
+    [2324] = true, [2325] = true, [2604] = true, [2605] = true, [4340] = true, [4341] = true,
+    [4342] = true, [6260] = true, [6261] = true, [10290] = true, -- bleach and dyes
+    [159] = true, [1179] = true, [2678] = true, [2692] = true, [3713] = true, [30817] = true, -- cooking
+}
+KNOWN_VENDOR_NAMES = {
+    ["empty vial"] = true, ["leaded vial"] = true, ["crystal vial"] = true, ["imbued vial"] = true,
+    ["coarse thread"] = true, ["fine thread"] = true, ["silken thread"] = true,
+    ["heavy silken thread"] = true, ["rune thread"] = true, ["weak flux"] = true, ["strong flux"] = true,
+    ["salt"] = true, ["copper rod"] = true, ["simple wood"] = true, ["bleach"] = true,
+}
+
 function IsVendorMaterial(item)
+    if item.name and KNOWN_VENDOR_NAMES[string.lower(item.name)] then return true end
     local id = ItemIDFor(item)
     if not id and item.recipeID then
         id = ReagentItemID(item.recipeID, item.name)
         if id then item.itemID = id end
     end
     if not id then return false end
-    if vendorMatCache[id] then return true end
+    if vendorMatCache[id] or KNOWN_VENDOR_ITEMS[id] then return true end
     if VendorBuyPrice(id) then
         vendorMatCache[id] = true
         return true

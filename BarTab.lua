@@ -448,7 +448,8 @@ function MissingMaterialsText(recipeID)
     local parts = {}
     for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
         if reagent.have < reagent.need then
-            local vendor = reagent.itemID and VendorBuyPrice and VendorBuyPrice(reagent.itemID)
+            local vendor = reagent.itemID and ((KNOWN_VENDOR_ITEMS and KNOWN_VENDOR_ITEMS[reagent.itemID])
+                or (VendorBuyPrice and VendorBuyPrice(reagent.itemID)))
             parts[#parts + 1] = ("%s (%d / %d%s)"):format(reagent.name, reagent.have, reagent.need,
                 vendor and ", sold by vendors" or "")
         end
