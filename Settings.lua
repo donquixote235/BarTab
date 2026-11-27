@@ -524,6 +524,10 @@ function BuildConfigFrame()
         "The Track Recipe checkbox under a recipe in the profession window opens BarTab's Track with settings window (pick the ingredients, crafts and rules) instead of the game's own recipe tracking; unticking it untracks the recipe's bars. The checkbox then shows whether the recipe has BarTab bars.",
         function() return settings.trackCheckboxBarTab end,
         function(v) settings.trackCheckboxBarTab = v or nil end)
+    y = AddCheck(page, y, "Sum up the last session at login",
+        "At login, a few lines in chat on your last session on this character: crafts, skill gained, materials gathered, gold spent. /bartab session shows the current one.",
+        function() return settings.sessionAtLogin ~= false end,
+        function(v) settings.sessionAtLogin = (not v) and false or nil end)
 
     y = AddHeading(page, y - 6, "Favorite recipes")
     AddButton(page, 24, y, 170, "Import favorites",

@@ -1093,6 +1093,7 @@ end
 
 function OnCraftSucceeded(spellID)
     lastCraftRecipe = spellID
+    Safe("session", SessionNoteCraft)(spellID)
     NoteCraftFinished(spellID)
     CraftLog("craft succeeded " .. tostring(spellID) .. (crafting and (" (" .. (crafting.done + 1) .. " of " .. crafting.amount .. ")") or " (not BarTab's)"))
     if spellID and IsTrackedRecipe(spellID) then
@@ -4347,6 +4348,7 @@ function BuyPurchases(list)
         end
     end
     local text = DescribePurchases(list)
+    Safe("session", SessionNoteSpent)("vendor", total)
     Print("Bought " .. text .. " for " .. FormatMoney(total) .. ".")
 end
 
@@ -5141,6 +5143,7 @@ function MailStep()
     end
     job.waitingSend = true
     job.letter = letter
+    letter.postage = price
     -- Fill in the letter and let you click Send (the game only sends mail
     -- from your own click); the next letter follows once it's gone.
     local nameBox = _G.SendMailNameEditBox or (SendMailFrame and SendMailFrame.SendMailNameEditBox)
@@ -5207,6 +5210,7 @@ function OnMailSent(success)
         end
     end
     if #parts > 0 then job.sent[#job.sent + 1] = JoinNames(parts, 8) .. " to " .. letter.to end
+    Safe("session", SessionNoteSpent)("postage", letter.postage)
     settings.mailed[letter.character] = mailed
     Safe("alt shopping", SyncAltNeedBars)()
     job.attached = 0
@@ -6465,3 +6469,158 @@ function TrackOtherIngredients(recipeID)
     Print(("Also tracking %s for %s."):format(JoinNames(parts, 6),
         GetRecipeName(recipeID) or DisplayName(sample)))
 end
+
+-- Session summary (/bartab session) --------------------------------------------
+-- Since you logged in (a /reload doesn't start a new one): crafts, skill
+-- gained, materials gathered, gold spent at vendors and on postage, and
+-- your gold overall. Kept per character in settings.sessions[character]:
+-- { current = {...}, last = {...} }; the last one is summed up at login.
+
+local function NewSession()
+    return { start = time and time() or 0, money = GetMoney and GetMoney() or 0, crafts = {}, skills = {},
+        gathered = {}, vendor = 0, postage = 0, letters = 0 }
+end
+
+function SessionData()
+    settings.sessions = settings.sessions or {}
+    local key = CharacterKey()
+    local mine = settings.sessions[key] or {}
+    settings.sessions[key] = mine
+    mine.current = mine.current or NewSession()
+    return mine.current, mine
+end
+
+-- Notes each profession's skill: where it started (the first time seen) and now.
+function SessionNoteSkills(session)
+    session = session or SessionData()
+    for _, profession in ipairs(AllProfessionSkills()) do
+        local entry = session.skills[profession.name]
+        if not entry then
+            entry = { from = profession.rank }
+            session.skills[profession.name] = entry
+        end
+        entry.to = profession.rank
+    end
+end
+
+function SessionNoteCraft(spellID)
+    local name = spellID and GetRecipeName(spellID)
+    if not name then return end
+    local session = SessionData()
+    session.crafts[name] = (session.crafts[name] or 0) + 1
+end
+
+function SessionNoteGathered(name, amount)
+    if not (name and amount and amount > 0) then return end
+    local session = SessionData()
+    session.gathered[name] = (session.gathered[name] or 0) + amount
+end
+
+function SessionNoteSpent(kind, copper)
+    if not (copper and copper > 0) then return end
+    local session = SessionData()
+    if kind == "postage" then
+        session.postage = session.postage + copper
+        session.letters = session.letters + 1
+    else
+        session.vendor = session.vendor + copper
+    end
+end
+
+-- "Name 6, Other 4" from { [name] = count }, most first.
+local function CountList(counts, most)
+    local list = {}
+    for name, count in pairs(counts) do list[#list + 1] = { name = name, count = count } end
+    table.sort(list, function(a, b)
+        if a.count ~= b.count then return a.count > b.count end
+        return a.name < b.name
+    end)
+    local parts = {}
+    for _, entry in ipairs(list) do parts[#parts + 1] = entry.count .. " " .. entry.name end
+    return JoinNames(parts, most or 6), #list
+end
+
+-- The summary as chat lines; nil if nothing happened.
+function SessionLines(session, title)
+    local lines, any = {}, false
+    local seconds = (session.ended or (time and time()) or 0) - (session.start or 0)
+    local crafts, craftCount = CountList(session.crafts)
+    if craftCount > 0 then lines[#lines + 1] = "  Crafted " .. crafts .. "."; any = true end
+    local skills = {}
+    for name, entry in pairs(session.skills) do
+        if entry.to and entry.from and entry.to > entry.from then
+            skills[#skills + 1] = ("%s %d to %d"):format(name, entry.from, entry.to)
+        end
+    end
+    table.sort(skills)
+    if #skills > 0 then lines[#lines + 1] = "  Skill: " .. table.concat(skills, ", ") .. "."; any = true end
+    local gathered, gatheredCount = CountList(session.gathered, 8)
+    if gatheredCount > 0 then lines[#lines + 1] = "  Gathered " .. gathered .. "."; any = true end
+    local spent = {}
+    if session.vendor > 0 then spent[#spent + 1] = MoneyText(session.vendor) .. " at vendors" end
+    if session.postage > 0 then
+        spent[#spent + 1] = ("%s on postage (%d %s)"):format(MoneyText(session.postage), session.letters,
+            session.letters == 1 and "letter" or "letters")
+    end
+    if #spent > 0 then lines[#lines + 1] = "  Spent " .. table.concat(spent, " and ") .. "."; any = true end
+    local now = session.endMoney or (GetMoney and GetMoney()) or session.money
+    local change = now - (session.money or now)
+    if change ~= 0 then
+        lines[#lines + 1] = "  Gold overall: " .. (change > 0 and "+" or "-") .. MoneyText(math.abs(change)) .. "."
+    end
+    if not any then return nil end
+    table.insert(lines, 1, ("%s (%s):"):format(title, FormatDuration(math.max(60, seconds)):gsub("^about ", "")))
+    return lines
+end
+
+function ShowSession(which)
+    local session, mine = SessionData()
+    if which == "last" then
+        session = mine.last
+        if not session then Print("No earlier session recorded on this character yet.") return end
+    else
+        SessionNoteSkills(session)
+    end
+    local lines = SessionLines(session, which == "last" and "Last session" or "This session")
+    if not lines then
+        Print(which == "last" and "Nothing crafted or gathered last session." or "Nothing crafted or gathered yet this session.")
+        return
+    end
+    Print(lines[1])
+    for i = 2, #lines do DEFAULT_CHAT_FRAME:AddMessage(lines[i]) end
+end
+
+sessionWatcher = CreateFrame("Frame")
+sessionWatcher.barTabOwn = true
+pcall(sessionWatcher.RegisterEvent, sessionWatcher, "PLAYER_ENTERING_WORLD")
+pcall(sessionWatcher.RegisterEvent, sessionWatcher, "PLAYER_LOGOUT")
+pcall(sessionWatcher.RegisterEvent, sessionWatcher, "SKILL_LINES_CHANGED")
+sessionWatcher:SetScript("OnEvent", function(_, event, isInitialLogin)
+    if not settings then return end
+    if event == "PLAYER_ENTERING_WORLD" then
+        local _, mine = SessionData()
+        if isInitialLogin then
+            -- A new session; the one before is kept as "last".
+            mine.last = mine.current
+            mine.current = NewSession()
+            if mine.last and settings.sessionAtLogin ~= false then
+                C_Timer.After(4, function()
+                    local lines = mine.last and SessionLines(mine.last, "Last session")
+                    if lines then
+                        Print(lines[1])
+                        for i = 2, #lines do DEFAULT_CHAT_FRAME:AddMessage(lines[i]) end
+                    end
+                end)
+            end
+        end
+        -- Professions' skill can read empty for a moment at login.
+        C_Timer.After(3, function() Safe("session", SessionNoteSkills)() end)
+    elseif event == "SKILL_LINES_CHANGED" then
+        Safe("session", SessionNoteSkills)()
+    elseif event == "PLAYER_LOGOUT" then
+        local session = SessionData()
+        pcall(SessionNoteSkills, session)
+        session.ended = time and time() or 0
+        session.endMoney = GetMoney and GetMoney() or nil
+    end
+end)

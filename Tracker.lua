@@ -715,6 +715,7 @@ function UpdateSessionStats(name)
     local now = GetTime()
     if count > stat.last and not bankOpen and sessionReadyAt and now >= sessionReadyAt then
         stat.gained = stat.gained + (count - stat.last)
+        if SessionNoteGathered then Safe("session", SessionNoteGathered)(name, count - stat.last) end
         stat.firstGain = stat.firstGain or now
         stat.lastGain = now
     end

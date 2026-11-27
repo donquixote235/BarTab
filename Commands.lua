@@ -48,6 +48,7 @@ HELP_TOPICS = {
         head("Profit and leveling:"),
         "  " .. cmd("/bartab profit") .. " (profession open) - what each recipe earns sold to a vendor or at auction, your way of counting materials.",
         "  " .. cmd("/bartab next") .. " - what to craft next: recipes ranked by what a skill point costs (or takes).",
+        "  " .. cmd("/bartab session") .. " - what you've crafted, gained in skill, gathered and spent since you logged in (" .. cmd("last") .. " for the session before).",
         "  In the list: hover for the breakdown, click to show the recipe, Shift-click to search the auction house, right-click to track.",
     },
     shopping = {
@@ -433,6 +434,22 @@ SlashCmdList.BARTAB = function(message)
             ShowShareWindow(nil)
         end
 
+    elseif command == "session" then
+        local value = string.lower(args)
+        if value == "last" then
+            ShowSession("last")
+        elseif value == "reset" then
+            -- Bar tooltips' gained-and-rate counts, and the summary.
+            ResetSessionStats()
+            UpdateBars()
+            local _, mine = SessionData()
+            mine.current = nil
+            SessionData()
+            Print("Session stats reset.")
+        else
+            ShowSession()
+        end
+
     elseif command == "craft" then
         _G.BarTab_CraftNext()
 
@@ -475,15 +492,6 @@ SlashCmdList.BARTAB = function(message)
                 DEFAULT_CHAT_FRAME:AddMessage(("  %d. %s %s (v%s) - %s"):format(i, entry.when or "",
                     entry.where or "?", entry.version or "?", (entry.message or ""):gsub("|", "||")))
             end
-        end
-
-    elseif command == "session" then
-        if string.lower(args) == "reset" then
-            ResetSessionStats()
-            UpdateBars()
-            Print("Session stats reset.")
-        else
-            Print("Session stats (gained, rate, time to goal) are in each bar's tooltip and start over at login or /reload. Use /bartab session reset to start over now.")
         end
 
     elseif command == "copy" then

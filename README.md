@@ -115,6 +115,7 @@ unless another addon (such as an action bar addon) already uses it.
 | `/bartab config` | Settings window |
 | `/bartab track <item> [max \| min-max]` | Track an item, e.g. `/bartab track Light Leather 20` |
 | Alt-Shift-click an item | Track it: works in bags, the bank, chat links and loot (not in the auction house window, where that click opens the item's listings). Fill-up items are added right away; for anything else, pick Item (Items section), Crafting material, or the open recipe if it uses the item, and set a goal. |
+| `/bartab session` | What you've crafted, gained in skill, gathered and spent since you logged in (`/bartab session last` for the session before; a summary of it shows at login). |
 | `/bartab session reset` | Start the session stats over. Each bar's tooltip shows what you've gained since login (bank withdrawals excluded), the rate per hour, and about how long until the bar fills. |
 | `/bartab window auto\|on\|off\|reset\|lock\|unlock` | BarTab's own window: automatic (when the objective tracker is hidden), always, never, or back to its starting spot |
 | `/bartab craft` | Craft the next ready bar (also a key binding: "BarTab: Craft the next ready bar" in Key Bindings > AddOns) |
