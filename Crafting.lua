@@ -4946,11 +4946,11 @@ function MailStep()
         local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
         local split = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
         local amount = math.min(stack, send.left)
-        -- Splitting from the reagent bag straight into a letter puts the
-        -- whole stack in, so split into an empty slot of a regular bag
-        -- first; the next step then sends that stack whole.
+        -- Splitting a stack straight into a letter puts the whole stack in
+        -- (any bag), so split into an empty slot of a regular bag first; the
+        -- next step then sends that stack whole.
         local regularBags = NUM_BAG_SLOTS or 4
-        if amount < stack and fromBag > regularBags then
+        if amount < stack then
             local emptyBag, emptySlot
             for bag = 0, regularBags do
                 for slot = 1, ContainerSlots(bag) do
@@ -4988,8 +4988,9 @@ function MailStep()
                 job.attached = job.attached - 1
                 job.splitRetries = (job.splitRetries or 0) + 1
                 if job.splitRetries > 3 then
-                    FinishMailJob("Couldn't split " .. tostring(send.name) .. " for the letter; split off "
-                        .. amount .. " yourself and type /bartab mail.")
+                    FinishMailJob("Couldn't split " .. tostring(send.name) .. " for the letter: BarTab needs an empty slot in a"
+                        .. " regular bag (not the reagent bag) to split " .. amount .. " into. Free one, or split them off"
+                        .. " yourself, and type /bartab mail.")
                     return
                 end
                 job.sync = nil
