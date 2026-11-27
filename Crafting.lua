@@ -2005,7 +2005,7 @@ function TryChainCraft(item, chosen, forced)
     if not (item and item.recipeID) or item.container or item.notLearned then return false end
     if ChainActive() then
         chainJob = nil
-        Print("Stopped making materials first; a craft in progress still finishes.")
+        Print("Stopped making materials first; still finishing a craft in progress.")
         return true
     end
     -- Waiting on a click after the game ignored a craft: carry on.
@@ -2070,7 +2070,12 @@ end
 function ChainActive()
     local job = chainJob
     if not job or job.paused then return false end
-    if craftJob or crafting or CastingNow() then return true end
+    -- A batch the game stopped without a word (opening another profession's
+    -- window mid-smelt) leaves crafting set: only casting, repeating or
+    -- recent progress counts.
+    if craftJob or CastingNow() or IsRepeatingCraft() then return true end
+    if crafting and crafting.last and GetTime() - crafting.last < 3 then return true end
+    crafting = nil
     if job.started and GetTime() - job.started < 3 then return true end
     chainJob = nil
     return false
@@ -5603,7 +5608,7 @@ end
 function HandleMaterialBarClick(item)
     if ChainActive() then
         chainJob = nil
-        Print("Stopped crafting; a craft in progress still finishes.")
+        Print("Stopped crafting; still finishing a craft in progress.")
         return
     end
     if chainJob and chainJob.paused then
