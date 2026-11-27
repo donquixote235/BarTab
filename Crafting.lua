@@ -4928,6 +4928,23 @@ function MailStep()
         if GetSendMailItem then
             local _, _, _, attachedCount = GetSendMailItem(job.attached)
             CraftLog("  the letter's slot now holds " .. tostring(attachedCount))
+            -- More went in than meant (the whole stack, not the part split
+            -- off): take it back out and try again in a moment.
+            if tonumber(attachedCount) and attachedCount > amount then
+                CraftLog("  too many; taking it back out")
+                ClickSendMailItemButton(job.attached, true)
+                if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+                job.attached = job.attached - 1
+                job.splitRetries = (job.splitRetries or 0) + 1
+                if job.splitRetries > 3 then
+                    FinishMailJob("Couldn't split " .. tostring(send.name) .. " for the letter; split off "
+                        .. amount .. " yourself and type /bartab mail.")
+                    return
+                end
+                job.sync = nil
+                C_Timer.After(0.5, MailStep)
+                return
+            end
         end
         if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
         send.left = send.left - amount

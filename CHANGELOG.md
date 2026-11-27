@@ -14,6 +14,8 @@
 
 - Fixed: with "Send letters in one press", the craft key typed into the letter's name box instead of sending the next letter. BarTab now takes the cursor out of the letter once it's filled in.
 
+- Mailing checks each attachment: if a whole stack went in instead of the part BarTab split off (5 Linen Cloth instead of 2), it takes it back out and tries again, or asks you to split it yourself.
+
 ## 1.60.1.11
 
 - One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules, countdowns and the craft-next key (`/bartab craft`) work as before.

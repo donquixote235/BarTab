@@ -1256,8 +1256,8 @@ end
 function DebugTracker(quiet)
     local lines = {}
     if not quiet then
-        settings.debugLog = { "BarTab debug tracker" }
-        lines = settings.debugLog
+        settings.trackerLog = { "BarTab debug tracker" }
+        lines = settings.trackerLog
     end
     local function Line(text)
         if not quiet then Print(text) end
