@@ -14,6 +14,7 @@
 
 - Fixed: with "Send letters in one press", the craft key typed into the letter's name box instead of sending the next letter. BarTab now takes the cursor out of the letter once it's filled in.
 
+- Fixed: mailing part of a stack from your reagent bag sent the whole stack (all 5 Linen Cloth instead of 2). BarTab now splits it into an empty slot of a regular bag first, and sends a stack whole when it's no bigger than what's needed.
 - Mailing checks each attachment: if a whole stack went in instead of the part BarTab split off (5 Linen Cloth instead of 2), it takes it back out and tries again, or asks you to split it yourself.
 
 ## 1.60.1.11

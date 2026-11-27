@@ -4886,17 +4886,25 @@ function MailStep()
         -- A stack of it in your bags that isn't mid-move.
         -- Every bag you carry, the reagent bag included (herbs and leather
         -- often sit there).
+        -- A stack no bigger than what's left to send goes in whole (the
+        -- biggest such); otherwise the first stack, split.
         local fromBag, fromSlot, stack, busy
+        local wholeBag, wholeSlot, wholeStack
         for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
             for slot = 1, ContainerSlots(bag) do
                 local itemID, count, locked = ContainerItem(bag, slot)
                 if itemID == send.itemID then
                     if locked then busy = true
-                    elseif not fromBag then fromBag, fromSlot, stack = bag, slot, count end
+                    else
+                        if not fromBag then fromBag, fromSlot, stack = bag, slot, count end
+                        if count <= send.left and (not wholeStack or count > wholeStack) then
+                            wholeBag, wholeSlot, wholeStack = bag, slot, count
+                        end
+                    end
                 end
             end
-            if fromBag then break end
         end
+        if wholeBag then fromBag, fromSlot, stack = wholeBag, wholeSlot, wholeStack end
         if not fromBag then
             if busy and job.waits < 20 then
                 job.waits = job.waits + 1
@@ -4920,6 +4928,31 @@ function MailStep()
         local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
         local split = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
         local amount = math.min(stack, send.left)
+        -- Splitting from the reagent bag straight into a letter puts the
+        -- whole stack in, so split into an empty slot of a regular bag
+        -- first; the next step then sends that stack whole.
+        local regularBags = NUM_BAG_SLOTS or 4
+        if amount < stack and fromBag > regularBags then
+            local emptyBag, emptySlot
+            for bag = 0, regularBags do
+                for slot = 1, ContainerSlots(bag) do
+                    if not ContainerItem(bag, slot) then emptyBag, emptySlot = bag, slot break end
+                end
+                if emptyBag then break end
+            end
+            if emptyBag and not job.staged then
+                CraftLog(("mail: splitting %d %s from bag %d slot %d into bag %d slot %d first"):format(
+                    amount, tostring(send.name), fromBag, fromSlot, emptyBag, emptySlot))
+                split(fromBag, fromSlot, amount)
+                pickup(emptyBag, emptySlot)
+                if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+                job.staged = true
+                job.sync = nil
+                C_Timer.After(0.4, MailStep)
+                return
+            end
+        end
+        job.staged = nil
         if amount < stack then split(fromBag, fromSlot, amount) else pickup(fromBag, fromSlot) end
         job.attached = job.attached + 1
         CraftLog(("mail to %s: slot %d gets %d %s (bag %d slot %d holds %d; %s)"):format(tostring(letter.to),
