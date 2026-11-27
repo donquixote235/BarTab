@@ -1957,8 +1957,40 @@ function GetBarUnderCursor()
     end
 end
 
--- Moves the dragged item into the dropped-on item's position.
+-- Moves the dragged item into the dropped-on item's position. Material and
+-- recipe bars take their place from the bars behind them, so those move.
 function MoveItem(fromKey, toKey)
+    local from, to = trackedItems[fromKey], trackedItems[toKey]
+    if from and to and (from.virtual or to.virtual) then
+        local toReals, inTo = to.virtual and to.recipes or { toKey }, {}
+        for _, key in ipairs(toReals) do inTo[key] = true end
+        local moving = {}
+        for _, key in ipairs(from.virtual and from.recipes or { fromKey }) do
+            if not inTo[key] then moving[key] = true end
+        end
+        local down = (from.order or 0) < (to.order or 0)
+        local list, block = {}, {}
+        for _, key in ipairs(GetSortedKeys()) do
+            local item = trackedItems[key]
+            if item and not item.virtual then
+                if moving[key] then block[#block + 1] = key else list[#list + 1] = key end
+            end
+        end
+        if #block == 0 then return end
+        -- Before the first of the target's bars, or after its last.
+        local at
+        for index, key in ipairs(list) do
+            if inTo[key] then
+                if not down and not at then at = index end
+                if down then at = index + 1 end
+            end
+        end
+        at = at or (#list + 1)
+        for offset, key in ipairs(block) do table.insert(list, at + offset - 1, key) end
+        for index, key in ipairs(list) do trackedItems[key].order = index end
+        UpdateBars()
+        return
+    end
     local keys = GetSortedKeys()
     local fromIndex, toIndex
     for index, key in ipairs(keys) do
