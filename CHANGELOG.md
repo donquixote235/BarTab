@@ -10,6 +10,8 @@
 
 - Fixed: "Mail all I have of each" gave all the extra to the first character who needed an item; it's now shared out evenly between everyone getting it.
 
+- Your other characters' needs (mailing, "For your other characters" bars) and what you keep for yourself count every ingredient of a tracked recipe, not just the ones with bars: the Linen Cloth a Copper Mace takes when only its Copper Bar is tracked. Vendor-bought ingredients are left out.
+
 ## 1.60.1.11
 
 - One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules, countdowns and the craft-next key (`/bartab craft`) work as before.

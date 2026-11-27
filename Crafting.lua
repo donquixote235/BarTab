@@ -4624,14 +4624,37 @@ mailboxOpen = false
 OfferMailText = nil
 
 -- item ID -> total of the goals of a bar list's active, non-crate bars.
+-- What a list of bars needs: { [itemID] = count }, { [itemID] = name }.
+-- A recipe's ingredients without a bar of their own count too (the Linen
+-- Cloth a Copper Mace takes when only its Copper Bar is tracked), sized for
+-- the crafts its bars plan; vendor-bought ones (thread) don't.
 function BarNeeds(list)
-    local needs, names = {}, {}
+    local needs, names, recipes = {}, {}, {}
     for _, item in pairs(list or {}) do
         if not item.container and not item.inactive and not item.altNeed and not item.virtual and item.goal and item.goal > 0 then
             local id = ItemIDFor(item)
             if id then
                 needs[id] = (needs[id] or 0) + item.goal
                 names[id] = item.name
+            end
+            if item.recipeID and not IsOutputBar(item) then
+                local recipe = recipes[item.recipeID] or { planned = 1, tracked = {} }
+                recipes[item.recipeID] = recipe
+                recipe.tracked[string.lower(item.name)] = true
+                local perCraft = GetReagentQuantity(item.recipeID, item.name)
+                if perCraft and perCraft > 0 then
+                    recipe.planned = math.max(recipe.planned, math.ceil(item.goal / perCraft))
+                end
+            end
+        end
+    end
+    for recipeID, recipe in pairs(recipes) do
+        local ok, reagents = pcall(GetRecipeReagents, recipeID)
+        for _, reagent in ipairs((ok and reagents) or {}) do
+            if reagent.itemID and not recipe.tracked[string.lower(reagent.name)]
+                and not IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID }) then
+                needs[reagent.itemID] = (needs[reagent.itemID] or 0) + reagent.need * recipe.planned
+                names[reagent.itemID] = names[reagent.itemID] or reagent.name
             end
         end
     end
