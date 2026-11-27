@@ -4905,6 +4905,14 @@ function MailStep()
             end
         end
         if wholeBag then fromBag, fromSlot, stack = wholeBag, wholeSlot, wholeStack end
+        -- Just split some off into another slot: wait for it to land.
+        if job.staged and not wholeBag and busy and (job.stageWaits or 0) < 10 then
+            job.stageWaits = (job.stageWaits or 0) + 1
+            job.sync = nil
+            C_Timer.After(0.3, MailStep)
+            return
+        end
+        job.stageWaits = nil
         if not fromBag then
             if busy and job.waits < 20 then
                 job.waits = job.waits + 1
