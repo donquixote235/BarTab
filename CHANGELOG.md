@@ -9,6 +9,8 @@
 
 - "Show what my other characters need" and the Mailbox setting (Shopping settings) are per character now: turn them on for your gatherers and off for your mains. A character that hasn't chosen uses what you had before.
 
+- Right-click a "For your other characters" bar to stop shopping for that item, for one of that character's recipes ("Don't shop for Vespera's Copper Battle Axe"), for that character altogether, or for anyone on this character. "Shop for the hidden ones again" (Shopping settings) undoes them. Recipes and characters you skip are left out of mailing too.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.

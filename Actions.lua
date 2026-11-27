@@ -414,20 +414,38 @@ ShowItemMenu = function(owner, itemKey)
         return
     end
 
-    -- A bar for another character's needs: only hiding makes sense here.
+    -- A bar for another character's needs: what to stop shopping for.
     if item.altNeed then
-        ShowMenu(owner, DisplayName(item), {
-            { "Don't show this for " .. item.altName, function()
+        local alt, character = item.altName, item.altCharacter
+        local entries = {
+            { "Don't show " .. item.name .. " for " .. alt, function()
                 settings.altShopHidden = settings.altShopHidden or {}
                 settings.altShopHidden[itemKey] = true
                 SyncAltNeedBars()
             end },
-            { "Turn off shopping for other characters", function()
-                SetCharSetting("altShopping", false)
-                SyncAltNeedBars()
-                Print("Shopping for other characters is off on this character (Shopping tab in /bartab config to turn it on).")
-            end },
-        })
+        }
+        -- Each of their recipes it's for.
+        local recipeIDs = {}
+        for recipeID in pairs(item.altRecipes or {}) do recipeIDs[#recipeIDs + 1] = recipeID end
+        table.sort(recipeIDs, function(a, b) return (GetRecipeName(a) or "") < (GetRecipeName(b) or "") end)
+        for _, recipeID in ipairs(recipeIDs) do
+            local recipeName = GetRecipeName(recipeID) or ("recipe " .. recipeID)
+            entries[#entries + 1] = { "Don't shop for " .. alt .. "'s " .. recipeName, function()
+                SkipAltShopping(character, recipeID)
+                Print(("Not shopping for %s's %s (Shopping tab in /bartab config to undo)."):format(alt, recipeName))
+            end }
+        end
+        entries[#entries + 1] = { "Don't shop for " .. alt .. " at all", function()
+            SkipAltShopping(character, "all")
+            Print(("Not shopping for %s (Shopping tab in /bartab config to undo)."):format(alt))
+        end }
+        entries[#entries + 1] = { divider = true }
+        entries[#entries + 1] = { "Turn off shopping for others on this character", function()
+            SetCharSetting("altShopping", false)
+            SyncAltNeedBars()
+            Print("Shopping for other characters is off on this character (Shopping tab in /bartab config to turn it on).")
+        end }
+        ShowMenu(owner, DisplayName(item), entries)
         return
     end
 

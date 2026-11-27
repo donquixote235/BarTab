@@ -486,6 +486,18 @@ function BuildConfigFrame()
             SetCharSetting("altShopping", v and true or false)
             Safe("alt shopping", SyncAltNeedBars)()
         end)
+    local unhideButton = AddButton(page, 24, y, 350, "",
+        "Bars and recipes you chose not to shop for (right-click a \"For your other characters\" bar): show them all again.",
+        function()
+            ResetAltShopHidden()
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local count = AltShopHiddenCount()
+        unhideButton:SetText(count > 0 and ("Shop for the hidden ones again (" .. count .. ")") or "Nothing hidden")
+        if unhideButton.SetEnabled then unhideButton:SetEnabled(count > 0) end
+    end)
+    y = y - 30
 
     y = AddHeading(page, y - 6, "Auction house")
     y = AddCheck(page, y, "Add a BarTab tab beside the auction house",

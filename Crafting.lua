@@ -4664,14 +4664,23 @@ OfferMailText = nil
 -- A recipe's ingredients without a bar of their own count too (the Linen
 -- Cloth a Copper Mace takes when only its Copper Bar is tracked), sized for
 -- the crafts its bars plan; vendor-bought ones (thread) don't.
-function BarNeeds(list)
-    local needs, names, recipes = {}, {}, {}
+-- skip: { [recipeID] = true } recipes to leave out. Also returns sources:
+-- { [itemID] = { [recipeID] = true } }, the recipes each need comes from.
+function BarNeeds(list, skip)
+    local needs, names, recipes, sources = {}, {}, {}, {}
+    local function From(id, recipeID)
+        if not recipeID then return end
+        sources[id] = sources[id] or {}
+        sources[id][recipeID] = true
+    end
     for _, item in pairs(list or {}) do
-        if not item.container and not item.inactive and not item.altNeed and not item.virtual and item.goal and item.goal > 0 then
+        if not item.container and not item.inactive and not item.altNeed and not item.virtual and item.goal and item.goal > 0
+            and not (skip and item.recipeID and skip[item.recipeID]) then
             local id = ItemIDFor(item)
             if id then
                 needs[id] = (needs[id] or 0) + item.goal
                 names[id] = item.name
+                From(id, item.recipeID)
             end
             if item.recipeID and not IsOutputBar(item) then
                 local recipe = recipes[item.recipeID] or { planned = 1, tracked = {} }
@@ -4691,10 +4700,11 @@ function BarNeeds(list)
                 and not IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID }) then
                 needs[reagent.itemID] = (needs[reagent.itemID] or 0) + reagent.need * recipe.planned
                 names[reagent.itemID] = names[reagent.itemID] or reagent.name
+                From(reagent.itemID, recipeID)
             end
         end
     end
-    return needs, names
+    return needs, names, sources
 end
 
 -- What your other characters' bars are short of (same realm and faction):
@@ -4713,7 +4723,9 @@ function AltShortfalls()
     for _, key in ipairs(keys) do
         local realm = key:match("%-(.*)$")
         local snapshot = settings.inventory and settings.inventory[key]
-        if key ~= me and realm == myRealm and snapshot
+        -- settings.altShopSkip[character]: .all, or recipes not to shop for.
+        local skip = settings.altShopSkip and settings.altShopSkip[key]
+        if key ~= me and realm == myRealm and snapshot and not (skip and skip.all)
             and not (snapshot.faction and myFaction and snapshot.faction ~= myFaction) then
             -- Mail sent since they last logged in still counts as theirs.
             local mailed = settings.mailed[key]
@@ -4724,13 +4736,14 @@ function AltShortfalls()
                 return ((snapshot.bags or {})[id] or 0) + ((snapshot.bank or {})[id] or 0)
                     + ((mailed and mailed.items[id]) or 0)
             end
-            local needs, names = BarNeeds(characters[key])
+            local needs, names, sources = BarNeeds(characters[key], skip and skip.recipes)
             local direct, byID = {}, {}
             for id, need in pairs(needs) do
                 local short = need - Has(id)
                 if short > 0 then
                     local entry = { to = CharacterName(key), character = key, itemID = id,
-                        name = names[id] or GetItemNameByID(id) or ("item " .. id), short = short }
+                        name = names[id] or GetItemNameByID(id) or ("item " .. id), short = short,
+                        recipes = sources[id] }
                     list[#list + 1] = entry
                     direct[#direct + 1] = entry
                     byID[id] = entry
@@ -4757,7 +4770,7 @@ function AltShortfalls()
                                     existing.short = existing.short + short
                                 else
                                     local made = { to = CharacterName(key), character = key, itemID = reagent.itemID,
-                                        name = reagent.name, short = short,
+                                        name = reagent.name, short = short, recipes = entry.recipes,
                                         via = { itemID = entry.itemID, name = entry.name, short = entry.short,
                                             qty = qty, need = reagent.need, have = have } }
                                     list[#list + 1] = made
@@ -5747,7 +5760,7 @@ function SyncAltNeedBars()
         end
         if item.goal ~= need.short then changed = true end
         item.name, item.itemID, item.goal = need.name, need.itemID, need.short
-        item.altName, item.altCharacter = need.to, need.character
+        item.altName, item.altCharacter, item.altRecipes = need.to, need.character, need.recipes
         item.label = need.name .. " for " .. need.to .. (need.via and (" (" .. need.via.name .. ")") or "")
         order = order + 1
         item.order = item.order and item.order >= 100000 and item.order or order
@@ -6624,3 +6637,34 @@ sessionWatcher:SetScript("OnEvent", function(_, event, isInitialLogin)
         session.endMoney = GetMoney and GetMoney() or nil
     end
 end)
+
+-- Stops shopping (and mailing) for another character's recipe, or for the
+-- character altogether ("all").
+function SkipAltShopping(character, recipeID)
+    settings.altShopSkip = settings.altShopSkip or {}
+    local skip = settings.altShopSkip[character] or {}
+    settings.altShopSkip[character] = skip
+    if recipeID == "all" then
+        skip.all = true
+    else
+        skip.recipes = skip.recipes or {}
+        skip.recipes[recipeID] = true
+    end
+    SyncAltNeedBars()
+end
+
+-- How many things are hidden or skipped, and putting them all back.
+function AltShopHiddenCount()
+    local count = 0
+    for _ in pairs(settings.altShopHidden or {}) do count = count + 1 end
+    for _, skip in pairs(settings.altShopSkip or {}) do
+        if skip.all then count = count + 1 end
+        for _ in pairs(skip.recipes or {}) do count = count + 1 end
+    end
+    return count
+end
+
+function ResetAltShopHidden()
+    settings.altShopHidden, settings.altShopSkip = nil, nil
+    Safe("alt shopping", SyncAltNeedBars)()
+end
