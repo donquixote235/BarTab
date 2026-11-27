@@ -201,6 +201,24 @@ function CraftNow(item, amount)
         Print("Craft failed: " .. tostring(err))
         return
     end
+    -- A profession just loaded behind the scenes (switching from another,
+    -- say Blacksmithing to Mining) can ignore the first request without a
+    -- word. No cast after a moment: ask once more, then say so.
+    local started = crafting
+    local function Check(tries)
+        if crafting ~= started or started.cast or CastingNow() then return end
+        if tries < 2 then
+            CraftLog("no cast yet; asking again")
+            pcall(C_TradeSkillUI.CraftRecipe, item.recipeID, math.max(1, amount - (started.done or 0)))
+            C_Timer.After(1.5, function() Check(tries + 1) end)
+        else
+            CraftLog("no cast; giving up")
+            crafting = nil
+            Print(("The game didn't start crafting %s. Open your %s window and click again."):format(
+                GetRecipeName(item.recipeID) or DisplayName(item), item.profession or "profession"))
+        end
+    end
+    C_Timer.After(1.0, function() Check(1) end)
     -- Long batches say how long they'll take.
     local each = CraftSeconds(item.recipeID)
     if each and each * amount >= 30 then

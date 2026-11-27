@@ -689,7 +689,10 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         if arg1 == "player" and (crafting or (arg3 and IsTrackedRecipe(arg3))
             or ProfessionsOpen()) then
             CraftLog(event:gsub("UNIT_SPELLCAST_", "cast ") .. " " .. tostring(arg3))
-            if crafting then crafting.last = GetTime() end
+            if crafting then
+                crafting.last = GetTime()
+                if event ~= "UNIT_SPELLCAST_FAILED" then crafting.cast = true end
+            end
             if event == "UNIT_SPELLCAST_START" and arg3 then
                 Safe("craft start", OnCraftStarted)(arg3)
             elseif event == "UNIT_SPELLCAST_SUCCEEDED" and arg3 then
