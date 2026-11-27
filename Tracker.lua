@@ -1961,6 +1961,36 @@ end
 -- recipe bars take their place from the bars behind them, so those move.
 function MoveItem(fromKey, toKey)
     local from, to = trackedItems[fromKey], trackedItems[toKey]
+    -- Material bars share recipes, so they can't move by their recipes:
+    -- they keep a place of their own (settings.materialOrder), in the same
+    -- numbering as the bars around them.
+    if from and to and (from.matBar or to.matBar) then
+        local group, list, pool = GetGroup(from), {}, {}
+        for _, key in ipairs(GetSectionKeys(GetSection(from))) do
+            if GetGroup(trackedItems[key]) == group then
+                list[#list + 1] = key
+                pool[#pool + 1] = trackedItems[key].order or 0
+            end
+        end
+        local fromIndex, toIndex
+        for index, key in ipairs(list) do
+            if key == fromKey then fromIndex = index end
+            if key == toKey then toIndex = index end
+        end
+        if not fromIndex or not toIndex or fromIndex == toIndex then return end
+        table.remove(list, fromIndex)
+        table.insert(list, toIndex, fromKey)
+        table.sort(pool)
+        settings.materialOrder = settings.materialOrder or {}
+        for index, key in ipairs(list) do
+            -- Ties (material bars of one recipe) pulled slightly apart.
+            local value = pool[index] + index * 0.001
+            trackedItems[key].order = value
+            if trackedItems[key].matBar then settings.materialOrder[key] = value end
+        end
+        UpdateBars()
+        return
+    end
     if from and to and (from.virtual or to.virtual) then
         local toReals, inTo = to.virtual and to.recipes or { toKey }, {}
         for _, key in ipairs(toReals) do inTo[key] = true end

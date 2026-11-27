@@ -5183,6 +5183,9 @@ function SyncMaterialBars()
             item.goal = needed
         else
             item.name, item.itemID, item.goal = entry.name, entry.itemID, entry.goal
+            -- A place you dragged it to.
+            local moved = settings.materialOrder and settings.materialOrder[key]
+            if moved then item.order = moved end
         end
     end
 end
