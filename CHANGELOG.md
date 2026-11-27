@@ -17,6 +17,8 @@
 - Fixed: mailing part of a stack from your reagent bag sent the whole stack (all 5 Linen Cloth instead of 2). BarTab now splits it into an empty slot of a regular bag first, and sends a stack whole when it's no bigger than what's needed.
 - Mailing checks each attachment: if a whole stack went in instead of the part BarTab split off (5 Linen Cloth instead of 2), it takes it back out and tries again, or asks you to split it yourself.
 
+- "Also track its other ingredients (Linen Cloth)" on a recipe bar's right-click menu adds bars for the ingredients it doesn't track yet, sized for the same crafts and with the same rules. Vendor-bought ingredients are left out.
+
 ## 1.60.1.11
 
 - One bar per material (optional): a profession can show its tracked recipes as one bar per material instead of one per ingredient, "Peacebloom 2 / 3" for every recipe that uses it, which keeps a list of many small recipes (alchemy, cooking) short. Right-click a profession's heading in BarTab: Crafting for "Show one bar per material" (or set the default in settings, Display tab). Hover a material bar for each recipe it feeds and whether it's ready; click it to pick a recipe to craft, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready, one recipe after another (click again to stop). The recipes' own bars stay tracked behind the scenes, so shopping, rules, countdowns and the craft-next key (`/bartab craft`) work as before.

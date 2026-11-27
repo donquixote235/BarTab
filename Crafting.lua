@@ -6214,3 +6214,50 @@ auctionWatcher:SetScript("OnEvent", function(_, event)
         pcall(UpdateAuctionPanel)
     end
 end)
+
+-- A recipe's ingredients without a bar of their own (the Linen Cloth of a
+-- Copper Mace tracked with just its Copper Bar), not counting vendor-bought
+-- ones unless settings.showVendorMats: { reagent, ... }, and a bar of the
+-- recipe to copy settings from.
+function UntrackedIngredients(recipeID)
+    local tracked, sample = {}, nil
+    for _, item in pairs(trackedItems) do
+        if item.recipeID == recipeID and not item.container and not item.virtual and not item.altNeed
+            and not IsOutputBar(item) then
+            tracked[string.lower(item.name)] = true
+            if not sample or (item.order or 0) < (sample.order or 0) then sample = item end
+        end
+    end
+    local list = {}
+    if not sample then return list end
+    for _, reagent in ipairs(GetRecipeReagents(recipeID) or {}) do
+        if not tracked[string.lower(reagent.name)] and (settings.showVendorMats
+            or not IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID })) then
+            list[#list + 1] = reagent
+        end
+    end
+    return list, sample
+end
+
+-- Adds bars for those, sized for the crafts the recipe's bars plan, with
+-- the same rules (after crafting, stop, count down).
+function TrackOtherIngredients(recipeID)
+    local list, sample = UntrackedIngredients(recipeID)
+    if #list == 0 then return end
+    local planned = math.max(1, SizedCrafts(sample) or 1)
+    local parts = {}
+    for index, reagent in ipairs(list) do
+        local bar = {}
+        for field, value in pairs(sample) do bar[field] = value end
+        bar.name, bar.itemID, bar.start = reagent.name, reagent.itemID, 0
+        bar.goal = reagent.need * planned
+        bar.countFrom, bar.countDone, bar.chainFor = nil, nil, nil
+        bar.order = (sample.order or 0) + index * 0.01
+        trackedItems[RecipeKey(reagent.name, recipeID)] = bar
+        parts[#parts + 1] = bar.goal .. " " .. reagent.name
+    end
+    NormalizeOrder()
+    UpdateBars()
+    Print(("Also tracking %s for %s."):format(JoinNames(parts, 6),
+        GetRecipeName(recipeID) or DisplayName(sample)))
+end

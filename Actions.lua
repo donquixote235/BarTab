@@ -463,6 +463,16 @@ ShowItemMenu = function(owner, itemKey)
             end
         end
     end
+    -- Ingredients the recipe takes that have no bar yet.
+    if item.recipeID and not item.container and not IsOutputBar(item) then
+        local others = UntrackedIngredients(item.recipeID)
+        if #others > 0 then
+            local names = {}
+            for _, reagent in ipairs(others) do names[#names + 1] = reagent.name end
+            crafting[#crafting + 1] = { "Also track its other ingredients (" .. JoinNames(names, 3) .. ")",
+                function() TrackOtherIngredients(item.recipeID) end }
+        end
+    end
     local producer = CanTrackChain(item)
     if producer then
         -- One craft; Alt-click for everything the bar is short of.
