@@ -17,6 +17,7 @@ A /reload is enough after installing; no new files this time.
 - One-bar-per-recipe professions track every ingredient straight away from "Track in BarTab".
 - "Open Alchemy" on a profession heading's right-click menu; untrack from a material bar's right-click menu.
 - A material bar used by only one recipe crafts it on click.
+- At a vendor, BarTab offers again when crafting there uses something up, like the last Empty Vial.
 - The settings window is reorganized, with Alerts on their own tab.
 
 ## Fixed

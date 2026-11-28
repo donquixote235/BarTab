@@ -14,6 +14,7 @@
 - "Open Alchemy" (or whichever profession) at the top of a profession heading's right-click menu.
 - Right-click a material bar to untrack its recipe, or, when several recipes use it, pick one or all of them from an Untrack submenu. /bartab undo brings them back.
 - A material bar used by only one recipe crafts it when clicked, instead of showing a menu with one entry.
+- At a vendor, BarTab offers again when crafting there uses something up (the last Empty Vial): whatever's newly short, while the vendor's window is open. Anything you said No to isn't offered again that visit.
 - Fixed: "The game didn't start crafting..." could show for a craft that did start, a moment late after another craft finished.
 
 ## 1.60.1.13

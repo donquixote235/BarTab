@@ -4349,15 +4349,42 @@ function BuyPurchases(list)
         end
     end
     local text = DescribePurchases(list)
+    -- Bought: if crafting uses it up again before you leave, offer it again.
+    if vendorVisit then
+        C_Timer.After(2, function()
+            if vendorVisit then for _, entry in ipairs(list) do vendorVisit.offered[entry.name] = nil end end
+        end)
+    end
     Safe("session", SessionNoteSpent)("vendor", total)
     Print("Bought " .. text .. " for " .. FormatMoney(total) .. ".")
 end
 
-function OnMerchantShow()
+-- vendorVisit: this visit's offers. declined[name]: said No to (not
+-- offered again this visit); offered[name]: in the prompt now or bought.
+-- recheck: called again as your bags change while the window is open
+-- (crafting at the vendor uses up the vials): only offers what's new.
+function OnMerchantShow(recheck)
     local mode = settings.vendorBuy or "ask"
     if mode == "off" then return end
+    if not recheck then vendorVisit = { declined = {}, offered = {} } end
+    local visit = vendorVisit or { declined = {}, offered = {} }
+    vendorVisit = visit
+    if recheck and StaticPopup_Visible and StaticPopup_Visible("BARTAB_VENDOR_BUY") then return end
     local wanted = FindVendorPurchases()
+    if recheck then
+        local fresh = false
+        for _, entry in ipairs(wanted) do
+            if not visit.declined[entry.name] and not visit.offered[entry.name] then fresh = true end
+        end
+        if not fresh then return end
+        local keep = {}
+        for _, entry in ipairs(wanted) do
+            if not visit.declined[entry.name] then keep[#keep + 1] = entry end
+        end
+        wanted = keep
+    end
     if #wanted == 0 then return end
+    for _, entry in ipairs(wanted) do visit.offered[entry.name] = true end
     local list, skipped = ApplyVendorLimit(wanted)
     local note = SkippedNote(skipped)
     if #list == 0 then
@@ -4375,6 +4402,12 @@ function OnMerchantShow()
         button1 = "Buy",
         button2 = NO or "No",
         OnAccept = function(_, data) BuyPurchases(data) end,
+        -- No: not offered again this visit.
+        OnCancel = function(_, data, reason)
+            if reason == "clicked" and vendorVisit then
+                for _, entry in ipairs(data or {}) do vendorVisit.declined[entry.name] = true end
+            end
+        end,
         timeout = 0,
         whileDead = false,
         hideOnEscape = true,
@@ -4390,13 +4423,28 @@ vendorWatcher = CreateFrame("Frame")
 pcall(vendorWatcher.RegisterEvent, vendorWatcher, "MERCHANT_SHOW")
 pcall(vendorWatcher.RegisterEvent, vendorWatcher, "MERCHANT_CLOSED")
 pcall(vendorWatcher.RegisterEvent, vendorWatcher, "MERCHANT_UPDATE")
+pcall(vendorWatcher.RegisterEvent, vendorWatcher, "BAG_UPDATE_DELAYED")
 vendorWatcher:SetScript("OnEvent", function(_, event)
     if event == "MERCHANT_UPDATE" then
         -- Item details that arrived late (the list fills in as they load).
         pcall(RecordVendorPrices)
         return
     end
+    if event == "BAG_UPDATE_DELAYED" then
+        -- Still at the vendor and your bags changed (a craft used the last
+        -- vial): offer what's newly short, a moment later.
+        if not vendorVisit or vendorRecheckPending then return end
+        vendorRecheckPending = true
+        C_Timer.After(1, function()
+            vendorRecheckPending = nil
+            if vendorVisit and MerchantFrame and MerchantFrame.IsShown and MerchantFrame:IsShown() then
+                Safe("vendor", OnMerchantShow)(true)
+            end
+        end)
+        return
+    end
     if event == "MERCHANT_CLOSED" then
+        vendorVisit = nil
         if StaticPopup_Hide then StaticPopup_Hide("BARTAB_VENDOR_BUY") end
         return
     end
