@@ -5276,8 +5276,17 @@ function ShowItemPrompt(spec)
         frame.option.label = frame.option:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         frame.option.label:SetPoint("LEFT", frame.option, "RIGHT", 2, 0)
         frame.option:SetScript("OnClick", function(box)
-            local option = itemPrompt and itemPrompt.spec and itemPrompt.spec.option
+            local spec = itemPrompt and itemPrompt.spec
+            local option = spec and spec.option
             if option then
+                -- Keep the ticks you've changed: the redraw reads them back.
+                if spec.onUntick then
+                    for _, row in ipairs(itemPrompt.rows) do
+                        if row:IsShown() and row.data then
+                            spec.onUntick(row.data.entry, row.check:GetChecked() and true or false)
+                        end
+                    end
+                end
                 -- Redrawn by the option; not a decline.
                 itemPrompt.spec = nil
                 itemPrompt:Hide()
