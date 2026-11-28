@@ -565,6 +565,25 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    local collectButton = AddButton(page, 24, y, 350, "",
+        "At a mailbox: letters your other characters sent with BarTab (subject \"BarTab: materials\") are offered to take in one go, or taken straight away. Other mail is left alone. This character only: each character keeps its own choice.",
+        function()
+            local current, index = CharSetting("mailCollect") or "ask", 1
+            for i, mode in ipairs(COLLECT_MODES) do
+                if mode.key == current then index = i end
+            end
+            SetCharSetting("mailCollect", COLLECT_MODES[index % #COLLECT_MODES + 1].key)
+            RefreshConfig()
+        end)
+    AddCharacterTag(page, collectButton)
+    table.insert(configRefreshers, function()
+        local current = CharSetting("mailCollect") or "ask"
+        for _, mode in ipairs(COLLECT_MODES) do
+            if mode.key == current then collectButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+
     y = AddCheck(page, y, "Send letters in one press",
         "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or starts mailing. The game allows one letter per click or key press, so each letter still needs one.",
         function() return settings.mailAutoSend end,

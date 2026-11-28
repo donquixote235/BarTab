@@ -2,6 +2,7 @@
 
 ## 1.60.1.15
 
+- Mail on arrival: at a mailbox, the character your other characters mailed with BarTab is offered to take everything from those letters in one go (or, set in Characters settings, it's taken automatically). Only letters your own characters sent with BarTab are opened; other mail is left alone. It stops if your bags fill up. `/bartab mail take` takes them now.
 - At a vendor, the offer to buy again while you craft there waits until you've run out of the item (the last Empty Vial used), not as soon as you have fewer than your bars plan for.
 
 ## 1.60.1.14

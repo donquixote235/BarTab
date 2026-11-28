@@ -4776,6 +4776,7 @@ MAIL_MODES = {
     { key = "off", name = "Off (mail by hand)" },
 }
 MAIL_ATTACHMENTS = ATTACHMENTS_MAX_SEND or 12
+MAIL_SUBJECT = "BarTab: materials"
 mailJob = nil
 mailboxOpen = false
 
@@ -5149,7 +5150,7 @@ function TrySendLetter()
     end
     if attached < job.attached then return false end
     CraftLog("SendMail to " .. tostring(job.letter.address))
-    SendMail(job.letter.address, "BarTab: materials", "")
+    SendMail(job.letter.address, MAIL_SUBJECT, "")
     return true
 end
 
@@ -5362,7 +5363,7 @@ function MailStep()
     local fullName = snapshot and snapshot.fullName
     letter.address = letter.address or ((fullName and fullName ~= letter.to) and fullName or letter.to)
     if nameBox and nameBox.SetText then nameBox:SetText(letter.address) end
-    if subjectBox and subjectBox.SetText then subjectBox:SetText("BarTab: materials") end
+    if subjectBox and subjectBox.SetText then subjectBox:SetText(MAIL_SUBJECT) end
     -- No body text: a letter with text can't be deleted in one click once emptied.
     if bodyBox and bodyBox.SetText then bodyBox:SetText("") end
     if SendMailFrame_Update then pcall(SendMailFrame_Update) end
@@ -6181,18 +6182,171 @@ function ShowMailPrompt(sends)
     frame:Show()
 end
 
+-- Collect BarTab mail on arrival ---------------------------------------------
+-- On the character the letters went to: at the mailbox, BarTab offers to take
+-- everything from letters your other characters sent with BarTab (subject
+-- "BarTab: materials", from a character of yours, no cash on delivery), or
+-- takes it straight away. Other mail is left alone.
+-- CharSetting("mailCollect"): "ask" (default), "auto" or "off".
+COLLECT_MODES = {
+    { key = "ask", name = "Offer to take BarTab letters" },
+    { key = "auto", name = "Take BarTab letters automatically" },
+    { key = "off", name = "Off (open them by hand)" },
+}
+collectJob = nil
+collectChecked = false
+
+function MyCharacterNames()
+    local names = {}
+    for key in pairs((BarTabDB and BarTabDB.characters) or {}) do
+        local name = key:match("^([^%-]+)")
+        if name then names[name] = true end
+    end
+    return names
+end
+
+-- Inbox letters BarTab sent you that still hold items: { index, items }.
+function BarTabLetters()
+    local list = {}
+    if not (GetInboxNumItems and GetInboxHeaderInfo) then return list end
+    local mine = MyCharacterNames()
+    local me = UnitName and UnitName("player")
+    for i = 1, (GetInboxNumItems() or 0) do
+        local _, _, sender, subject, _, cod, _, itemCount = GetInboxHeaderInfo(i)
+        sender = sender and sender:match("^([^%-]+)")
+        if subject == MAIL_SUBJECT and (cod or 0) == 0 and (itemCount or 0) > 0
+            and sender and mine[sender] and sender ~= me then
+            local count = 0
+            for a = 1, (ATTACHMENTS_MAX_RECEIVE or 16) do
+                local _, _, _, stack = GetInboxItem(i, a)
+                count = count + (stack or 0)
+            end
+            list[#list + 1] = { index = i, items = math.max(count, itemCount) }
+        end
+    end
+    return list
+end
+
+function FreeBagSlots()
+    local free = 0
+    local get = (C_Container and C_Container.GetContainerNumFreeSlots) or _G.GetContainerNumFreeSlots
+    if not get then return 99 end
+    for bag = 0, (NUM_BAG_SLOTS or 4) + 1 do
+        local ok, count, family = pcall(get, bag)
+        if ok and count and (family == nil or family == 0) then free = free + count end
+    end
+    return free
+end
+
+-- Once per mailbox visit, after the inbox has loaded. Offers the mail-out
+-- prompt afterwards (or straight away if there's nothing to take).
+function CheckBarTabLetters()
+    if not mailboxOpen or collectChecked then return end
+    collectChecked = true
+    local mode = CharSetting("mailCollect") or "ask"
+    local letters = mode ~= "off" and BarTabLetters() or {}
+    if #letters == 0 then
+        OfferMailSends()
+        return
+    end
+    if mode == "auto" or not (StaticPopupDialogs and StaticPopup_Show) then
+        StartCollect()
+        return
+    end
+    local items = 0
+    for _, letter in ipairs(letters) do items = items + letter.items end
+    StaticPopupDialogs.BARTAB_COLLECT = StaticPopupDialogs.BARTAB_COLLECT or {
+        text = "BarTab: %s from your other characters (%s). Take everything?",
+        button1 = "Take",
+        button2 = NO or "No",
+        OnAccept = function() Safe("mail", StartCollect)() end,
+        OnCancel = function(_, _, reason)
+            if reason ~= "override" then Safe("mail", OfferMailSends)() end
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+    }
+    StaticPopup_Show("BARTAB_COLLECT",
+        #letters == 1 and "1 letter" or (#letters .. " letters"),
+        items == 1 and "1 item" or (items .. " items"))
+end
+
+function StartCollect()
+    if collectJob or not mailboxOpen then return end
+    collectJob = { taken = 0, letters = 0, tries = 0 }
+    CollectStep()
+end
+
+function FinishCollect(note)
+    local job = collectJob
+    collectJob = nil
+    if not job then return end
+    if job.taken > 0 then
+        Print(string.format("Took %d item%s from BarTab letters.", job.taken, job.taken == 1 and "" or "s")
+            .. (note and (" " .. note) or ""))
+    elseif note then
+        Print(note)
+    end
+    if mailboxOpen then
+        C_Timer.After(0.5, function()
+            if mailboxOpen then Safe("mail", OfferMailSends)() end
+        end)
+    end
+end
+
+-- One attachment at a time; the inbox is read again each step, since a
+-- letter emptied of items (BarTab letters have no text) goes away and the
+-- others move up.
+function CollectStep()
+    local job = collectJob
+    if not job then return end
+    if not mailboxOpen then collectJob = nil return end
+    local letter = BarTabLetters()[1]
+    if not letter then
+        FinishCollect()
+        return
+    end
+    if FreeBagSlots() == 0 then
+        FinishCollect("Your bags are full; the rest is still in your mailbox.")
+        return
+    end
+    local slot
+    for a = 1, (ATTACHMENTS_MAX_RECEIVE or 16) do
+        if GetInboxItem and GetInboxItem(letter.index, a) then slot = a break end
+    end
+    job.tries = job.tries + 1
+    if not slot or job.tries > 200 then
+        FinishCollect(slot and "Stopped: the mailbox didn't hand over the items." or nil)
+        return
+    end
+    local _, _, _, count = GetInboxItem(letter.index, slot)
+    TakeInboxItem(letter.index, slot)
+    job.taken = job.taken + (count or 1)
+    C_Timer.After(0.6, function() Safe("mail", CollectStep)() end)
+end
+
 mailWatcher = CreateFrame("Frame")
-for _, mailEvent in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_SUCCESS", "MAIL_FAILED" }) do
+for _, mailEvent in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "MAIL_INBOX_UPDATE" }) do
     pcall(mailWatcher.RegisterEvent, mailWatcher, mailEvent)
 end
 mailWatcher:SetScript("OnEvent", function(_, event)
     if event == "MAIL_SHOW" then
         mailboxOpen = true
-        C_Timer.After(0.5, function()
-            if mailboxOpen then Safe("mail", OfferMailSends)() end
+        collectChecked = false
+        C_Timer.After(1, function()
+            if mailboxOpen then Safe("mail", CheckBarTabLetters)() end
         end)
+    elseif event == "MAIL_INBOX_UPDATE" then
+        if mailboxOpen and not collectChecked then
+            C_Timer.After(0.3, function()
+                if mailboxOpen then Safe("mail", CheckBarTabLetters)() end
+            end)
+        end
     elseif event == "MAIL_CLOSED" then
         mailboxOpen = false
+        collectJob = nil
+        if StaticPopup_Hide then StaticPopup_Hide("BARTAB_COLLECT") end
         HideMailPrompt()
     elseif event == "MAIL_SEND_SUCCESS" then
         Safe("mail", OnMailSent)(true)
