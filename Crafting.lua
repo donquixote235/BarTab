@@ -5245,6 +5245,7 @@ local function ItemPromptRow(frame, index)
     row.label:SetPoint("LEFT", row.box, "RIGHT", 6, 0)
     row.label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.label:SetJustifyH("LEFT")
+    if row.label.SetWordWrap then row.label:SetWordWrap(false) end
     frame.rows[index] = row
     return row
 end
@@ -7091,6 +7092,7 @@ local function MailPromptRow(frame, index)
     row.label:SetPoint("LEFT", row.box, "RIGHT", 6, 0)
     row.label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.label:SetJustifyH("LEFT")
+    if row.label.SetWordWrap then row.label:SetWordWrap(false) end
     frame.rows[index] = row
     return row
 end
@@ -7124,7 +7126,7 @@ function ShowMailPrompt(sends, all)
         title:SetText("BarTab: mail your other characters")
         frame.intro = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         frame.intro:SetPoint("TOPLEFT", 18, -32)
-        frame.intro:SetText("Their bars need these. Untick (remembered) or change amounts:")
+        frame.intro:SetText("For your other characters. Untick (remembered) or change amounts:")
         frame.rows = {}
         frame.allCheck = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
         frame.allCheck:SetSize(24, 24)
@@ -7156,9 +7158,18 @@ function ShowMailPrompt(sends, all)
         row.max = send.max or inBags[send.itemID] or send.count
         row.check:SetChecked(not MailKept()[MailKeptKey(send)])
         row.box:SetText(tostring(send.count))
-        row.label:SetText(("%s to %s  |cff808080(%s)|r"):format(send.name, send.to,
-            send.note and (send.note .. ", you have " .. row.max) or ("you have " .. row.max)))
+        -- "you have N" only when it says something: more than this row sends.
+        local have = row.max ~= send.count and ("you have " .. row.max) or nil
+        local note = send.note and (have and (send.note .. ", " .. have) or send.note) or have
+        row.label:SetText(("%s to %s"):format(send.name, send.to)
+            .. (note and ("  |cff808080(" .. note .. ")|r") or ""))
         row:Show()
+    end
+    -- "Mail all" only changes rows for what a character's bars are short of
+    -- (not recipes to learn or crafts to disenchant).
+    local allApplies = false
+    for _, send in ipairs(sends) do
+        if not send.note then allApplies = true end
     end
     for index = shown + 1, #frame.rows do
         frame.rows[index].send = nil
@@ -7170,13 +7181,19 @@ function ShowMailPrompt(sends, all)
     frame.more:SetText(#sends > shown and ("and " .. (#sends - shown) .. " more; type /bartab mail again after sending") or "")
     if #sends > shown then bottom = bottom - 16 end
     frame.allCheck:ClearAllPoints()
-    frame.allCheck:SetPoint("TOPLEFT", 16, bottom - 4)
     frame.allCheck:SetChecked(mailAllNow and true or false)
+    if allApplies or mailAllNow then
+        frame.allCheck:SetPoint("TOPLEFT", 16, bottom - 4)
+        frame.allCheck:Show()
+        bottom = bottom - 28
+    else
+        frame.allCheck:Hide()
+    end
     frame.mailButton:ClearAllPoints()
-    frame.mailButton:SetPoint("TOPRIGHT", frame, "TOP", -6, bottom - 36)
+    frame.mailButton:SetPoint("TOPRIGHT", frame, "TOP", -6, bottom - 8)
     frame.cancelButton:ClearAllPoints()
-    frame.cancelButton:SetPoint("TOPLEFT", frame, "TOP", 6, bottom - 36)
-    frame:SetSize(440, -(bottom - 36) + 40)
+    frame.cancelButton:SetPoint("TOPLEFT", frame, "TOP", 6, bottom - 8)
+    frame:SetSize(440, -(bottom - 8) + 40)
     frame:ClearAllPoints()
     if MailFrame and MailFrame.IsShown and MailFrame:IsShown() then
         frame:SetPoint("TOPLEFT", MailFrame, "TOPRIGHT", 12, 0)
