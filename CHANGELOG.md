@@ -23,7 +23,7 @@
 
 - "Open Alchemy" (or whichever profession) at the top of a profession heading's right-click menu.
 - For a profession shown one bar per recipe, "Track in BarTab" tracks every ingredient (vendor-bought ones aside) for one craft straight away, instead of opening the Track with settings window.
-- With "Track Recipe tracks in BarTab" on (Recipes settings), Track Recipe on the profession window's recipe list right-click menu tracks in BarTab too, the same way.
+- "Track in BarTab" / "Untrack in BarTab" on the profession window's recipe list right-click menu (tracks the same way as the checkbox). With "Track Recipe tracks in BarTab" on, the game's own Track Recipe does too.
 
 ## 1.60.1.13
 

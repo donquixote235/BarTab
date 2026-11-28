@@ -789,10 +789,72 @@ function MarkRecipeRow(row, elementData)
     if row.barTabMark then row.barTabMark:SetShown(show) end
 end
 
+-- "Track in BarTab" / "Untrack in BarTab" on the recipe list's right-click
+-- menu. Menus are extended by their tag; the recipe list's isn't documented,
+-- so a few likely ones are tried, and the real one is noted (and used from
+-- then on) the first time the menu opens.
+RECIPE_MENU_TAGS = { "MENU_PROFESSIONS_RECIPE_LIST_RECIPE", "MENU_PROFESSIONS_RECIPE_LIST",
+    "MENU_PROFESSIONS_RECIPE", "MENU_PROFESSION_RECIPE_LIST_RECIPE" }
+recipeMenuTagsHooked = {}
+
+local function RecipeOfRow(owner)
+    local data = owner and owner.GetElementData and owner:GetElementData()
+    data = data and data.GetData and data:GetData()
+    local info = type(data) == "table" and data.recipeInfo
+    return type(info) == "table" and info.recipeID or nil
+end
+
+local function AddRecipeMenuEntries(owner, root)
+    local recipeID = RecipeOfRow(owner)
+    if not (recipeID and root and root.CreateButton) then return end
+    recipeMenuExtended = true
+    root:CreateDivider()
+    if IsTrackedRecipe(recipeID) then
+        root:CreateButton("Untrack in BarTab", function()
+            UntrackRecipe(recipeID)
+            Print("Stopped tracking " .. (GetRecipeName(recipeID) or "the recipe") .. ".")
+        end)
+    else
+        root:CreateButton("Track in BarTab", function() Safe("track recipe", TrackRecipeQuick)(recipeID) end)
+    end
+end
+
+function HookRecipeMenuTag(tag)
+    if not (tag and Menu and Menu.ModifyMenu) or recipeMenuTagsHooked[tag] then return end
+    recipeMenuTagsHooked[tag] = true
+    Menu.ModifyMenu(tag, function(owner, root) Safe("recipe menu", AddRecipeMenuEntries)(owner, root) end)
+end
+
+function HookRecipeMenu()
+    if recipeMenuHooked then return end
+    recipeMenuHooked = true
+    for _, tag in ipairs(RECIPE_MENU_TAGS) do HookRecipeMenuTag(tag) end
+    if settings.recipeMenuTag then HookRecipeMenuTag(settings.recipeMenuTag) end
+    -- The first right-click on a recipe: note the menu's real tag.
+    if MenuUtil and MenuUtil.CreateContextMenu and hooksecurefunc then
+        hooksecurefunc(MenuUtil, "CreateContextMenu", function(owner)
+            if not RecipeOfRow(owner) then return end
+            if recipeMenuExtended then recipeMenuExtended = nil return end
+            local ok, tag = pcall(function()
+                local menu = Menu.GetManager():GetOpenMenu()
+                local description = menu and menu.GetMenuDescription and menu:GetMenuDescription()
+                return description and description.GetTag and description:GetTag()
+            end)
+            CraftLog("recipe menu tag: " .. tostring(ok and tag))
+            if ok and tag and not recipeMenuTagsHooked[tag] then
+                settings.recipeMenuTag = tag
+                HookRecipeMenuTag(tag)
+                Print("Track in BarTab is on this menu from the next right-click.")
+            end
+        end)
+    end
+end
+
 function HookRecipeList()
     if recipeListHooked then return end
     local scrollBox = RecipeListScrollBox()
     if not (scrollBox and ScrollUtil and ScrollUtil.AddAcquiredFrameCallback) then return end
+    pcall(HookRecipeMenu)
     ScrollUtil.AddAcquiredFrameCallback(scrollBox, function(_, row, elementData)
         local ok, err = pcall(MarkRecipeRow, row, elementData)
         if not ok then ReportError("recipe list", err) end
