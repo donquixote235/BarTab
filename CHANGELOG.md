@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.60.1.18
+
+- Putting away into a full (or nearly full) bank says what actually went in: BarTab checks each stack left your bags, instead of counting every one it tried, and stops with "Your bank is full; the rest stayed in your bags." Profession bags in the bank (a leatherworking bag, say) only count as room for what they take.
+
 ## 1.60.1.17
 
 - `/bartab restock`: what this character's bars are short of, grouped by where to get it: your bank, your other characters (bags or bank, and whether you've asked), making it, gathering it, a vendor (with the cost) or the auction house (with the price, if your auction addon knows it).

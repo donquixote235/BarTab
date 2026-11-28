@@ -5516,11 +5516,25 @@ function OfferBankDeposits(force)
     })
 end
 
+-- Whether a bag takes the item: any ordinary bag; a profession bag
+-- (leather, herbs, ore...) only what fits it.
+function BagAccepts(bag, itemID)
+    local get = (C_Container and C_Container.GetContainerNumFreeSlots) or _G.GetContainerNumFreeSlots
+    if not get then return true end
+    local ok, _, family = pcall(get, bag)
+    if not ok or not family or family == 0 then return true end
+    local getFamily = (C_Item and C_Item.GetItemFamily) or _G.GetItemFamily
+    local okItem, itemFamily = pcall(getFamily or function() return nil end, itemID)
+    if not okItem or not itemFamily then return false end
+    if bit and bit.band then return bit.band(family, itemFamily) ~= 0 end
+    return family == itemFamily
+end
+
 function BankHasRoom(itemID)
     local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
     local maxStack = getInfo and tonumber((select(8, getInfo(itemID)))) or 1
     for _, bag in ipairs(BankContainers()) do
-        for slot = 1, ContainerSlots(bag) do
+        for slot = 1, BagAccepts(bag, itemID) and ContainerSlots(bag) or 0 do
             local id, count = ContainerItem(bag, slot)
             if not id then return true end
             if id == itemID and count < maxStack then return true end
@@ -5544,7 +5558,7 @@ function BankSlotFor(itemID, amount)
     local maxStack = getInfo and tonumber((select(8, getInfo(itemID)))) or 1
     local partialBag, partialSlot
     for _, bag in ipairs(BankContainers()) do
-        for slot = 1, ContainerSlots(bag) do
+        for slot = 1, BagAccepts(bag, itemID) and ContainerSlots(bag) or 0 do
             local id, count, locked = ContainerItem(bag, slot)
             if not id then return bag, slot end
             if id == itemID and not locked and count + amount <= maxStack and not partialBag then
@@ -5586,6 +5600,30 @@ function DepositStep()
         FinishDepositJob("Put down what's on your cursor, then type /bartab bank to finish.")
         return
     end
+    -- Did the last move go through? The game says nothing when the bank
+    -- has no room: the stack just stays in your bags.
+    local last = job.pending
+    if last then
+        local id, count, locked = ContainerItem(last.bag, last.slot)
+        if locked and job.waits < 20 then
+            job.waits = job.waits + 1
+            C_Timer.After(0.2, DepositStep)
+            return
+        end
+        job.pending = nil
+        local moved
+        if last.split then
+            moved = id == last.itemID and (count or 0) >= last.before + last.count
+        else
+            moved = not (id == last.itemID and (count or 0) >= last.count)
+        end
+        if not moved then
+            job.put[last.itemID] = (job.put[last.itemID] or 0) - last.count
+            if job.put[last.itemID] <= 0 then job.put[last.itemID] = nil end
+            job.full[last.itemID] = true
+            if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+        end
+    end
     local busy
     for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
         for slot = 1, ContainerSlots(bag) do
@@ -5601,6 +5639,7 @@ function DepositStep()
                         use(bag, slot)
                         job.put[itemID] = (job.put[itemID] or 0) + count
                         want.left = want.left - count
+                        job.pending = { bag = bag, slot = slot, itemID = itemID, count = count }
                         job.waits = 0
                         C_Timer.After(0.25, DepositStep)
                         return
@@ -5612,9 +5651,12 @@ function DepositStep()
                     if toBag then
                         local split = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
                         local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
+                        local _, before = ContainerItem(toBag, toSlot)
                         split(bag, slot, want.left)
                         pickup(toBag, toSlot)
                         if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+                        job.pending = { bag = toBag, slot = toSlot, itemID = itemID, count = want.left,
+                            before = before or 0, split = true }
                         job.put[itemID] = (job.put[itemID] or 0) + want.left
                         want.left = 0
                         job.waits = 0
