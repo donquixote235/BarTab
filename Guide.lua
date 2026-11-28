@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.16: where your crafts go") .. "\n\n"
+        text = H("New in 1.60.1.17: restocking") .. "\n\n"
+            .. B .. C("/bartab restock") .. " lists what your bars are short of and where to get it: your bank, your other characters, making it, gathering it, a vendor or the auction house.\n"
+            .. B .. C("/bartab ask") .. " asks your other characters for what they have; they're offered it at their next mailbox or bank.\n"
+            .. B .. "Tidier right-click menus, with Rules, Track more and More submenus.\n\n"
+            .. H("New in 1.60.1.16: where your crafts go") .. "\n\n"
             .. B .. "At a vendor, BarTab offers to sell skill-up crafts nothing needs (" .. C("/bartab sell") .. "): common quality only unless you ask, with \"Keep a stack of each\".\n"
             .. B .. "Crafted greens go to your character with Enchanting, in the mail window.\n"
             .. B .. "The mail window remembers what you untick; \"Mail all\" is for that time only.\n\n"

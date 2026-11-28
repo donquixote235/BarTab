@@ -5127,12 +5127,26 @@ end
 -- force: /bartab bank (asks even with the setting off).
 function OfferBankWithdrawals(force)
     local mode = settings.bankWithdraw or "ask"
-    if mode == "off" and not force then return end
     if bankJob then return end
     if InCombatLockdown and InCombatLockdown() then return end
-    local list = FindBankWithdrawals()
+    local list = (mode ~= "off" or force) and FindBankWithdrawals() or {}
     local okAlts, forAlts = pcall(FindBankAltWithdrawals)
+    if mode == "off" and not force then okAlts, forAlts = true, {} end
     for _, entry in ipairs((okAlts and forAlts) or {}) do list[#list + 1] = entry end
+    -- What your other characters asked for, even with taking out turned off.
+    local okAsk, asked = pcall(RequestBankWithdrawals)
+    for _, entry in ipairs((okAsk and asked) or {}) do
+        local merged = false
+        for _, other in ipairs(list) do
+            if other.itemID == entry.itemID then
+                other.count = math.max(other.count, entry.count)
+                other.forAlts = entry.forAlts
+                merged = true
+            end
+        end
+        if not merged then list[#list + 1] = entry end
+    end
+    if mode == "off" and not force and #list == 0 then return end
     if #list == 0 then
         if force then Print("Your bank has nothing your bars are short of.") end
         Safe("bank", OfferBankDeposits)()
@@ -5864,6 +5878,20 @@ function FindMailSends(allSpare)
     -- Crafted greens for your enchanter to disenchant.
     local okDE, deSends = pcall(DisenchantSends)
     for _, send in ipairs((okDE and deSends) or {}) do sends[#sends + 1] = send end
+    -- What your other characters asked for (/bartab ask): even what your own
+    -- bars would keep. Merged with a send of the same item to them.
+    local okAsk, askSends = pcall(RequestSends, scan)
+    for _, ask in ipairs((okAsk and askSends) or {}) do
+        local merged = false
+        for _, send in ipairs(sends) do
+            if send.character == ask.character and send.itemID == ask.itemID and not send.note then
+                send.count = math.max(send.count, ask.count)
+                send.note = "asked"
+                merged = true
+            end
+        end
+        if not merged then sends[#sends + 1] = ask end
+    end
     table.sort(sends, function(a, b)
         if a.to ~= b.to then return a.to < b.to end
         return a.name < b.name
@@ -6396,6 +6424,7 @@ function OnMailSent(success)
         end
     end
     if #parts > 0 then job.sent[#job.sent + 1] = JoinNames(parts, 8) .. " to " .. letter.to end
+    Safe("requests", NoteRequestsMailed)(letter)
     Safe("session", SessionNoteSpent)("postage", letter.postage)
     settings.mailed[letter.character] = mailed
     Safe("alt shopping", SyncAltNeedBars)()
@@ -7001,7 +7030,13 @@ end)
 
 -- force: /bartab mail (asks even with the setting off).
 function OfferMailSends(force)
-    if (CharSetting("mailSend") or "ask") == "off" and not force then return end
+    if (CharSetting("mailSend") or "ask") == "off" and not force then
+        -- Off, except for what your other characters asked for.
+        if mailJob or (InCombatLockdown and InCombatLockdown()) then return end
+        local okAsk, asks = pcall(RequestSends)
+        if okAsk and #asks > 0 then ShowMailPrompt(asks) end
+        return
+    end
     -- /bartab mail starts over: a letter left half done (Escape, or the
     -- letter cleared by hand) shouldn't keep the prompt away.
     if mailJob and force then
@@ -8214,4 +8249,276 @@ if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked and hooksecurefunc then
         redirectingTracking = false
         if not IsTrackedRecipe(recipeID) then Safe("track recipe", TrackRecipeQuick)(recipeID) end
     end)
+end
+
+
+-- Restocking -------------------------------------------------------------------
+-- /bartab restock: what this character's bars are short of, and where to get
+-- it: your bank, your other characters, making it, gathering it, a vendor or
+-- the auction house. /bartab ask: ask your other characters for what they
+-- hold; they're offered it at their next mailbox (or bank), even if their own
+-- bars would keep it or mailing for others is off on them.
+-- settings.requests[holder]["Ein-Realm:2770"] = { to, itemID, name, count, time }.
+
+-- Your other characters on this realm and faction, sorted.
+function OtherCharacters()
+    local me = CharacterKey()
+    local myRealm = me:match("%-(.*)$")
+    local myFaction = UnitFactionGroup and UnitFactionGroup("player")
+    local list = {}
+    for key, snapshot in pairs(settings.inventory or {}) do
+        if key ~= me and key:match("%-(.*)$") == myRealm
+            and not (snapshot.faction and myFaction and snapshot.faction ~= myFaction) then
+            list[#list + 1] = key
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+-- What you're short of in your bags: { { name, itemID, count } }.
+function RestockNeeds()
+    local short, names, ids = GetShortages(true)
+    local idFor = {}
+    for id, key in pairs(ids) do idFor[key] = id end
+    local list = {}
+    for key, count in pairs(short) do
+        local name = names[key] or key
+        local id = idFor[key] or ResolveItemID(name)
+        if count > 0 then list[#list + 1] = { name = name, itemID = id, count = count } end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
+end
+
+function MyBankCount(itemID)
+    if not itemID then return 0 end
+    if bankWindowOpen then return BankItemCounts()[itemID] or 0 end
+    local ok, total = pcall(CountWhere, itemID, true, false)
+    local bags = ScanBags().byID[itemID] or 0
+    if ok and total then return math.max(0, total - bags) end
+    local snapshot = settings.inventory and settings.inventory[CharacterKey()]
+    return (snapshot and snapshot.bank and snapshot.bank[itemID]) or 0
+end
+
+-- Who else has it: { { key, name, bags, bank } }, most first.
+function HoldersOf(itemID)
+    local list = {}
+    if not itemID then return list end
+    for _, key in ipairs(OtherCharacters()) do
+        local snapshot = settings.inventory[key]
+        local bags = (snapshot.bags or {})[itemID] or 0
+        local bank = (snapshot.bank or {})[itemID] or 0
+        if bags + bank > 0 then
+            list[#list + 1] = { key = key, name = CharacterName(key), bags = bags, bank = bank }
+        end
+    end
+    table.sort(list, function(a, b) return a.bags + a.bank > b.bags + b.bank end)
+    return list
+end
+
+function RequestsFor(holder)
+    settings.requests = settings.requests or {}
+    settings.requests[holder] = settings.requests[holder] or {}
+    return settings.requests[holder]
+end
+
+function RequestKey(to, itemID) return tostring(to) .. ":" .. tostring(itemID) end
+
+-- { bank = {}, others = {}, make = {}, gather = {}, vendor = {}, auction = {} },
+-- each a list of text pieces.
+function RestockPlan()
+    local plan = { bank = {}, others = {}, make = {}, gather = {}, vendor = {}, auction = {} }
+    local me = CharacterKey()
+    local mine = settings.producers and settings.producers[me]
+    local okSkills, skills = pcall(AllGatherSkills)
+    skills = (okSkills and skills) or {}
+    for _, need in ipairs(RestockNeeds()) do
+        local left = need.count
+        local inBank = math.min(left, MyBankCount(need.itemID))
+        if inBank > 0 then
+            plan.bank[#plan.bank + 1] = inBank .. " " .. need.name
+            left = left - inBank
+        end
+        if left > 0 then
+            for _, holder in ipairs(HoldersOf(need.itemID)) do
+                if left <= 0 then break end
+                local take = math.min(left, holder.bags + holder.bank)
+                local asked = RequestsFor(holder.key)[RequestKey(me, need.itemID)]
+                local where = holder.bags > 0 and (holder.bank > 0 and "bags and bank" or "bags") or "bank"
+                plan.others[#plan.others + 1] = ("%d %s from %s (%s%s)"):format(take, need.name, holder.name,
+                    where, asked and ", asked" or "")
+                left = left - take
+            end
+        end
+        if left > 0 then
+            local producer = need.itemID and mine and mine[need.itemID]
+            local okGather, gather = pcall(CanGather, need.itemID, need.name, skills)
+            if producer then
+                plan.make[#plan.make + 1] = ("%d %s (%s)"):format(left, need.name, producer.recipeName or "your recipe")
+            elseif okGather and gather then
+                local holder = skills[string.lower(gather)]
+                plan.gather[#plan.gather + 1] = ("%d %s (%s)"):format(left, need.name,
+                    type(holder) == "string" and (holder .. "'s " .. gather) or ("your " .. gather))
+            elseif IsVendorMaterial({ itemID = need.itemID, name = need.name }) then
+                local price = need.itemID and VendorBuyPrice(need.itemID)
+                plan.vendor[#plan.vendor + 1] = ("%d %s%s"):format(left, need.name,
+                    price and (" (" .. MoneyText(price * left) .. ")") or "")
+            else
+                local price = need.itemID and AuctionPrice(need.itemID)
+                plan.auction[#plan.auction + 1] = ("%d %s%s"):format(left, need.name,
+                    price and (" (about " .. MoneyText(price * left) .. ")") or "")
+            end
+        end
+    end
+    return plan
+end
+
+function ShowRestock()
+    local plan = RestockPlan()
+    local groups = {
+        { "Your bank", plan.bank },
+        { "Your other characters", plan.others },
+        { "Make it", plan.make },
+        { "Gather it", plan.gather },
+        { "Vendor", plan.vendor },
+        { "Auction house", plan.auction },
+    }
+    local any = false
+    for _, group in ipairs(groups) do if #group[2] > 0 then any = true end end
+    if not any then
+        Print("Restock: your bags have everything your bars need.")
+        return
+    end
+    Print("Restock: what your bars are short of, and where to get it:")
+    for _, group in ipairs(groups) do
+        if #group[2] > 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("  |cffffd200" .. group[1] .. ":|r " .. table.concat(group[2], ", "))
+        end
+    end
+    if #plan.others > 0 then
+        DEFAULT_CHAT_FRAME:AddMessage("  /bartab ask to have your other characters send it.")
+    end
+end
+
+-- /bartab ask: a window of what your other characters hold that you're short
+-- of (after your bank); ticked rows (all, to start) become requests to
+-- them; unticking one you asked for earlier cancels it.
+function ShowAskWindow()
+    local me = CharacterKey()
+    local rows = {}
+    for _, need in ipairs(RestockNeeds()) do
+        local left = need.count - MyBankCount(need.itemID)
+        if left > 0 then
+            for _, holder in ipairs(HoldersOf(need.itemID)) do
+                if left <= 0 then break end
+                local has = holder.bags + holder.bank
+                local asked = RequestsFor(holder.key)[RequestKey(me, need.itemID)]
+                local count = asked and asked.count or math.min(left, has)
+                rows[#rows + 1] = { entry = { holder = holder.key, itemID = need.itemID, name = need.name, count = count },
+                    count = count, max = has, checked = true,
+                    label = need.name .. " from " .. holder.name, note = holder.name .. " has " .. has }
+                left = left - math.min(left, has)
+            end
+        end
+    end
+    -- Requests you made that no longer show (you have enough now): still listed, to cancel.
+    for _, holder in ipairs(OtherCharacters()) do
+        for _, request in pairs(RequestsFor(holder)) do
+            if request.to == me then
+                local listed = false
+                for _, row in ipairs(rows) do
+                    if row.entry.holder == holder and row.entry.itemID == request.itemID then listed = true end
+                end
+                if not listed then
+                    rows[#rows + 1] = { entry = { holder = holder, itemID = request.itemID, name = request.name,
+                        count = request.count }, count = request.count, max = math.max(request.count, 999), checked = true,
+                        label = request.name .. " from " .. CharacterName(holder), note = "asked earlier" }
+                end
+            end
+        end
+    end
+    if #rows == 0 then
+        Print("Your other characters don't have anything your bars are short of (as of their last login).")
+        return
+    end
+    ShowItemPrompt({
+        kind = "ask",
+        title = "BarTab: ask your other characters",
+        intro = "Tick what to ask for; they're offered it at their next mailbox:",
+        emptyText = "No requests; any you had are cancelled.",
+        footer = "Counts are from each character's last login. Unticking a request cancels it.",
+        button = "Ask",
+        anchor = false,
+        more = "/bartab ask",
+        rows = rows,
+        onUntick = function(entry, ticked)
+            if not ticked then RequestsFor(entry.holder)[RequestKey(me, entry.itemID)] = nil end
+        end,
+        onAccept = function(chosen)
+            local parts = {}
+            for _, entry in ipairs(chosen) do
+                RequestsFor(entry.holder)[RequestKey(me, entry.itemID)] = { to = me, itemID = entry.itemID,
+                    name = entry.name, count = entry.count, time = time and time() or 0 }
+                parts[#parts + 1] = entry.count .. " " .. entry.name .. " from " .. CharacterName(entry.holder)
+            end
+            Print("Asked for " .. JoinNames(parts, 6) .. ". BarTab offers it to them at their next mailbox or bank.")
+        end,
+    })
+end
+
+-- Holder side: requests to this character, as mail sends (what's in your bags).
+function RequestSends(scan)
+    local list = {}
+    local me = CharacterKey()
+    scan = scan or ScanBags()
+    for _, request in pairs(RequestsFor(me)) do
+        local have = scan.byID[request.itemID] or 0
+        if request.to ~= me and have > 0 then
+            list[#list + 1] = { to = CharacterName(request.to), character = request.to, itemID = request.itemID,
+                name = request.name, count = math.min(request.count, have), note = "asked" }
+        end
+    end
+    return list
+end
+
+-- What's asked for that's in your bank rather than your bags.
+function RequestBankWithdrawals()
+    local list = {}
+    local me = CharacterKey()
+    local scan = ScanBags()
+    local bank = BankItemCounts()
+    for _, request in pairs(RequestsFor(me)) do
+        local short = request.count - (scan.byID[request.itemID] or 0)
+        local take = math.min(short, bank[request.itemID] or 0)
+        if take > 0 then
+            list[#list + 1] = { name = request.name, itemID = request.itemID, count = take,
+                forAlts = CharacterName(request.to) .. " (asked)" }
+        end
+    end
+    return list
+end
+
+-- After a letter goes: what it carried comes off the requests to that character.
+function NoteRequestsMailed(letter)
+    local requests = RequestsFor(CharacterKey())
+    for _, item in ipairs(letter.items or {}) do
+        local key = RequestKey(letter.character, item.itemID)
+        local request = requests[key]
+        if request and (item.sentNow or 0) > 0 then
+            request.count = request.count - item.sentNow
+            if request.count <= 0 then requests[key] = nil end
+        end
+    end
+end
+
+function RequestNotice()
+    local parts = {}
+    for _, request in pairs(RequestsFor(CharacterKey())) do
+        parts[#parts + 1] = request.count .. " " .. request.name .. " for " .. CharacterName(request.to)
+    end
+    if #parts == 0 then return end
+    table.sort(parts)
+    Print("Your other characters asked for " .. JoinNames(parts, 6)
+        .. ". BarTab offers it at a mailbox (and takes it out of the bank for you).")
 end
