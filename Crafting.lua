@@ -4895,6 +4895,15 @@ function ContainerItem(bag, slot)
     end
 end
 
+-- Whether a bag slot holds a soulbound item (can't be mailed).
+function ContainerItemBound(bag, slot)
+    if C_Container and C_Container.GetContainerItemInfo then
+        local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+        return ok and type(info) == "table" and info.isBound and true or false
+    end
+    return false
+end
+
 -- The bank's containers: the bank itself and its bags (not your own bags).
 function BankContainers()
     local list, seen = {}, {}
@@ -5922,13 +5931,15 @@ function DisenchantSends()
             if itemID and mine[itemID] and not ids[itemID] and not info.isBound then
                 if found[itemID] then
                     found[itemID].count = found[itemID].count + (info.stackCount or 1)
+                    found[itemID].max = found[itemID].count
                 else
                     local quality, classID = ItemQualityAndClass(itemID)
                     local name = GetItemNameByID(itemID) or mine[itemID].name
                     if quality and quality >= 2 and DISENCHANT_CLASSES[classID]
                         and name and not names[string.lower(name)] then
                         found[itemID] = { to = CharacterName(enchanter), character = enchanter, itemID = itemID,
-                            name = name, count = info.stackCount or 1, note = "to disenchant" }
+                            name = name, count = info.stackCount or 1, max = info.stackCount or 1,
+                            note = "to disenchant" }
                         list[#list + 1] = found[itemID]
                     else
                         ids[itemID] = true
@@ -6178,7 +6189,8 @@ function MailStep()
         for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
             for slot = 1, ContainerSlots(bag) do
                 local itemID, count, locked = ContainerItem(bag, slot)
-                if itemID == send.itemID then
+                -- A soulbound copy can't be mailed; another copy might.
+                if itemID == send.itemID and not ContainerItemBound(bag, slot) then
                     if locked then busy = true
                     else
                         local entry = { bag = bag, slot = slot, count = count }
@@ -7141,7 +7153,7 @@ function ShowMailPrompt(sends, all)
     for index = 1, shown do
         local send, row = sends[index], MailPromptRow(frame, index)
         row.send = send
-        row.max = inBags[send.itemID] or send.count
+        row.max = send.max or inBags[send.itemID] or send.count
         row.check:SetChecked(not MailKept()[MailKeptKey(send)])
         row.box:SetText(tostring(send.count))
         row.label:SetText(("%s to %s  |cff808080(%s)|r"):format(send.name, send.to,
