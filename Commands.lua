@@ -715,7 +715,10 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         C_Timer.After(3, function() Safe("names", FixPlaceholderNames)() end)
         C_Timer.After(1, function() pcall(ClaimShortSlash) end)
         C_Timer.After(6, function() Safe("guide", ShowLoginTip)() end)
-        C_Timer.After(8, function() Safe("requests", RequestNotice)() end)
+        C_Timer.After(8, function()
+            Safe("requests", PruneMyRequests)()
+            Safe("requests", RequestNotice)()
+        end)
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         if arg1 and placeholderPending[arg1] then
             C_Timer.After(0.1, function() Safe("names", FixPlaceholderNames)() end)

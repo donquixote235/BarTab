@@ -6412,6 +6412,8 @@ function OnMailSent(success)
         FinishMailJob("Couldn't mail " .. letter.to .. " (the game said no). The items are still attached.")
         return
     end
+    -- (Before the loop below zeroes what each item sent.)
+    Safe("requests", NoteRequestsMailed)(letter)
     settings.mailed = settings.mailed or {}
     local mailed = settings.mailed[letter.character] or { items = {} }
     mailed.time = time and time() or 0
@@ -6424,7 +6426,6 @@ function OnMailSent(success)
         end
     end
     if #parts > 0 then job.sent[#job.sent + 1] = JoinNames(parts, 8) .. " to " .. letter.to end
-    Safe("requests", NoteRequestsMailed)(letter)
     Safe("session", SessionNoteSpent)("postage", letter.postage)
     settings.mailed[letter.character] = mailed
     Safe("alt shopping", SyncAltNeedBars)()
@@ -7347,6 +7348,8 @@ function FinishCollect(note)
     elseif note then
         Print(note)
     end
+    -- What you asked for may have just arrived.
+    C_Timer.After(1, function() Safe("requests", PruneMyRequests)() end)
     if mailboxOpen then
         C_Timer.After(0.5, function()
             if mailboxOpen then Safe("mail", OfferMailSends)() end
@@ -8375,6 +8378,7 @@ function RestockPlan()
 end
 
 function ShowRestock()
+    Safe("requests", PruneMyRequests)()
     local plan = RestockPlan()
     local groups = {
         { "Your bank", plan.bank },
@@ -8405,6 +8409,7 @@ end
 -- of (after your bank); ticked rows (all, to start) become requests to
 -- them; unticking one you asked for earlier cancels it.
 function ShowAskWindow()
+    Safe("requests", PruneMyRequests)()
     local me = CharacterKey()
     local rows = {}
     for _, need in ipairs(RestockNeeds()) do
@@ -8509,6 +8514,30 @@ function NoteRequestsMailed(letter)
             request.count = request.count - item.sentNow
             if request.count <= 0 then requests[key] = nil end
         end
+    end
+end
+
+-- Requester side: requests for what you're no longer short of in your bags
+-- go away (the mail arrived, or you got it another way); the rest shrink to
+-- what you're still short.
+function PruneMyRequests()
+    local me = CharacterKey()
+    local short = {}
+    for _, need in ipairs(RestockNeeds()) do
+        if need.itemID then short[need.itemID] = need.count end
+    end
+    for holder, requests in pairs(settings.requests or {}) do
+        for key, request in pairs(requests) do
+            if request.to == me then
+                local still = short[request.itemID]
+                if not still or still <= 0 then
+                    requests[key] = nil
+                elseif still < request.count then
+                    request.count = still
+                end
+            end
+        end
+        if not next(requests) then settings.requests[holder] = nil end
     end
 end
 
