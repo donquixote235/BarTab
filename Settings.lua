@@ -486,6 +486,29 @@ function BuildConfigFrame()
     end)
     y = y - 30
 
+    local sellButton = AddButton(page, 24, y, 350, "",
+        "At a vendor: things you made with your recipes (skill-up crafts like daggers, bags and bandages) that no bar uses and your other characters don't need. A window lists them; untick what to keep (remembered) or change amounts. Food, potions and bandages start unticked. Crafting materials are never offered. /bartab sell offers again. This character only.",
+        function()
+            local current, index = CharSetting("vendorSell") or "ask", 1
+            for i, mode in ipairs(SELL_MODES) do
+                if mode.key == current then index = i end
+            end
+            SetCharSetting("vendorSell", SELL_MODES[index % #SELL_MODES + 1].key)
+            RefreshConfig()
+        end)
+    AddCharacterTag(page, sellButton)
+    table.insert(configRefreshers, function()
+        local current = CharSetting("vendorSell") or "ask"
+        for _, mode in ipairs(SELL_MODES) do
+            if mode.key == current then sellButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+    y = AddCheck(page, y, "Also offer green and better crafts for sale",
+        "Off: only common (white) and poor crafts are offered, so uncommon and better ones are left for disenchanting or your enchanter. On: those are offered too.",
+        function() return settings.sellCraftedBetter end,
+        function(v) settings.sellCraftedBetter = v or nil end)
+
     y = AddHeading(page, y - 6, "Bank")
     local bankButton = AddButton(page, 24, y, 350, "",
         "At your bank, when it holds something your Crafting bars are short of in your bags: ask with a window where you can untick items or change amounts, take it out straight away, or do nothing. /bartab bank asks again while the bank is open.",

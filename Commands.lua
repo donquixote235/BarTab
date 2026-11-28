@@ -55,6 +55,7 @@ HELP_TOPICS = {
         head("Shopping:"),
         "  At a vendor that sells what your recipes are short of (thread, dye, vials), BarTab asks to buy it.",
         "  At your bank, it offers to take out what your bars are short of (" .. cmd("/bartab bank") .. " asks again) and to put away materials no bar needs (" .. cmd("/bartab bank put") .. ").",
+        "  At a vendor, it offers to sell what you crafted that nothing needs (" .. cmd("/bartab sell") .. ").",
         "  At a mailbox, it offers to mail your other characters what their bars need and you have spare (" .. cmd("/bartab mail") .. "), and to take what they mailed you (" .. cmd("/bartab mail take") .. ").",
         "  Optionally, bars for what your other characters need, so you can gather for them (" .. cmd("/bartab config") .. " > Shopping).",
         "  " .. cmd("/bartab config") .. " > Shopping: ask, automatic or off; a spend limit; only buy for crafts your bars cover.",
@@ -544,6 +545,13 @@ SlashCmdList.BARTAB = function(message)
             Safe("mail", OfferMailSends)(true)
         else
             Print("Open a mailbox first; BarTab then offers to mail your other characters what their bars need.")
+        end
+
+    elseif command == "sell" then
+        if merchantOpen then
+            Safe("vendor sell", OfferVendorSales)(true)
+        else
+            Print("Talk to a vendor first; BarTab then offers to sell what you crafted that nothing needs.")
         end
 
     elseif command == "bank" then

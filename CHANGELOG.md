@@ -2,6 +2,8 @@
 
 ## 1.60.1.16
 
+- Selling what you crafted: at a vendor, BarTab offers to sell things you made with your recipes (skill-up crafts like daggers, bags and bandages) that no bar uses and your other characters don't need, in the same window as the bank: untick what to keep (remembered) or change amounts. Only common (white) and poor crafts unless you tick "Also offer green and better crafts for sale", so the rest can go to your enchanter. Food, potions and bandages start unticked; crafting materials are never offered. Ask, automatic or off, per character (Shopping settings); `/bartab sell` offers again.
+- The mail prompt remembers what you untick: the same item for the same character starts unticked next time.
 - "Mail all I have of each" in the mail prompt applies to that time only. The Characters setting ("Start the mail prompt with \"Mail all I have of each\"") is what the checkbox starts as each time.
 - Leaving a letter unsent (closing the mailbox, or Escape) no longer keeps the mail prompt away until a reload: closing the mailbox ends the letter in progress, and `/bartab mail` starts over.
 

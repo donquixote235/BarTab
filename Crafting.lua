@@ -4551,16 +4551,260 @@ vendorWatcher:SetScript("OnEvent", function(_, event)
     end
     if event == "MERCHANT_CLOSED" then
         vendorVisit = nil
+        merchantOpen = false
+        sellJob = nil
         if StaticPopup_Hide then StaticPopup_Hide("BARTAB_VENDOR_BUY") end
+        if itemPrompt and itemPrompt.spec and itemPrompt.spec.kind == "sell" then HideItemPrompt() end
         return
     end
+    merchantOpen = true
     -- The vendor's list can take a moment to fill in.
     C_Timer.After(0.3, function()
         if MerchantFrame and MerchantFrame.IsShown and not MerchantFrame:IsShown() then return end
         pcall(RecordVendorPrices)
         pcall(OnMerchantShow)
     end)
+    C_Timer.After(0.8, function()
+        if merchantOpen then Safe("vendor sell", OfferVendorSales)() end
+    end)
 end)
+
+-- Selling what you crafted -------------------------------------------------------
+-- At a vendor: things you made with your recipes (skill-up crafts: daggers,
+-- bandages, bags) that no bar uses and your other characters aren't short
+-- of. Common (white) and poor items only, unless settings.sellCraftedBetter:
+-- green and better are left for disenchanting. Crafting materials (Copper
+-- Bar, Bolt of Linen Cloth) are never offered. Food, potions and bandages
+-- start unticked. What you untick is remembered: settings.sellKeep[character].
+-- CharSetting("vendorSell"): "ask" (default), "auto" or "off".
+SELL_MODES = {
+    { key = "ask", name = "Offer to sell crafts no bar needs" },
+    { key = "auto", name = "Sell crafts no bar needs automatically" },
+    { key = "off", name = "Off (sell by hand)" },
+}
+CONSUMABLE_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
+sellJob = nil
+merchantOpen = false
+
+function SellKept()
+    settings.sellKeep = settings.sellKeep or {}
+    local key = CharacterKey()
+    settings.sellKeep[key] = settings.sellKeep[key] or {}
+    return settings.sellKeep[key]
+end
+
+-- Items any bar is for, or uses, or your other characters need. Unlike
+-- putting away, what a tracked recipe makes doesn't count (that's what you
+-- sell), unless a bar is for it.
+function ItemsToKeep()
+    local ids, names = {}, {}
+    local function Add(id, name)
+        if id then ids[id] = true end
+        if name then names[string.lower(name)] = true end
+    end
+    local recipes = {}
+    for _, item in pairs(trackedItems) do
+        Add(ItemIDFor(item), item.name)
+        if item.recipeID then recipes[item.recipeID] = true end
+    end
+    for recipeID in pairs(recipes) do
+        local ok, reagents = pcall(GetRecipeReagents, recipeID)
+        for _, reagent in ipairs((ok and reagents) or {}) do Add(reagent.itemID, reagent.name) end
+    end
+    local okKeep, keep = pcall(MyKeepCounts)
+    for id in pairs((okKeep and keep) or {}) do Add(id) end
+    local okAlts, alts = pcall(AltShortfalls)
+    for _, need in ipairs((okAlts and alts) or {}) do
+        Add(need.itemID, need.name)
+        if need.via then Add(need.via.itemID) end
+    end
+    return ids, names
+end
+
+function ItemQualityAndClass(itemID)
+    local quality, classID
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if getInfo then
+        local ok, _, _, q = pcall(getInfo, itemID)
+        if ok then quality = q end
+    end
+    local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    if getInstant then
+        local ok, _, _, _, _, _, c = pcall(getInstant, itemID)
+        if ok then classID = c end
+    end
+    return quality, classID
+end
+
+-- { { name, itemID, count, price (each), consumable } } in your bags.
+function FindVendorSales()
+    local mine = settings.producers and settings.producers[CharacterKey()]
+    if not mine then return {} end
+    local ids, names = ItemsToKeep()
+    local found, order = {}, {}
+    for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count = ContainerItem(bag, slot)
+            if itemID and mine[itemID] and not ids[itemID] then
+                if found[itemID] then
+                    found[itemID].count = found[itemID].count + count
+                else
+                    local name = GetItemNameByID(itemID) or mine[itemID].name
+                    local price = VendorSellPrice(itemID) or 0
+                    local quality, classID = ItemQualityAndClass(itemID)
+                    local tooGood = quality and quality >= 2 and not settings.sellCraftedBetter
+                    if name and not names[string.lower(name)] and price > 0 and not tooGood
+                        and classID ~= TRADE_GOODS_CLASS then
+                        found[itemID] = { name = name, itemID = itemID, count = count, price = price,
+                            consumable = classID == CONSUMABLE_CLASS }
+                        order[#order + 1] = found[itemID]
+                    else
+                        ids[itemID] = true
+                    end
+                end
+            end
+        end
+    end
+    table.sort(order, function(a, b) return a.name < b.name end)
+    return order
+end
+
+function OfferVendorSales(force)
+    local mode = CharSetting("vendorSell") or "ask"
+    if mode == "off" and not force then return end
+    if sellJob or not merchantOpen then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    local list = FindVendorSales()
+    if #list == 0 then
+        if force then Print("Nothing you crafted to sell: your bars or other characters use it all.") end
+        return
+    end
+    local kept = SellKept()
+    local function Ticked(entry)
+        if kept[entry.itemID] ~= nil then return not kept[entry.itemID] end
+        return not entry.consumable
+    end
+    if mode == "auto" and not force then
+        local chosen = {}
+        for _, entry in ipairs(list) do
+            if Ticked(entry) then chosen[#chosen + 1] = entry end
+        end
+        if #chosen > 0 then SellItems(chosen) end
+        return
+    end
+    local rows = {}
+    for _, entry in ipairs(list) do
+        rows[#rows + 1] = { entry = entry, count = entry.count, max = entry.count, checked = Ticked(entry),
+            label = entry.name, note = ("you have %d, %s each"):format(entry.count, MoneyText(entry.price)) }
+    end
+    ShowItemPrompt({
+        kind = "sell",
+        title = "BarTab: sell what you crafted",
+        intro = "No bar or character of yours needs these. Untick to keep (remembered):",
+        emptyText = "Nothing sold; BarTab remembers what you unticked.",
+        footer = "The vendor's Buyback tab has them if you change your mind. Settings: Shopping tab.",
+        button = "Sell",
+        anchor = MerchantFrame,
+        more = "/bartab sell",
+        rows = rows,
+        onAccept = function(chosen) Safe("vendor sell", SellItems)(chosen) end,
+        -- An unticked row is kept from now on; ticking food or potions again sells them next time too.
+        onUntick = function(entry, ticked)
+            if ticked then
+                if entry.consumable then kept[entry.itemID] = false else kept[entry.itemID] = nil end
+            else
+                kept[entry.itemID] = true
+            end
+        end,
+    })
+end
+
+function SellItems(list)
+    if sellJob or not merchantOpen then return end
+    local wanted = {}
+    for _, entry in ipairs(list) do wanted[entry.itemID] = { left = entry.count, price = entry.price or 0 } end
+    sellJob = { wanted = wanted, sold = {}, money = 0, waits = 0, steps = 0, reserved = {} }
+    SellStep()
+end
+
+function FinishSellJob(problem)
+    local job = sellJob
+    sellJob = nil
+    if not job then return end
+    local parts = {}
+    for id, count in pairs(job.sold) do
+        parts[#parts + 1] = count .. " " .. (GetItemNameByID(id) or ("item " .. id))
+    end
+    table.sort(parts)
+    if #parts > 0 then Print("Sold " .. JoinNames(parts, 6) .. " for " .. MoneyText(job.money) .. ".") end
+    if problem then Print(problem) end
+    RequestUpdate(0.5)
+end
+
+-- One stack per step: a stack of no more than you're selling goes whole;
+-- a bigger one is split into an empty bag slot first, and that stack sells
+-- on the next step.
+function SellStep()
+    local job = sellJob
+    if not job then return end
+    if not merchantOpen then
+        FinishSellJob("The vendor closed before BarTab finished.")
+        return
+    end
+    job.steps = job.steps + 1
+    if job.steps > 300 then
+        FinishSellJob()
+        return
+    end
+    if CursorHasItem and CursorHasItem() then
+        FinishSellJob("Put down what's on your cursor, then type /bartab sell to finish.")
+        return
+    end
+    local busy, split
+    for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count, locked = ContainerItem(bag, slot)
+            local want = itemID and job.wanted[itemID]
+            if want and want.left > 0 then
+                if locked then
+                    busy = true
+                elseif count <= want.left then
+                    local use = (C_Container and C_Container.UseContainerItem) or _G.UseContainerItem
+                    use(bag, slot)
+                    job.sold[itemID] = (job.sold[itemID] or 0) + count
+                    job.money = job.money + count * want.price
+                    want.left = want.left - count
+                    job.waits = 0
+                    C_Timer.After(0.25, SellStep)
+                    return
+                elseif not split then
+                    split = { bag = bag, slot = slot, itemID = itemID, want = want }
+                end
+            end
+        end
+    end
+    if busy and job.waits < 20 then
+        job.waits = job.waits + 1
+        C_Timer.After(0.2, SellStep)
+        return
+    end
+    if split then
+        local toBag, toSlot = FreeBagSlot(job.reserved)
+        if not toBag then
+            FinishSellJob("No empty bag slot to split a stack into; the rest wasn't sold.")
+            return
+        end
+        local splitItem = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
+        local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
+        splitItem(split.bag, split.slot, split.want.left)
+        pickup(toBag, toSlot)
+        if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+        job.waits = 0
+        C_Timer.After(0.4, SellStep)
+        return
+    end
+    FinishSellJob()
+end
 
 -- Bank materials -----------------------------------------------------------------
 -- At the bank, offers to take out (or just takes out) what your Crafting bars
@@ -5011,7 +5255,7 @@ function ShowItemPrompt(spec)
     local bottom = -54 - shown * 26
     frame.more:ClearAllPoints()
     frame.more:SetPoint("TOPLEFT", 22, bottom - 2)
-    frame.more:SetText(#rows > shown and ("and " .. (#rows - shown) .. " more; type /bartab bank again after") or "")
+    frame.more:SetText(#rows > shown and ("and " .. (#rows - shown) .. " more; type " .. (spec.more or "/bartab bank") .. " again after") or "")
     if #rows > shown then bottom = bottom - 16 end
     frame.footer:ClearAllPoints()
     frame.footer:SetPoint("TOPLEFT", 22, bottom - 4)
@@ -5023,8 +5267,9 @@ function ShowItemPrompt(spec)
     frame.cancelButton:SetPoint("TOPLEFT", frame, "TOP", 6, bottom - 8)
     frame:SetSize(440, -(bottom - 8) + 40)
     frame:ClearAllPoints()
-    if BankFrame and BankFrame.IsShown and BankFrame:IsShown() then
-        frame:SetPoint("TOPLEFT", BankFrame, "TOPRIGHT", 12, 0)
+    local anchor = spec.anchor or BankFrame
+    if anchor and anchor.IsShown and anchor:IsShown() then
+        frame:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 12, 0)
     else
         frame:SetPoint("CENTER")
     end
@@ -6597,11 +6842,28 @@ function HideMailPrompt()
     if mailPrompt then mailPrompt:Hide() end
 end
 
+-- Rows you untick in the mail prompt stay unticked next time (this
+-- character mailing that item to that character): settings.mailKeep[me]["Vespera-Realm:2589"].
+function MailKept()
+    settings.mailKeep = settings.mailKeep or {}
+    local key = CharacterKey()
+    settings.mailKeep[key] = settings.mailKeep[key] or {}
+    return settings.mailKeep[key]
+end
+
+function MailKeptKey(send)
+    return tostring(send.character or send.to) .. ":" .. tostring(send.itemID)
+end
+
 function AcceptMailPrompt()
     local frame = mailPrompt
     if not frame then return end
     local list = {}
+    local kept = MailKept()
     for _, row in ipairs(frame.rows) do
+        if row:IsShown() and row.send then
+            kept[MailKeptKey(row.send)] = (not row.check:GetChecked()) or nil
+        end
         if row:IsShown() and row.send and row.check:GetChecked() then
             local amount = math.floor(tonumber(row.box:GetText()) or 0)
             amount = math.min(amount, row.max or amount)
@@ -6680,7 +6942,7 @@ function ShowMailPrompt(sends, all)
         title:SetText("BarTab: mail your other characters")
         frame.intro = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         frame.intro:SetPoint("TOPLEFT", 18, -32)
-        frame.intro:SetText("Their bars need these and you have them spare. Untick or change amounts:")
+        frame.intro:SetText("Their bars need these. Untick (remembered) or change amounts:")
         frame.rows = {}
         frame.allCheck = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
         frame.allCheck:SetSize(24, 24)
@@ -6710,7 +6972,7 @@ function ShowMailPrompt(sends, all)
         local send, row = sends[index], MailPromptRow(frame, index)
         row.send = send
         row.max = inBags[send.itemID] or send.count
-        row.check:SetChecked(true)
+        row.check:SetChecked(not MailKept()[MailKeptKey(send)])
         row.box:SetText(tostring(send.count))
         row.label:SetText(("%s to %s  |cff808080(%s)|r"):format(send.name, send.to,
             send.note and (send.note .. ", you have " .. row.max) or ("you have " .. row.max)))
