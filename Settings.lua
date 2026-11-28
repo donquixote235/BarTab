@@ -453,6 +453,10 @@ function BuildConfigFrame()
         end
     end)
     y = y - 30
+    y = AddCheck(page, y, "Also take out what my other characters need (this character)",
+        "At the bank, also offers what your other characters' bars are short of and your bank holds, so you can mail it to them: only what you don't keep for yourself, and only with the mailbox offer on. This character only.",
+        function() return CharSetting("bankForAlts") ~= false end,
+        function(v) SetCharSetting("bankForAlts", v and true or false) end)
 
 
     y = AddHeading(page, y - 6, "Mailbox")

@@ -15,6 +15,8 @@
 
 - The mailbox prompt offers recipe items you carry to another character who could learn them: "Pattern: Red Woolen Boots to Shadowpope (to learn)". Only characters with that profession who don't know the recipe yet (as of their last time with the profession window open), only items that aren't soulbound, and not if you could learn it yourself.
 
+- At your bank, BarTab also offers what your other characters need and your bank holds ("5 Wool Cloth for Vespera"), so you can mail it to them; the prompt says where to turn it off. Only what you don't keep for yourself, and only with the mailbox offer on. "Also take out what my other characters need" (Shopping settings, per character) turns it off.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.

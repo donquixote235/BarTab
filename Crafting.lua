@@ -4509,9 +4509,66 @@ function DescribeWithdrawals(list, field)
     local parts = {}
     for _, entry in ipairs(list) do
         local count = entry[field or "count"]
-        if count and count > 0 then parts[#parts + 1] = count .. " " .. entry.name end
+        if count and count > 0 then
+            parts[#parts + 1] = count .. " " .. entry.name .. (entry.forAlts and (" for " .. entry.forAlts) or "")
+        end
     end
     return parts
+end
+
+-- What your bank holds that your other characters need and you'd mail them
+-- (as at a mailbox: only what you don't keep yourself, characters you shop
+-- for, nothing you've skipped). { { name, itemID, count, forAlts = "Ein" } }
+function FindBankAltWithdrawals()
+    if CharSetting("bankForAlts") == false or (CharSetting("mailSend") or "ask") == "off" then return {} end
+    local scan = ScanBags()
+    local keep = MyKeepCounts(scan)
+    local bank = {}
+    for _, bag in ipairs(BankContainers()) do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count = ContainerItem(bag, slot)
+            if itemID then bank[itemID] = (bank[itemID] or 0) + count end
+        end
+    end
+    -- Spare in your bags, and in the bank after what you keep for yourself.
+    local function BagSpare(id) return math.max(0, (scan.byID[id] or 0) - (keep[id] or 0)) end
+    local function BankFree(id)
+        local stillNeeded = math.max(0, (keep[id] or 0) - (scan.byID[id] or 0))
+        return math.max(0, (bank[id] or 0) - stillNeeded)
+    end
+    local want, who, names = {}, {}, {}
+    local function Want(need, count)
+        if count <= 0 then return end
+        want[need.itemID] = (want[need.itemID] or 0) + count
+        names[need.itemID] = need.name
+        who[need.itemID] = who[need.itemID] or {}
+        who[need.itemID][need.to] = true
+    end
+    for _, need in ipairs(AltShortfalls()) do
+        if need.via then
+            -- Ore for bars: only for the bars you can't send them yourself.
+            local parentID = need.via.itemID
+            local stillShort = need.via.short - BagSpare(parentID) - BankFree(parentID)
+            if stillShort > 0 then
+                Want(need, math.min(need.short, math.ceil(stillShort / need.via.qty) * need.via.need - need.via.have))
+            end
+        else
+            Want(need, need.short)
+        end
+    end
+    local list = {}
+    for id, count in pairs(want) do
+        local take = math.min(BankFree(id), count - BagSpare(id))
+        if take > 0 then
+            local whoList = {}
+            for name in pairs(who[id]) do whoList[#whoList + 1] = name end
+            table.sort(whoList)
+            list[#list + 1] = { name = names[id] or GetItemNameByID(id) or ("item " .. id), itemID = id,
+                count = take, forAlts = JoinNames(whoList, 3) }
+        end
+    end
+    table.sort(list, function(a, b) return a.name < b.name end)
+    return list
 end
 
 -- Moves the list into your bags, one stack at a time (each move locks the
@@ -4607,16 +4664,22 @@ function OfferBankWithdrawals(force)
     if bankJob then return end
     if InCombatLockdown and InCombatLockdown() then return end
     local list = FindBankWithdrawals()
+    local okAlts, forAlts = pcall(FindBankAltWithdrawals)
+    for _, entry in ipairs((okAlts and forAlts) or {}) do list[#list + 1] = entry end
     if #list == 0 then
         if force then Print("Your bank has nothing your bars are short of.") end
         return
     end
+    local altNote = (okAlts and #forAlts > 0)
+        and "\n\n(Items for your other characters are taken out so you can mail them. You can turn that off in /bartab config, Shopping tab.)"
+        or ""
     if mode == "auto" and not force or not (StaticPopupDialogs and StaticPopup_Show) then
         TakeOutMaterials(list)
+        if altNote ~= "" then Print((altNote:gsub("^%s+", ""):gsub("^%(", ""):gsub("%)$", ""))) end
         return
     end
     StaticPopupDialogs.BARTAB_BANK_TAKE = StaticPopupDialogs.BARTAB_BANK_TAKE or {
-        text = "BarTab: your bank has materials your bars need.\n\n%s\n\nTake them out?",
+        text = "BarTab: your bank has materials your bars need (yours or your other characters').\n\n%s\n\nTake them out?%s",
         button1 = "Take out",
         button2 = NO or "No",
         OnAccept = function(_, data) TakeOutMaterials(data) end,
@@ -4624,7 +4687,7 @@ function OfferBankWithdrawals(force)
         whileDead = false,
         hideOnEscape = true,
     }
-    StaticPopup_Show("BARTAB_BANK_TAKE", table.concat(DescribeWithdrawals(list), "\n"), nil, list)
+    StaticPopup_Show("BARTAB_BANK_TAKE", table.concat(DescribeWithdrawals(list), "\n"), altNote, list)
 end
 
 bankWatcher = CreateFrame("Frame")
