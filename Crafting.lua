@@ -6240,7 +6240,7 @@ collectChecked = false
 function MyCharacterNames()
     local names = {}
     for key in pairs((BarTabDB and BarTabDB.characters) or {}) do
-        local name = key:match("^([^%-]+)")
+        local name = key:match("^([^%-%s]+)")
         if name then names[name] = true end
     end
     return names
@@ -6252,9 +6252,11 @@ function BarTabLetters()
     if not (GetInboxNumItems and GetInboxHeaderInfo) then return list end
     local mine = MyCharacterNames()
     local me = UnitName and UnitName("player")
+    me = me and me:match("^([^%-%s]+)")
     for i = 1, (GetInboxNumItems() or 0) do
         local _, _, sender, subject, _, cod, _, itemCount = GetInboxHeaderInfo(i)
-        sender = sender and sender:match("^([^%-]+)")
+        -- Names here can carry a surname ("Taura Barkhoof") or a realm.
+        sender = sender and sender:match("^([^%-%s]+)")
         if subject == MAIL_SUBJECT and (cod or 0) == 0 and (itemCount or 0) > 0
             and sender and mine[sender] and sender ~= me then
             local count = 0
@@ -6375,7 +6377,7 @@ mailWatcher:SetScript("OnEvent", function(_, event)
     if event == "MAIL_SHOW" then
         mailboxOpen = true
         collectChecked = false
-        C_Timer.After(1, function()
+        C_Timer.After(2.5, function()
             if mailboxOpen then Safe("mail", CheckBarTabLetters)() end
         end)
     elseif event == "MAIL_INBOX_UPDATE" then
