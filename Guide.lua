@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.14: your characters, your way") .. "\n\n"
+        text = H("New in 1.60.1.15: mail and bank, both ways") .. "\n\n"
+            .. B .. "At a mailbox, BarTab offers to take everything from letters your other characters sent with BarTab (" .. C("/bartab mail take") .. ").\n"
+            .. B .. "At the bank, it offers to put away materials none of your bars use; the take-out and put-away windows let you untick items (remembered) or change amounts.\n"
+            .. B .. "\"Until I reach a skill level...\" resizes a recipe's bars and counts them down as you skill up. BarTab warns when your bags are nearly full.\n\n"
+            .. H("New in 1.60.1.14: your characters, your way") .. "\n\n"
             .. B .. "A Characters tab in the settings, with per-character choices marked \"(this character)\".\n"
             .. B .. "The mail window lets you untick items and change amounts, and offers recipes to the character who can learn them; the bank offers what your other characters need.\n"
             .. B .. C("/bartab session") .. " sums up what you've crafted, gathered and spent; right-click a recipe in the profession window for \"Track in BarTab\".\n\n"

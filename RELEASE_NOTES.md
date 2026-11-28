@@ -1,25 +1,22 @@
-# BarTab 1.60.1.14: your characters, your way
+# BarTab 1.60.1.15: mail and bank, both ways
 
 A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **Characters tab:** the settings window has a tab for everything about your other characters, and the settings each character keeps for itself are marked "(this character)". Turn shopping and mailing for others on for your gatherers and off for your mains.
-- **Mail window:** the mailbox prompt lists each item and character with a checkbox and an amount you can change.
-- **Recipes in the mail:** patterns, recipes and plans you carry are offered to the character who could learn them.
-- **The bank, for others too:** the bank prompt also offers what your other characters need, so you can mail it on.
-- **Choose what to shop for:** right-click a "For your other characters" bar to skip an item, one of that character's recipes, or the character.
-- **Session summary:** `/bartab session` for what you've crafted, gained in skill, gathered and spent; your last session is summed up at login.
-- **Track from the recipe list:** right-click a recipe in the profession window for "Track in BarTab".
+- **Mail on arrival:** at a mailbox, BarTab offers to take everything from the letters your other characters sent with BarTab, in one go (or does it automatically). Other mail is left alone, and it stops if your bags fill up. `/bartab mail take` takes them now.
+- **Put away at the bank:** after taking out what you need, BarTab offers to put away crafting materials none of your bars use (ore, herbs, cloth, leather, parts). It leaves anything your other characters need, and vendor-bought things like thread and vials. `/bartab bank put` offers again.
+- **Bank windows:** taking out and putting away use a window like the mail one: untick items or change amounts. What you untick from putting away is remembered for next time.
+- **Bag space warnings:** a chat message when your bags get down to 2 free slots and when they're full. Clicking a crafting bar with no room for what it makes says so instead of trying.
 
 ## Improved
 
-- One-bar-per-recipe professions track every ingredient straight away from "Track in BarTab".
-- "Open Alchemy" on a profession heading's right-click menu; untrack from a material bar's right-click menu.
-- A material bar used by only one recipe crafts it on click.
-- At a vendor, BarTab offers again when crafting there uses something up, like the last Empty Vial.
-- The settings window is reorganized, with Alerts on their own tab.
+- "Until I reach a skill level..." resizes a recipe's existing bars for the crafts needed, and they count down as you skill up ("Count down as you skill up" on the right-click menu).
+- Bars working toward a skill level wait for the level before their "After crafting" rule, so running out of materials partway doesn't untrack them.
+- At a vendor, the offer to buy again waits until you've used the last of the item.
+- With "Send letters in one press", your craft key at a mailbox only mails while BarTab's mail window is showing, and crafts otherwise.
 
 ## Fixed
 
-- A false "The game didn't start crafting" right after another craft finished.
+- "Until I reach a skill level..." left a recipe's existing bars at their old size.
+- A stalled letter no longer keeps your craft key from crafting at the mailbox.

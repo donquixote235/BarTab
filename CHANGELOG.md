@@ -2,6 +2,7 @@
 
 ## 1.60.1.15
 
+- Mail on arrival: at a mailbox, the character your other characters mailed with BarTab is offered to take everything from those letters in one go (or, set in Characters settings, it's taken automatically). Only letters your own characters sent with BarTab are opened; other mail is left alone. It stops if your bags fill up. `/bartab mail take` takes them now.
 - At the bank, after the take-out offer, BarTab offers to put away crafting materials none of your bars use (ore, herbs, cloth, leather, parts). It leaves anything your other characters are short of, and vendor-bought things like thread and vials. The offer is a window like the mail one: untick items or change amounts, and what you untick is remembered for next time. Ask, automatic or off, per character (Shopping settings); `/bartab bank put` offers again.
 - Taking out of the bank uses the same window: untick items or change amounts before they come out.
 - Bag space warnings: a chat message when your bags get down to 2 free slots and when they're full (Alerts settings). Clicking a crafting bar with no room for what it makes says so instead of trying.
@@ -9,7 +10,6 @@
 - "Until I reach a skill level..." on a recipe that already has bars now resizes them for the crafts needed (26 crafts from First Aid 49 to 75), and brings them back from Inactive. Before, they stayed at their old size.
 - Bars sized for a skill level have "Count down as you skill up" on their right-click menu (on by default): each skill point takes a craft's worth off, so the bar shows about how many crafts are left. Untick it to keep the bars at full size.
 - Bars working toward a skill level keep their "After crafting" rule waiting until you reach the level, so running out of materials partway no longer untracks them.
-- Mail on arrival: at a mailbox, the character your other characters mailed with BarTab is offered to take everything from those letters in one go (or, set in Characters settings, it's taken automatically). Only letters your own characters sent with BarTab are opened; other mail is left alone. It stops if your bags fill up. `/bartab mail take` takes them now.
 - At a vendor, the offer to buy again while you craft there waits until you've run out of the item (the last Empty Vial used), not as soon as you have fewer than your bars plan for.
 
 ## 1.60.1.14
