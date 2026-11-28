@@ -4372,6 +4372,15 @@ function OnMerchantShow(recheck)
     if recheck and StaticPopup_Visible and StaticPopup_Visible("BARTAB_VENDOR_BUY") then return end
     local wanted = FindVendorPurchases()
     if recheck then
+        -- While you craft at the vendor: only once you're out of it, not
+        -- every time a craft dips below what your bars plan.
+        local out = {}
+        for _, entry in ipairs(wanted) do
+            local itemID = entry.itemID or (entry.index and GetMerchantSlotID(entry.index))
+            local have = itemID and CountOwned(itemID) or GetItemCount(entry.name)
+            if (have or 0) == 0 then out[#out + 1] = entry end
+        end
+        wanted = out
         local fresh = false
         for _, entry in ipairs(wanted) do
             if not visit.declined[entry.name] and not visit.offered[entry.name] then fresh = true end

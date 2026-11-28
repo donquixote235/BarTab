@@ -2,6 +2,8 @@
 
 ## 1.60.1.15
 
+- At a vendor, the offer to buy again while you craft there waits until you've run out of the item (the last Empty Vial used), not as soon as you have fewer than your bars plan for.
+
 ## 1.60.1.14
 
 - Settings window reorganized: a new **Characters** tab gathers everything about your other characters (shopping for them, the mailbox, one-press letters, "Mail all", taking out at the bank for them), with per-character settings marked "(this character)"; **Alerts** get their own tab; the Items tab's settings and the session summary moved to General. Each tab starts with a line saying what's on it. No setting changed, only where it is.
