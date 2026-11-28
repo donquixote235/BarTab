@@ -830,24 +830,37 @@ function HookRecipeMenu()
     recipeMenuHooked = true
     for _, tag in ipairs(RECIPE_MENU_TAGS) do HookRecipeMenuTag(tag) end
     if settings.recipeMenuTag then HookRecipeMenuTag(settings.recipeMenuTag) end
-    -- The first right-click on a recipe: note the menu's real tag.
+    -- The game's menu has no tag to extend on this client: BarTab opens its
+    -- own in its place, with the same favorite option plus its own.
     if MenuUtil and MenuUtil.CreateContextMenu and hooksecurefunc then
         hooksecurefunc(MenuUtil, "CreateContextMenu", function(owner)
-            if not RecipeOfRow(owner) then return end
+            if openingRecipeMenu then return end
+            local recipeID = RecipeOfRow(owner)
+            if not recipeID then return end
             if recipeMenuExtended then recipeMenuExtended = nil return end
-            local ok, tag = pcall(function()
-                local menu = Menu.GetManager():GetOpenMenu()
-                local description = menu and menu.GetMenuDescription and menu:GetMenuDescription()
-                return description and description.GetTag and description:GetTag()
-            end)
-            CraftLog("recipe menu tag: " .. tostring(ok and tag))
-            if ok and tag and not recipeMenuTagsHooked[tag] then
-                settings.recipeMenuTag = tag
-                HookRecipeMenuTag(tag)
-                Print("Track in BarTab is on this menu from the next right-click.")
-            end
+            CraftLog("recipe menu: replacing the game's (no tag)")
+            Safe("recipe menu", ShowRecipeMenu)(owner, recipeID)
         end)
     end
+end
+
+function ShowRecipeMenu(owner, recipeID)
+    local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
+    local favorite = ok and type(info) == "table" and info.favorite
+    pcall(function() Menu.GetManager():CloseMenus() end)
+    openingRecipeMenu = true
+    local okMenu, err = pcall(MenuUtil.CreateContextMenu, owner, function(_, root)
+        if C_TradeSkillUI.SetRecipeFavorite then
+            root:CreateButton(favorite and (BATTLE_PET_UNFAVORITE or "Remove Favorite") or (BATTLE_PET_FAVORITE or "Set Favorite"),
+                function() C_TradeSkillUI.SetRecipeFavorite(recipeID, not favorite) end)
+            root:CreateDivider()
+        end
+        recipeMenuExtended = nil
+        AddRecipeMenuEntries(owner, root)
+        recipeMenuExtended = nil
+    end)
+    openingRecipeMenu = nil
+    if not okMenu then ReportError("recipe menu", err) end
 end
 
 function HookRecipeList()
