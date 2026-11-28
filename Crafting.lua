@@ -4583,6 +4583,26 @@ SELL_MODES = {
     { key = "off", name = "Off (sell by hand)" },
 }
 CONSUMABLE_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Consumable) or 0
+-- Tools a recipe needs to be in your bags (they start unticked): Arclight
+-- Spanner, Gyromatic Micro-Adjustor, the enchanting rods, Blacksmith
+-- Hammer, Mining Pick, Skinning Knife, Philosopher's Stone; also anything
+-- named "Runed ... Rod".
+CRAFTING_TOOLS = {
+    [6219] = true, [10498] = true, [6218] = true, [6339] = true, [11130] = true,
+    [11145] = true, [16207] = true, [5956] = true, [2901] = true, [7005] = true, [9149] = true,
+}
+
+function IsCraftingTool(itemID, name)
+    if CRAFTING_TOOLS[itemID] then return true end
+    return name and name:match("^Runed .+ Rod$") and true or false
+end
+
+function MaxStackSize(itemID)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not getInfo then return 1 end
+    local ok, _, _, _, _, _, _, _, size = pcall(getInfo, itemID)
+    return (ok and tonumber(size)) or 1
+end
 sellJob = nil
 merchantOpen = false
 
@@ -4655,8 +4675,10 @@ function FindVendorSales()
                     local tooGood = quality and quality >= 2 and not settings.sellCraftedBetter
                     if name and not names[string.lower(name)] and price > 0 and not tooGood
                         and classID ~= TRADE_GOODS_CLASS then
+                        local tool = IsCraftingTool(itemID, name)
                         found[itemID] = { name = name, itemID = itemID, count = count, price = price,
-                            consumable = classID == CONSUMABLE_CLASS }
+                            -- Food, potions, bandages and tools start unticked.
+                            keepByDefault = classID == CONSUMABLE_CLASS or tool, tool = tool }
                         order[#order + 1] = found[itemID]
                     else
                         ids[itemID] = true
@@ -4669,49 +4691,81 @@ function FindVendorSales()
     return order
 end
 
-function OfferVendorSales(force)
+-- With settings.sellKeepStack, a full stack of each stackable item stays
+-- in your bags and only the rest is offered.
+function SellAmount(entry)
+    if not settings.sellKeepStack then return entry.count end
+    local size = MaxStackSize(entry.itemID)
+    if size <= 1 then return entry.count end
+    return math.max(0, entry.count - size)
+end
+
+-- fromOption: redrawn by the window's own checkbox, so it stays open even
+-- when nothing is left to sell.
+function OfferVendorSales(force, fromOption)
     local mode = CharSetting("vendorSell") or "ask"
     if mode == "off" and not force then return end
     if sellJob or not merchantOpen then return end
     if InCombatLockdown and InCombatLockdown() then return end
     local list = FindVendorSales()
-    if #list == 0 then
-        if force then Print("Nothing you crafted to sell: your bars or other characters use it all.") end
-        return
-    end
     local kept = SellKept()
     local function Ticked(entry)
         if kept[entry.itemID] ~= nil then return not kept[entry.itemID] end
-        return not entry.consumable
+        return not entry.keepByDefault
     end
     if mode == "auto" and not force then
         local chosen = {}
         for _, entry in ipairs(list) do
-            if Ticked(entry) then chosen[#chosen + 1] = entry end
+            local amount = SellAmount(entry)
+            if Ticked(entry) and amount > 0 then
+                entry.count = amount
+                chosen[#chosen + 1] = entry
+            end
         end
         if #chosen > 0 then SellItems(chosen) end
         return
     end
     local rows = {}
     for _, entry in ipairs(list) do
-        rows[#rows + 1] = { entry = entry, count = entry.count, max = entry.count, checked = Ticked(entry),
-            label = entry.name, note = ("you have %d, %s each"):format(entry.count, MoneyText(entry.price)) }
+        local amount = SellAmount(entry)
+        if amount > 0 then
+            rows[#rows + 1] = { entry = entry, count = amount, max = entry.count, checked = Ticked(entry),
+                label = entry.name, note = ("you have %d, %s each%s"):format(entry.count, MoneyText(entry.price),
+                    entry.tool and ", a crafting tool" or "") }
+        end
+    end
+    if #rows == 0 and not fromOption then
+        if force then
+            Print(#list > 0 and "Nothing to sell beyond the stack of each you keep."
+                or "Nothing you crafted to sell: your bars or other characters use it all.")
+        end
+        return
     end
     ShowItemPrompt({
         kind = "sell",
         title = "BarTab: sell what you crafted",
-        intro = "No bar or character of yours needs these. Untick to keep (remembered):",
+        intro = #rows > 0 and "No bar or character of yours needs these. Untick to keep (remembered):"
+            or "Nothing to sell beyond the stack of each you keep.",
         emptyText = "Nothing sold; BarTab remembers what you unticked.",
         footer = "The vendor's Buyback tab has them if you change your mind. Settings: Shopping tab.",
         button = "Sell",
         anchor = MerchantFrame,
         more = "/bartab sell",
         rows = rows,
+        option = {
+            label = "Keep a stack of each, sell the rest",
+            checked = settings.sellKeepStack and true or false,
+            onClick = function(on)
+                settings.sellKeepStack = on or nil
+                OfferVendorSales(true, true)
+            end,
+        },
         onAccept = function(chosen) Safe("vendor sell", SellItems)(chosen) end,
-        -- An unticked row is kept from now on; ticking food or potions again sells them next time too.
+        -- An unticked row is kept from now on; ticking a food, potion or tool
+        -- row again sells it next time too.
         onUntick = function(entry, ticked)
             if ticked then
-                if entry.consumable then kept[entry.itemID] = false else kept[entry.itemID] = nil end
+                if entry.keepByDefault then kept[entry.itemID] = false else kept[entry.itemID] = nil end
             else
                 kept[entry.itemID] = true
             end
@@ -5216,6 +5270,20 @@ function ShowItemPrompt(spec)
         if frame.intro.SetWordWrap then frame.intro:SetWordWrap(false) end
         frame.rows = {}
         frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        frame.option = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+        frame.option:SetSize(24, 24)
+        if type(frame.option.Text) == "table" then frame.option.Text:SetText("") end
+        frame.option.label = frame.option:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        frame.option.label:SetPoint("LEFT", frame.option, "RIGHT", 2, 0)
+        frame.option:SetScript("OnClick", function(box)
+            local option = itemPrompt and itemPrompt.spec and itemPrompt.spec.option
+            if option then
+                -- Redrawn by the option; not a decline.
+                itemPrompt.spec = nil
+                itemPrompt:Hide()
+                option.onClick(box:GetChecked() and true or false)
+            end
+        end)
         frame.footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         frame.footer:SetJustifyH("LEFT")
         frame.footer:SetWidth(400)
@@ -5257,6 +5325,16 @@ function ShowItemPrompt(spec)
     frame.more:SetPoint("TOPLEFT", 22, bottom - 2)
     frame.more:SetText(#rows > shown and ("and " .. (#rows - shown) .. " more; type " .. (spec.more or "/bartab bank") .. " again after") or "")
     if #rows > shown then bottom = bottom - 16 end
+    frame.option:ClearAllPoints()
+    if spec.option then
+        frame.option:SetPoint("TOPLEFT", 16, bottom - 4)
+        frame.option.label:SetText(spec.option.label)
+        frame.option:SetChecked(spec.option.checked)
+        frame.option:Show()
+        bottom = bottom - 28
+    else
+        frame.option:Hide()
+    end
     frame.footer:ClearAllPoints()
     frame.footer:SetPoint("TOPLEFT", 22, bottom - 4)
     frame.footer:SetText(spec.footer or "")
