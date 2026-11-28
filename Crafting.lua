@@ -896,7 +896,7 @@ function CraftsMenuEntry(item)
     choices[#choices + 1] = {
         "Other amount...",
         function() AskCraftCount(item.recipeID, current) end,
-        selected = current ~= nil and not matched,
+        selected = current ~= nil and not matched and not item.skillGoal,
     }
     -- Change what the bars are for: a goal for what the recipe makes, or a
     -- skill level.
@@ -908,6 +908,12 @@ function CraftsMenuEntry(item)
     end
     choices[#choices + 1] = { "Until I reach a skill level...",
         function() AskSkillGoal(item.recipeID) end, selected = item.skillGoal ~= nil }
+    if item.skillGoal then
+        for _, choice in ipairs(choices) do
+            if choice[1] ~= "Until I reach a skill level..." then choice.selected = false end
+        end
+        choices[#choices][1] = ("Until I reach a skill level... (%d)"):format(item.skillGoal)
+    end
     return { "Crafts" .. (current and (" (" .. current .. ")") or ""), choices = choices }
 end
 
@@ -1016,6 +1022,31 @@ end
 
 -- Right-click toggle for a recipe bar (all of the recipe's bars together).
 function CountdownMenuEntry(item)
+    -- Bars sized for a skill level count down a craft's worth for each skill
+    -- point instead (a craft without a point leaves them as they are).
+    if item.skillGoal then
+        local function On() return item.countDown ~= false end
+        return {
+            "Count down as you skill up",
+            function()
+                local on = not On()
+                for _, other in pairs(trackedItems) do
+                    if other.recipeID == item.recipeID and not other.container and other.skillGoal then
+                        other.countDown = on
+                    end
+                end
+                Print(DisplayName(item) .. (on
+                    and (": each skill point takes one craft's worth off its bars, so they show about how many crafts are left to "
+                        .. item.skillGoal .. ".")
+                    or ": bars keep their size as you craft."))
+                if on then Safe("skill", ResizeSkillGoalBars)() end
+                UpdateBars()
+            end,
+            selected = On(),
+            isSelected = On,
+            check = true,
+        }
+    end
     return {
         "Count down as you craft",
         function()
@@ -1450,7 +1481,7 @@ end
 function ResizeSkillGoalBars()
     local changed = false
     for key, item in pairs(trackedItems) do
-        if item.skillGoal and item.recipeID and not item.container then
+        if item.skillGoal and item.recipeID and not item.container and item.countDown ~= false then
             local skill = GetProfessionSkill(item)
             local need = skill and GetReagentQuantity(item.recipeID, item.name)
             if need and need > 0 then
@@ -3298,11 +3329,21 @@ function AnswerAppearancePrompt(answer)
                 RemoveGoalBar(entry.recipeID)
                 SetStopRule(entry.recipeID, entry.level, nil, true)
                 ClearAppearanceRule(entry.recipeID)
-                for _, item in pairs(trackedItems) do
-                    if item.recipeID == entry.recipeID and not item.container then
+                -- Bars the recipe already had are resized too, and brought
+                -- back from Inactive: the whole recipe now works toward it.
+                for key, item in pairs(trackedItems) do
+                    if item.recipeID == entry.recipeID and not item.container and not IsOutputBar(item) then
                         item.skillGoal = entry.level
+                        item.countFrom, item.countDone = nil, nil
+                        item.inactive = nil
+                        local need = GetReagentQuantity(entry.recipeID, item.name)
+                        if need and need > 0 then
+                            item.goal = (item.start or 0) + need * entry.crafts
+                            goalReached[key] = nil
+                        end
                     end
                 end
+                Safe("skill", ResizeSkillGoalBars)()
                 UpdateBars()
                 Print(("Tracking %s until %s %d (at least %d %s). Click a bar to craft; it stops when you get there."):format(
                     name, entry.profession or "skill", entry.level, entry.crafts, entry.crafts == 1 and "craft" or "crafts"))

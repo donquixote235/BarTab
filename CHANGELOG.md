@@ -2,6 +2,8 @@
 
 ## 1.60.1.15
 
+- "Until I reach a skill level..." on a recipe that already has bars now resizes them for the crafts needed (26 crafts from First Aid 49 to 75), and brings them back from Inactive. Before, they stayed at their old size.
+- Bars sized for a skill level have "Count down as you skill up" on their right-click menu (on by default): each skill point takes a craft's worth off, so the bar shows about how many crafts are left. Untick it to keep the bars at full size.
 - Mail on arrival: at a mailbox, the character your other characters mailed with BarTab is offered to take everything from those letters in one go (or, set in Characters settings, it's taken automatically). Only letters your own characters sent with BarTab are opened; other mail is left alone. It stops if your bags fill up. `/bartab mail take` takes them now.
 - At a vendor, the offer to buy again while you craft there waits until you've run out of the item (the last Empty Vial used), not as soon as you have fewer than your bars plan for.
 
