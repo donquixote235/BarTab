@@ -6645,7 +6645,10 @@ local function MailPromptRow(frame, index)
     return row
 end
 
-function ShowMailPrompt(sends)
+-- all: "Mail all I have of each" for this prompt (nil: the default setting).
+function ShowMailPrompt(sends, all)
+    if all == nil then all = settings.mailAll and true or false end
+    mailAllNow = all
     local frame = mailPrompt
     if not frame then
         local ok
@@ -6680,8 +6683,9 @@ function ShowMailPrompt(sends)
         frame.allCheck.label:SetPoint("LEFT", frame.allCheck, "RIGHT", 2, 0)
         frame.allCheck.label:SetText("Mail all I have of each, not just what's needed")
         frame.allCheck:SetScript("OnClick", function(box)
-            settings.mailAll = box:GetChecked() and true or nil
-            ShowMailPrompt(FindMailSends(settings.mailAll))
+            -- This visit only; the Characters setting is the default.
+            local all = box:GetChecked() and true or false
+            ShowMailPrompt(FindMailSends(all), all)
         end)
         frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         frame.mailButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -6717,7 +6721,7 @@ function ShowMailPrompt(sends)
     if #sends > shown then bottom = bottom - 16 end
     frame.allCheck:ClearAllPoints()
     frame.allCheck:SetPoint("TOPLEFT", 16, bottom - 4)
-    frame.allCheck:SetChecked(settings.mailAll and true or false)
+    frame.allCheck:SetChecked(mailAllNow and true or false)
     frame.mailButton:ClearAllPoints()
     frame.mailButton:SetPoint("TOPRIGHT", frame, "TOP", -6, bottom - 36)
     frame.cancelButton:ClearAllPoints()

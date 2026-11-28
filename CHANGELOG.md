@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.60.1.16
+
+- "Mail all I have of each" in the mail prompt applies to that time only. The Characters setting ("Start the mail prompt with \"Mail all I have of each\"") is what the checkbox starts as each time.
+
 ## 1.60.1.15
 
 - Mail on arrival: at a mailbox, the character your other characters mailed with BarTab is offered to take everything from those letters in one go (or, set in Characters settings, it's taken automatically). Only letters your own characters sent with BarTab are opened; other mail is left alone. It stops if your bags fill up. `/bartab mail take` takes them now.

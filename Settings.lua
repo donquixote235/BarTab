@@ -610,8 +610,8 @@ function BuildConfigFrame()
         "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or mails what's ticked while BarTab's prompt is showing (otherwise it crafts as usual). The game allows one letter per click or key press, so each letter still needs one.",
         function() return settings.mailAutoSend end,
         function(on) settings.mailAutoSend = on or nil end)
-    y = AddCheck(page, y, "Mail all I have of each, not just what's needed",
-        "The mail prompt starts with everything you have spare of each material (after your own bars' goals), not just what the other character is short. You can still change each amount in the prompt. The same as the checkbox in the prompt.",
+    y = AddCheck(page, y, "Start the mail prompt with \"Mail all I have of each\"",
+        "The mail prompt starts with everything you have spare of each material (after your own bars' goals), not just what the other character is short. The checkbox in the prompt changes it for that time only; this is what it starts as. You can still change each amount.",
         function() return settings.mailAll end,
         function(v) settings.mailAll = v or nil end)
 

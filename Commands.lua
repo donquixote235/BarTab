@@ -692,6 +692,11 @@ events:SetScript("OnEvent", function(self, event, arg1, arg2, arg3)
         end
     elseif event == "PLAYER_LOGIN" then
         BindCharacterList()
+        -- 1.60.1.16: the mail prompt's "Mail all" no longer saves itself, so a
+        -- value it saved before starts over (off) once.
+        if settings and not settings.mailAllReset then
+            settings.mailAll, settings.mailAllReset = nil, true
+        end
         C_Timer.After(3, function() Safe("names", FixPlaceholderNames)() end)
         C_Timer.After(1, function() pcall(ClaimShortSlash) end)
         C_Timer.After(6, function() Safe("guide", ShowLoginTip)() end)
