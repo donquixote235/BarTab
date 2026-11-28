@@ -18,5 +18,6 @@ A /reload is enough after installing; no new files this time.
 
 ## Fixed
 
+- The craft key now makes materials first when a bar needs them (smelting Copper Bar for a Copper Dagger), as clicking the bar does.
 - "Until I reach a skill level..." left a recipe's existing bars at their old size.
 - A stalled letter no longer keeps your craft key from crafting at the mailbox.

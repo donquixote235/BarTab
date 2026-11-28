@@ -11,6 +11,7 @@
 - Bars sized for a skill level have "Count down as you skill up" on their right-click menu (on by default): each skill point takes a craft's worth off, so the bar shows about how many crafts are left. Untick it to keep the bars at full size.
 - Bars working toward a skill level keep their "After crafting" rule waiting until you reach the level, so running out of materials partway no longer untracks them.
 - At a vendor, the offer to buy again while you craft there waits until you've run out of the item (the last Empty Vial used), not as soon as you have fewer than your bars plan for.
+- The BarTab craft key starts making materials first when that's what a bar needs (smelting Copper Bar for a Copper Dagger), as clicking the bar does. Before, it said "Nothing is ready to craft."
 
 ## 1.60.1.14
 

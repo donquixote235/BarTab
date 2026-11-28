@@ -7165,13 +7165,33 @@ function BarCraftable(item)
 end
 
 function CraftNextReady()
+    local candidates = {}
     for _, key in ipairs(GetSortedKeys()) do
         local item = trackedItems[key]
         -- Hidden ingredient bars behind a material bar count too.
         if item.recipeID and not item.container and not item.inactive
-            and (IsShown(item) or IsMaterialModeBar(item) or HidesVendorMaterial(item)) and BarCraftable(item) >= 1 then
-            CraftItem(key, GetClickAction("click"))
-            return true
+            and (IsShown(item) or IsMaterialModeBar(item) or HidesVendorMaterial(item)) then
+            if BarCraftable(item) >= 1 then
+                CraftItem(key, GetClickAction("click"))
+                return true
+            end
+            candidates[#candidates + 1] = key
+        end
+    end
+    -- Nothing craftable as it stands: the first bar whose click would make a
+    -- material first (smelting Copper Bar for a Copper Dagger), as a click does.
+    local seen = {}
+    for _, key in ipairs(candidates) do
+        local item = trackedItems[key]
+        if not seen[item.recipeID] then
+            seen[item.recipeID] = true
+            local ok, first = pcall(ChainFirstStep, item)
+            if ok and first and first ~= item and first.recipeID
+                and (ComputeCraftableCount(first.recipeID) or 1) >= 1 then
+                CraftLog("craft key: chain for " .. tostring(item.recipeID) .. " starts with " .. tostring(first.recipeID))
+                CraftItem(key, GetClickAction("click"))
+                return true
+            end
         end
     end
     Print("Nothing is ready to craft.")
