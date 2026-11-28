@@ -681,6 +681,15 @@ ShowGroupMenu = function(owner, section, group)
     -- A profession's subsection: one bar per material, or each ingredient.
     if section == CRAFT_SECTION and group and MaterialMode ~= nil
         and group ~= OTHER_GROUP and group ~= INACTIVE_GROUP and group ~= ALT_GROUP then
+        -- Open the profession (on one of its tracked recipes).
+        for _, key in ipairs(keys) do
+            local bar = trackedItems[key]
+            if bar and bar.recipeID and not bar.container then
+                entries[#entries + 1] = { "Open " .. group, function() OpenBarRecipe(key) end }
+                entries[#entries + 1] = { divider = true }
+                break
+            end
+        end
         local current = MaterialMode(group)
         for _, mode in ipairs(BAR_MODES) do
             if mode.key ~= current then
@@ -1023,9 +1032,10 @@ do
                         UntrackRecipe(recipeID)
                         Print("Stopped tracking " .. name .. ".")
                     else
-                        -- The "Track with settings" window: ingredients,
-                        -- crafts and rules, chosen up front.
-                        TrackWithOptions(recipeID)
+                        -- The "Track with settings" window (ingredients,
+                        -- crafts and rules), or straight away for a
+                        -- profession shown one bar per recipe.
+                        TrackRecipeQuick(recipeID)
                     end
                     box:SetChecked(IsTrackedRecipe(recipeID))
                 end)()

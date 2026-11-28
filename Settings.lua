@@ -596,7 +596,7 @@ function BuildConfigFrame()
         function() return settings.trainingReminders ~= false end,
         function(v) settings.trainingReminders = v end)
     y = AddCheck(page, y, "\"Track Recipe\" tracks in BarTab",
-        "The Track Recipe checkbox under a recipe in the profession window opens BarTab's Track with settings window (pick the ingredients, crafts and rules) instead of the game's own recipe tracking; unticking it untracks the recipe's bars. The checkbox then shows whether the recipe has BarTab bars.",
+        "The Track Recipe checkbox under a recipe in the profession window, and Track Recipe on the recipe list's right-click menu, track in BarTab instead of the game's own recipe tracking: the Track with settings window (pick the ingredients, crafts and rules), or for a profession shown one bar per recipe, every ingredient straight away; unticking it untracks the recipe's bars. The checkbox then shows whether the recipe has BarTab bars.",
         function() return settings.trackCheckboxBarTab end,
         function(v) settings.trackCheckboxBarTab = v or nil end)
 

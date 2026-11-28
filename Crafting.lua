@@ -6909,3 +6909,51 @@ function ResetAltShopHidden()
     settings.altShopHidden, settings.altShopSkip = nil, nil
     Safe("alt shopping", SyncAltNeedBars)()
 end
+
+-- Tracking a recipe from the profession window ("Track in BarTab", or the
+-- game's Track Recipe on the recipe list's right-click menu): for a
+-- profession shown one bar per recipe, every ingredient (vendor-bought ones
+-- aside) for one craft, straight away; otherwise the Track with settings
+-- window.
+function TrackRecipeQuick(recipeID)
+    if not recipeID then return end
+    local profession, skillLineID = LoadedProfession()
+    if not profession then profession, skillLineID = RecipeProfession(recipeID) end
+    if profession and MaterialMode(profession) == "recipe" then
+        local reagents = GetRecipeReagents(recipeID)
+        if reagents and #reagents > 0 then
+            local picks, any = {}, false
+            for index, reagent in ipairs(reagents) do
+                if settings.showVendorMats or not IsVendorMaterial({ name = reagent.name, itemID = reagent.itemID }) then
+                    picks[index], any = true, true
+                end
+            end
+            if not any then
+                for index in ipairs(reagents) do picks[index] = true end
+            end
+            local name = TrackRecipeForAppearance(recipeID, GetRecipeOutput(recipeID), profession, skillLineID,
+                picks, nil, "track", 1)
+            if name then
+                UpdateBars()
+                Print("Tracking " .. name .. " (one craft). Right-click its bar for crafts and rules.")
+                return
+            end
+        end
+    end
+    TrackWithOptions(recipeID)
+end
+
+-- The game's own recipe tracking (Track Recipe on the recipe list's
+-- right-click menu) goes to BarTab instead, with "Track Recipe tracks in
+-- BarTab" on: the game's tracking is undone and BarTab tracks the recipe.
+-- (Untracking is left alone: the game untracks recipes for its own reasons.)
+if C_TradeSkillUI and C_TradeSkillUI.SetRecipeTracked and hooksecurefunc then
+    hooksecurefunc(C_TradeSkillUI, "SetRecipeTracked", function(recipeID, tracked, isRecraft)
+        if redirectingTracking or not tracked or isRecraft then return end
+        if not (settings and settings.trackCheckboxBarTab) then return end
+        redirectingTracking = true
+        pcall(C_TradeSkillUI.SetRecipeTracked, recipeID, false, isRecraft)
+        redirectingTracking = false
+        if not IsTrackedRecipe(recipeID) then Safe("track recipe", TrackRecipeQuick)(recipeID) end
+    end)
+end

@@ -21,6 +21,10 @@
 
 - Right-click a material bar to untrack its recipe ("Untrack Elixir of Minor Fortitude"), or, when several recipes use it, pick one of them or all of them from an Untrack submenu. /bartab undo brings them back.
 
+- "Open Alchemy" (or whichever profession) at the top of a profession heading's right-click menu.
+- For a profession shown one bar per recipe, "Track in BarTab" tracks every ingredient (vendor-bought ones aside) for one craft straight away, instead of opening the Track with settings window.
+- With "Track Recipe tracks in BarTab" on (Recipes settings), Track Recipe on the profession window's recipe list right-click menu tracks in BarTab too, the same way.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
