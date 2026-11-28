@@ -5387,6 +5387,7 @@ function ShowItemPrompt(spec)
     end
     frame.spec = spec
     frame:Show()
+    if frame.Raise then frame:Raise() end
 end
 
 -- Putting away what no bar needs ---------------------------------------------------
@@ -8634,7 +8635,8 @@ function ShowAskWindow()
         emptyText = "No requests; any you had are cancelled.",
         footer = "Counts are from each character's last login. Unticking a request cancels it.",
         button = "Ask",
-        anchor = false,
+        -- Beside the restock window when that's where you came from.
+        anchor = (restockFrame and restockFrame:IsShown()) and restockFrame or false,
         more = "/bartab ask",
         rows = rows,
         onUntick = function(entry, ticked)
