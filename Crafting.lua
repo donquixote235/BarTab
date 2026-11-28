@@ -4729,9 +4729,10 @@ function OfferVendorSales(force, fromOption)
     for _, entry in ipairs(list) do
         local amount = SellAmount(entry)
         if amount > 0 then
+            -- "you have N" only when you're keeping some.
             rows[#rows + 1] = { entry = entry, count = amount, max = entry.count, checked = Ticked(entry),
-                label = entry.name, note = ("you have %d, %s each%s"):format(entry.count, MoneyText(entry.price),
-                    entry.tool and ", a crafting tool" or "") }
+                label = entry.name, note = (amount ~= entry.count and ("you have " .. entry.count .. ", ") or "")
+                    .. MoneyText(entry.price) .. " each" .. (entry.tool and ", crafting tool" or "") }
         end
     end
     if #rows == 0 and not fromOption then
