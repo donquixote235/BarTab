@@ -4848,7 +4848,7 @@ function OfferBankWithdrawals(force)
     ShowItemPrompt({
         kind = "take",
         title = "BarTab: take out of the bank",
-        intro = "Your bars need these (yours or your other characters'). Untick or change amounts:",
+        intro = "Your bars need these. Untick or change amounts:",
         footer = (okAlts and #forAlts > 0)
             and "Items for your other characters come out so you can mail them (Characters settings)." or nil,
         button = "Take out",
@@ -4905,7 +4905,7 @@ function AcceptItemPrompt()
     frame.spec = nil
     frame:Hide()
     if #list == 0 then
-        Print("Nothing ticked.")
+        Print(spec.emptyText or "Nothing ticked.")
         if spec.onDecline then spec.onDecline() end
         return
     end
@@ -4967,6 +4967,9 @@ function ShowItemPrompt(spec)
         frame.title:SetPoint("TOP", 0, -6)
         frame.intro = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         frame.intro:SetPoint("TOPLEFT", 18, -32)
+        frame.intro:SetWidth(404)
+        frame.intro:SetJustifyH("LEFT")
+        if frame.intro.SetWordWrap then frame.intro:SetWordWrap(false) end
         frame.rows = {}
         frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         frame.footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -5146,7 +5149,8 @@ function OfferBankDeposits(force)
     ShowItemPrompt({
         kind = "put",
         title = "BarTab: put away in the bank",
-        intro = "None of your bars need these. Untick what to keep (remembered) or change amounts:",
+        intro = "None of your bars need these. Untick to keep them (remembered):",
+        emptyText = "Nothing put away; BarTab remembers what you unticked.",
         footer = "Ask, automatic or off: /bartab config, Shopping tab.",
         button = "Put away",
         rows = rows,
