@@ -277,6 +277,13 @@ function ShowMenu(owner, title, entries)
                                 function() choice[2]() end)
                         end
                     end
+                elseif entry.submenu then
+                    -- A submenu of plain actions.
+                    local submenu = root:CreateButton(entry[1])
+                    for _, child in ipairs(entry.submenu) do
+                        if child.divider then submenu:CreateDivider()
+                        else submenu:CreateButton(child[1], child[2]) end
+                    end
                 elseif entry.check then
                     root:CreateCheckbox(entry[1],
                         function()
@@ -312,6 +319,12 @@ function ShowMenu(owner, title, entries)
                             text = entry[1] .. ": " .. choice[1], func = choice[2],
                             checked = choice.selected,
                         })
+                    end
+                elseif entry.submenu then
+                    for _, child in ipairs(entry.submenu) do
+                        if not child.divider then
+                            UIDropDownMenu_AddButton({ text = entry[1] .. ": " .. child[1], func = child[2], notCheckable = true })
+                        end
                     end
                 elseif entry.check then
                     UIDropDownMenu_AddButton({
@@ -400,8 +413,35 @@ ShowItemMenu = function(owner, itemKey)
     -- A material bar: its recipes, and switching the display back.
     if item.matBar then
         local entries = {}
-        for _, recipe in ipairs(MaterialRecipes(item)) do
+        local recipes = MaterialRecipes(item)
+        for _, recipe in ipairs(recipes) do
             entries[#entries + 1] = { "Open " .. recipe.name, function() OpenBarRecipe(recipe.key) end }
+        end
+        -- Untrack: the one recipe straight away, else pick one or all.
+        local function UntrackOne(recipe)
+            UntrackRecipe(recipe.recipeID)
+            Print("Stopped tracking " .. recipe.name .. ".")
+        end
+        if #recipes == 1 then
+            entries[#entries + 1] = { "Untrack " .. recipes[1].name, function() UntrackOne(recipes[1]) end }
+        elseif #recipes > 1 then
+            local choices = {}
+            for _, recipe in ipairs(recipes) do
+                choices[#choices + 1] = { recipe.name, function() UntrackOne(recipe) end }
+            end
+            choices[#choices + 1] = { divider = true }
+            choices[#choices + 1] = { ("All %d recipes using %s"):format(#recipes, item.name), function()
+                local keys = {}
+                for _, recipe in ipairs(recipes) do
+                    for key, bar in pairs(trackedItems) do
+                        if bar.recipeID == recipe.recipeID and not bar.container and not bar.virtual then
+                            keys[#keys + 1] = key
+                        end
+                    end
+                end
+                ConfirmUntrackKeys(keys, "the recipes using " .. item.name)
+            end }
+            entries[#entries + 1] = { "Untrack", submenu = choices }
         end
         entries[#entries + 1] = { divider = true }
         entries[#entries + 1] = { "Show each ingredient for " .. item.profession, function()

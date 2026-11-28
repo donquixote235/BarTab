@@ -19,6 +19,8 @@
 
 - The settings window is reorganized: a new **Characters** tab gathers everything about your other characters (shopping for them, the mailbox, one-press letters, "Mail all", taking out at the bank for them), with per-character settings marked "(this character)"; **Alerts** get their own tab; the Items tab's two settings moved to General, and so did the session summary. Each tab starts with a line saying what's on it. No setting changed, only where it is.
 
+- Right-click a material bar to untrack its recipe ("Untrack Elixir of Minor Fortitude"), or, when several recipes use it, pick one of them or all of them from an Untrack submenu. /bartab undo brings them back.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
