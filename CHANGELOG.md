@@ -1,5 +1,7 @@
 # Changelog
 
+## 1.60.1.15
+
 ## 1.60.1.14
 
 - Settings window reorganized: a new **Characters** tab gathers everything about your other characters (shopping for them, the mailbox, one-press letters, "Mail all", taking out at the bank for them), with per-character settings marked "(this character)"; **Alerts** get their own tab; the Items tab's settings and the session summary moved to General. Each tab starts with a line saying what's on it. No setting changed, only where it is.

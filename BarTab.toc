@@ -2,7 +2,7 @@
 ## Title: BarTab
 ## Notes: Progress bars in the objective tracker for crafting materials and fill-up crates
 ## Author: Quixotic Software
-## Version: 1.60.1.14
+## Version: 1.60.1.15
 ## Category: Professions
 ## X-License: MIT
 ## X-Curse-Project-ID: 1819847
