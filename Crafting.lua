@@ -4821,31 +4821,208 @@ function OfferBankWithdrawals(force)
     local altNote = (okAlts and #forAlts > 0)
         and "\n\n(Items for your other characters are taken out so you can mail them. You can turn that off in /bartab config, Characters tab.)"
         or ""
-    if mode == "auto" and not force or not (StaticPopupDialogs and StaticPopup_Show) then
+    if mode == "auto" and not force then
         TakeOutMaterials(list)
         if altNote ~= "" then Print((altNote:gsub("^%s+", ""):gsub("^%(", ""):gsub("%)$", ""))) end
         return
     end
-    StaticPopupDialogs.BARTAB_BANK_TAKE = StaticPopupDialogs.BARTAB_BANK_TAKE or {
-        text = "BarTab: your bank has materials your bars need (yours or your other characters').\n\n%s\n\nTake them out?%s",
-        button1 = "Take out",
-        button2 = NO or "No",
-        OnAccept = function(_, data) TakeOutMaterials(data) end,
-        OnCancel = function(_, _, reason)
-            if reason ~= "override" then Safe("bank", OfferBankDeposits)() end
-        end,
-        timeout = 0,
-        whileDead = false,
-        hideOnEscape = true,
-    }
-    StaticPopup_Show("BARTAB_BANK_TAKE", table.concat(DescribeWithdrawals(list), "\n"), altNote, list)
+    local inBank = BankItemCounts()
+    local rows = {}
+    for _, entry in ipairs(list) do
+        rows[#rows + 1] = { entry = entry, count = entry.count, max = inBank[entry.itemID] or entry.count, checked = true,
+            label = entry.name .. (entry.forAlts and (" for " .. entry.forAlts) or ""),
+            note = "bank has " .. (inBank[entry.itemID] or entry.count) }
+    end
+    ShowItemPrompt({
+        kind = "take",
+        title = "BarTab: take out of the bank",
+        intro = "Your bars need these (yours or your other characters'). Untick or change amounts:",
+        footer = (okAlts and #forAlts > 0)
+            and "Items for your other characters come out so you can mail them (Characters settings)." or nil,
+        button = "Take out",
+        rows = rows,
+        onAccept = function(chosen) TakeOutMaterials(chosen) end,
+        onDecline = function() Safe("bank", OfferBankDeposits)() end,
+    })
+end
+
+-- itemID -> count in the bank (its own slots and bags).
+function BankItemCounts()
+    local counts = {}
+    for _, bag in ipairs(BankContainers()) do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count = ContainerItem(bag, slot)
+            if itemID then counts[itemID] = (counts[itemID] or 0) + count end
+        end
+    end
+    return counts
+end
+
+-- The item window used at the bank: a row per item with a checkbox, an
+-- amount (up to row.max) and a label. spec: kind, title, intro, footer,
+-- button, rows = { { entry, count, max, checked, label, note } },
+-- onAccept(list of entries with .count set), onDecline(), onUntick(entry, ticked).
+ITEM_PROMPT_ROWS = 16
+
+function HideItemPrompt()
+    if itemPrompt and itemPrompt:IsShown() then
+        itemPrompt.spec = nil -- closing with the bank isn't declining
+        itemPrompt:Hide()
+    end
+end
+
+function AcceptItemPrompt()
+    local frame = itemPrompt
+    local spec = frame and frame.spec
+    if not spec then return end
+    local list = {}
+    for _, row in ipairs(frame.rows) do
+        if row:IsShown() and row.data then
+            local ticked = row.check:GetChecked() and true or false
+            if spec.onUntick then spec.onUntick(row.data.entry, ticked) end
+            local amount = math.floor(tonumber(row.box:GetText()) or 0)
+            amount = math.min(amount, row.data.max or amount)
+            if ticked and amount > 0 then
+                local copy = {}
+                for field, value in pairs(row.data.entry) do copy[field] = value end
+                copy.count = amount
+                list[#list + 1] = copy
+            end
+        end
+    end
+    frame.spec = nil
+    frame:Hide()
+    if #list == 0 then
+        Print("Nothing ticked.")
+        if spec.onDecline then spec.onDecline() end
+        return
+    end
+    spec.onAccept(list)
+end
+
+local function ItemPromptRow(frame, index)
+    local row = frame.rows[index]
+    if row then return row end
+    row = CreateFrame("Frame", nil, frame)
+    row:SetSize(400, 24)
+    row:SetPoint("TOPLEFT", 16, -54 - (index - 1) * 26)
+    row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    row.check:SetSize(24, 24)
+    row.check:SetPoint("LEFT", 0, 0)
+    if type(row.check.Text) == "table" then row.check.Text:SetText("") end
+    row.box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+    row.box:SetSize(40, 20)
+    row.box:SetPoint("LEFT", row.check, "RIGHT", 10, 0)
+    row.box:SetAutoFocus(false)
+    if row.box.SetNumeric then row.box:SetNumeric(true) end
+    if row.box.SetMaxLetters then row.box:SetMaxLetters(4) end
+    row.box:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    row.box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    row.box:SetScript("OnEditFocusLost", function(self)
+        local amount = math.floor(tonumber(self:GetText()) or 0)
+        if row.data and row.data.max and amount > row.data.max then self:SetText(tostring(row.data.max)) end
+    end)
+    row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    row.label:SetPoint("LEFT", row.box, "RIGHT", 6, 0)
+    row.label:SetPoint("RIGHT", row, "RIGHT", 0, 0)
+    row.label:SetJustifyH("LEFT")
+    frame.rows[index] = row
+    return row
+end
+
+function ShowItemPrompt(spec)
+    local frame = itemPrompt
+    if not frame then
+        local ok
+        ok, frame = pcall(CreateFrame, "Frame", "BarTabItemPrompt", UIParent, "BasicFrameTemplateWithInset")
+        if not ok then
+            frame = CreateFrame("Frame", "BarTabItemPrompt", UIParent, "BackdropTemplate")
+            frame:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32,
+                edgeSize = 32, insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+            local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+            close:SetPoint("TOPRIGHT", -4, -4)
+        end
+        frame:SetFrameStrata("DIALOG")
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame:SetClampedToScreen(true)
+        tinsert(UISpecialFrames, "BarTabItemPrompt")
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("TOP", 0, -6)
+        frame.intro = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        frame.intro:SetPoint("TOPLEFT", 18, -32)
+        frame.rows = {}
+        frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        frame.footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        frame.footer:SetJustifyH("LEFT")
+        frame.footer:SetWidth(400)
+        frame.okButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.okButton:SetSize(110, 24)
+        frame.okButton:SetScript("OnClick", function() AcceptItemPrompt() end)
+        frame.cancelButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        frame.cancelButton:SetSize(110, 24)
+        frame.cancelButton:SetText(CANCEL or "Cancel")
+        frame.cancelButton:SetScript("OnClick", function() frame:Hide() end)
+        -- Closing it any way but the button (Cancel, the X, Escape) declines.
+        frame:SetScript("OnHide", function(self)
+            local declined = self.spec
+            self.spec = nil
+            if declined and declined.onDecline then Safe("bank", declined.onDecline)() end
+        end)
+        itemPrompt = frame
+    end
+    if frame:IsShown() then HideItemPrompt() end
+    frame.title:SetText(spec.title)
+    frame.intro:SetText(spec.intro)
+    frame.okButton:SetText(spec.button)
+    local rows = spec.rows
+    local shown = math.min(#rows, ITEM_PROMPT_ROWS)
+    for index = 1, shown do
+        local data, row = rows[index], ItemPromptRow(frame, index)
+        row.data = data
+        row.check:SetChecked(data.checked)
+        row.box:SetText(tostring(data.count))
+        row.label:SetText(data.label .. (data.note and ("  |cff808080(" .. data.note .. ")|r") or ""))
+        row:Show()
+    end
+    for index = shown + 1, #frame.rows do
+        frame.rows[index].data = nil
+        frame.rows[index]:Hide()
+    end
+    local bottom = -54 - shown * 26
+    frame.more:ClearAllPoints()
+    frame.more:SetPoint("TOPLEFT", 22, bottom - 2)
+    frame.more:SetText(#rows > shown and ("and " .. (#rows - shown) .. " more; type /bartab bank again after") or "")
+    if #rows > shown then bottom = bottom - 16 end
+    frame.footer:ClearAllPoints()
+    frame.footer:SetPoint("TOPLEFT", 22, bottom - 4)
+    frame.footer:SetText(spec.footer or "")
+    if spec.footer then bottom = bottom - 28 end
+    frame.okButton:ClearAllPoints()
+    frame.okButton:SetPoint("TOPRIGHT", frame, "TOP", -6, bottom - 8)
+    frame.cancelButton:ClearAllPoints()
+    frame.cancelButton:SetPoint("TOPLEFT", frame, "TOP", 6, bottom - 8)
+    frame:SetSize(440, -(bottom - 8) + 40)
+    frame:ClearAllPoints()
+    if BankFrame and BankFrame.IsShown and BankFrame:IsShown() then
+        frame:SetPoint("TOPLEFT", BankFrame, "TOPRIGHT", 12, 0)
+    else
+        frame:SetPoint("CENTER")
+    end
+    frame.spec = spec
+    frame:Show()
 end
 
 -- Putting away what no bar needs ---------------------------------------------------
 -- After the take-out offer: crafting materials in your bags (trade goods:
 -- ore, herbs, cloth, leather, parts) that none of your bars use, active or
 -- Inactive, that your other characters aren't short of, and that aren't
--- vendor-bought (thread, vials) can go into the bank. Whole stacks only.
+-- vendor-bought (thread, vials) can go into the bank: in a window where you
+-- untick items (remembered) or change amounts.
 -- CharSetting("bankDeposit"): "ask" (default), "auto" or "off".
 DEPOSIT_MODES = {
     { key = "ask", name = "Offer to bank materials no bar needs" },
@@ -4895,6 +5072,15 @@ function MaterialsInUse()
 end
 
 -- { { name, itemID, count } }: what in your bags could go to the bank.
+-- Materials you unticked in the put-away window: they start unticked next
+-- time (and automatic putting away skips them). settings.depositKeep[character][itemID].
+function DepositKept()
+    settings.depositKeep = settings.depositKeep or {}
+    local key = CharacterKey()
+    settings.depositKeep[key] = settings.depositKeep[key] or {}
+    return settings.depositKeep[key]
+end
+
 function FindBankDeposits()
     local ids, names = MaterialsInUse()
     local found, order = {}, {}
@@ -4931,26 +5117,30 @@ function OfferBankDeposits(force)
         if force then Print("Nothing in your bags to put away: your bars use all your materials.") end
         return
     end
-    if mode == "auto" and not force or not (StaticPopupDialogs and StaticPopup_Show) then
-        PutAwayMaterials(list)
+    local kept = DepositKept()
+    if mode == "auto" and not force then
+        local chosen = {}
+        for _, entry in ipairs(list) do
+            if not kept[entry.itemID] then chosen[#chosen + 1] = entry end
+        end
+        if #chosen > 0 then PutAwayMaterials(chosen) end
         return
     end
-    StaticPopupDialogs.BARTAB_BANK_DEPOSIT = StaticPopupDialogs.BARTAB_BANK_DEPOSIT or {
-        text = "BarTab: none of your bars need these materials.\n\n%s\n\nPut them in the bank?\n\n(You can change this in /bartab config, Shopping tab.)",
-        button1 = "Put away",
-        button2 = NO or "No",
-        OnAccept = function(_, data) Safe("bank", PutAwayMaterials)(data) end,
-        timeout = 0,
-        whileDead = false,
-        hideOnEscape = true,
-    }
-    local lines = DescribeWithdrawals(list)
-    if #lines > 12 then
-        local more = #lines - 11
-        for i = #lines, 12, -1 do lines[i] = nil end
-        lines[12] = ("and %d more"):format(more)
+    local rows = {}
+    for _, entry in ipairs(list) do
+        rows[#rows + 1] = { entry = entry, count = entry.count, max = entry.count,
+            checked = not kept[entry.itemID], label = entry.name, note = "you have " .. entry.count }
     end
-    StaticPopup_Show("BARTAB_BANK_DEPOSIT", table.concat(lines, "\n"), nil, list)
+    ShowItemPrompt({
+        kind = "put",
+        title = "BarTab: put away in the bank",
+        intro = "None of your bars need these. Untick what to keep (remembered) or change amounts:",
+        footer = "Ask, automatic or off: /bartab config, Shopping tab.",
+        button = "Put away",
+        rows = rows,
+        onAccept = function(chosen) Safe("bank", PutAwayMaterials)(chosen) end,
+        onUntick = function(entry, ticked) kept[entry.itemID] = (not ticked) or nil end,
+    })
 end
 
 function BankHasRoom(itemID)
@@ -4969,9 +5159,27 @@ end
 function PutAwayMaterials(list)
     if depositJob or not bankWindowOpen then return end
     local wanted = {}
-    for _, entry in ipairs(list) do wanted[entry.itemID] = entry end
+    for _, entry in ipairs(list) do wanted[entry.itemID] = { left = entry.count } end
     depositJob = { wanted = wanted, put = {}, full = {}, waits = 0, steps = 0 }
     DepositStep()
+end
+
+-- An empty bank slot, or failing that a bank stack of the item with room
+-- for amount.
+function BankSlotFor(itemID, amount)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local maxStack = getInfo and tonumber((select(8, getInfo(itemID)))) or 1
+    local partialBag, partialSlot
+    for _, bag in ipairs(BankContainers()) do
+        for slot = 1, ContainerSlots(bag) do
+            local id, count, locked = ContainerItem(bag, slot)
+            if not id then return bag, slot end
+            if id == itemID and not locked and count + amount <= maxStack and not partialBag then
+                partialBag, partialSlot = bag, slot
+            end
+        end
+    end
+    return partialBag, partialSlot
 end
 
 function FinishDepositJob(problem)
@@ -5009,17 +5217,37 @@ function DepositStep()
     for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
         for slot = 1, ContainerSlots(bag) do
             local itemID, count, locked = ContainerItem(bag, slot)
-            if itemID and job.wanted[itemID] and not job.full[itemID] then
+            local want = itemID and job.wanted[itemID]
+            if want and want.left > 0 and not job.full[itemID] then
                 if locked then
                     busy = true
-                elseif BankHasRoom(itemID) then
-                    local use = (C_Container and C_Container.UseContainerItem) or _G.UseContainerItem
-                    use(bag, slot)
-                    job.put[itemID] = (job.put[itemID] or 0) + count
-                    job.waits = 0
-                    C_Timer.After(0.25, DepositStep)
-                    return
+                elseif count <= want.left then
+                    -- A whole stack: the bank takes it (and tops up its stacks).
+                    if BankHasRoom(itemID) then
+                        local use = (C_Container and C_Container.UseContainerItem) or _G.UseContainerItem
+                        use(bag, slot)
+                        job.put[itemID] = (job.put[itemID] or 0) + count
+                        want.left = want.left - count
+                        job.waits = 0
+                        C_Timer.After(0.25, DepositStep)
+                        return
+                    end
+                    job.full[itemID] = true
                 else
+                    -- Part of a stack: split it straight into a bank slot.
+                    local toBag, toSlot = BankSlotFor(itemID, want.left)
+                    if toBag then
+                        local split = (C_Container and C_Container.SplitContainerItem) or _G.SplitContainerItem
+                        local pickup = (C_Container and C_Container.PickupContainerItem) or _G.PickupContainerItem
+                        split(bag, slot, want.left)
+                        pickup(toBag, toSlot)
+                        if CursorHasItem and CursorHasItem() and ClearCursor then ClearCursor() end
+                        job.put[itemID] = (job.put[itemID] or 0) + want.left
+                        want.left = 0
+                        job.waits = 0
+                        C_Timer.After(0.3, DepositStep)
+                        return
+                    end
                     job.full[itemID] = true
                 end
             end
@@ -5039,10 +5267,7 @@ pcall(bankWatcher.RegisterEvent, bankWatcher, "BANKFRAME_CLOSED")
 bankWatcher:SetScript("OnEvent", function(_, event)
     if event == "BANKFRAME_CLOSED" then
         bankWindowOpen = false
-        if StaticPopup_Hide then
-            StaticPopup_Hide("BARTAB_BANK_TAKE")
-            StaticPopup_Hide("BARTAB_BANK_DEPOSIT")
-        end
+        HideItemPrompt()
         return
     end
     bankWindowOpen = true

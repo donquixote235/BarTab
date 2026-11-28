@@ -488,7 +488,7 @@ function BuildConfigFrame()
 
     y = AddHeading(page, y - 6, "Bank")
     local bankButton = AddButton(page, 24, y, 350, "",
-        "At your bank, when it holds something your Crafting bars are short of in your bags: ask with a list, take it out straight away, or do nothing. /bartab bank asks again while the bank is open.",
+        "At your bank, when it holds something your Crafting bars are short of in your bags: ask with a window where you can untick items or change amounts, take it out straight away, or do nothing. /bartab bank asks again while the bank is open.",
         function()
             local current, index = settings.bankWithdraw or "ask", 1
             for i, mode in ipairs(BANK_MODES) do
@@ -505,7 +505,7 @@ function BuildConfigFrame()
     end)
     y = y - 30
     local depositButton = AddButton(page, 24, y, 350, "",
-        "At your bank, after taking out what you need: crafting materials in your bags (ore, herbs, cloth, leather, parts) that none of your bars use, active or Inactive, can go into the bank. Anything your other characters are short of, and vendor-bought things like thread and vials, stay in your bags. Whole stacks only. /bartab bank put offers again. This character only.",
+        "At your bank, after taking out what you need: crafting materials in your bags (ore, herbs, cloth, leather, parts) that none of your bars use, active or Inactive, can go into the bank. Anything your other characters are short of, and vendor-bought things like thread and vials, stay in your bags. The window lets you untick items or change amounts; what you untick is remembered for next time. /bartab bank put offers again. This character only.",
         function()
             local current, index = CharSetting("bankDeposit") or "ask", 1
             for i, mode in ipairs(DEPOSIT_MODES) do
