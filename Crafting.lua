@@ -6573,6 +6573,12 @@ end)
 -- force: /bartab mail (asks even with the setting off).
 function OfferMailSends(force)
     if (CharSetting("mailSend") or "ask") == "off" and not force then return end
+    -- /bartab mail starts over: a letter left half done (Escape, or the
+    -- letter cleared by hand) shouldn't keep the prompt away.
+    if mailJob and force then
+        CraftLog("mail: /bartab mail drops the letter in progress")
+        mailJob = nil
+    end
     if mailJob or (InCombatLockdown and InCombatLockdown()) then return end
     local sends = FindMailSends(settings.mailAll)
     if #sends == 0 then
@@ -6902,6 +6908,9 @@ mailWatcher:SetScript("OnEvent", function(_, event)
     elseif event == "MAIL_CLOSED" then
         mailboxOpen = false
         collectJob = nil
+        -- Closing the mailbox returns attached items to your bags: the
+        -- letter in progress is over.
+        if mailJob then FinishMailJob(mailJob.waitingSend and "The mailbox closed before the letter was sent." or nil) end
         if StaticPopup_Hide then StaticPopup_Hide("BARTAB_COLLECT") end
         HideMailPrompt()
     elseif event == "MAIL_SEND_SUCCESS" then

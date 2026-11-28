@@ -3,6 +3,7 @@
 ## 1.60.1.16
 
 - "Mail all I have of each" in the mail prompt applies to that time only. The Characters setting ("Start the mail prompt with \"Mail all I have of each\"") is what the checkbox starts as each time.
+- Leaving a letter unsent (closing the mailbox, or Escape) no longer keeps the mail prompt away until a reload: closing the mailbox ends the letter in progress, and `/bartab mail` starts over.
 
 ## 1.60.1.15
 
