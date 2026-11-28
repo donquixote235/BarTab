@@ -302,6 +302,10 @@ function BuildConfigFrame()
         "When the materials in your bags are enough to make the rest of a bar's item with your own recipes (8 / 10 Thick Leather, and Heavy Leather for 2 more). The bar also shows a lighter stretch for what you could make.",
         function() return settings.makeableAlerts ~= false end,
         function(v) settings.makeableAlerts = v end)
+    y = AddCheck(page, y, "Warn when my bags are nearly full",
+        "A chat message when your bags get down to 2 free slots, and when they're full. Crafting from a bar with no room for what it makes says so instead of trying.",
+        function() return settings.bagSpaceWarn ~= false end,
+        function(v) settings.bagSpaceWarn = v end)
     y = AddCheck(page, y, "Play a sound",
         "Plays a short chime with the alert.",
         function() return settings.alertSound ~= false end,
@@ -497,6 +501,24 @@ function BuildConfigFrame()
         local current = settings.bankWithdraw or "ask"
         for _, mode in ipairs(BANK_MODES) do
             if mode.key == current then bankButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+    local depositButton = AddButton(page, 24, y, 350, "",
+        "At your bank, after taking out what you need: crafting materials in your bags (ore, herbs, cloth, leather, parts) that none of your bars use, active or Inactive, can go into the bank. Anything your other characters are short of, and vendor-bought things like thread and vials, stay in your bags. Whole stacks only. /bartab bank put offers again. This character only.",
+        function()
+            local current, index = CharSetting("bankDeposit") or "ask", 1
+            for i, mode in ipairs(DEPOSIT_MODES) do
+                if mode.key == current then index = i end
+            end
+            SetCharSetting("bankDeposit", DEPOSIT_MODES[index % #DEPOSIT_MODES + 1].key)
+            RefreshConfig()
+        end)
+    AddCharacterTag(page, depositButton)
+    table.insert(configRefreshers, function()
+        local current = CharSetting("bankDeposit") or "ask"
+        for _, mode in ipairs(DEPOSIT_MODES) do
+            if mode.key == current then depositButton:SetText(mode.name) end
         end
     end)
     y = y - 30

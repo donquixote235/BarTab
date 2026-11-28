@@ -2,6 +2,8 @@
 
 ## 1.60.1.15
 
+- At the bank, after the take-out offer, BarTab offers to put away crafting materials none of your bars use (ore, herbs, cloth, leather, parts). It leaves anything your other characters are short of, and vendor-bought things like thread and vials. Ask, automatic or off, per character (Shopping settings); `/bartab bank put` offers again.
+- Bag space warnings: a chat message when your bags get down to 2 free slots and when they're full (Alerts settings). Clicking a crafting bar with no room for what it makes says so instead of trying.
 - With "Send letters in one press", your BarTab craft key at a mailbox no longer starts mailing on its own: it mails only while BarTab's mail prompt is showing, and crafts otherwise. A letter that stalls is given up after a few seconds, so the key goes back to crafting.
 - "Until I reach a skill level..." on a recipe that already has bars now resizes them for the crafts needed (26 crafts from First Aid 49 to 75), and brings them back from Inactive. Before, they stayed at their old size.
 - Bars sized for a skill level have "Count down as you skill up" on their right-click menu (on by default): each skill point takes a craft's worth off, so the bar shows about how many crafts are left. Untick it to keep the bars at full size.

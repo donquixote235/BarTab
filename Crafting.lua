@@ -247,6 +247,11 @@ function TryCraft(item, amount)
         Print("Nothing can be crafted in combat.")
         return false
     end
+    if not CraftHasRoom(item.recipeID) then
+        Print(("Your bags are full: free a slot for the %s, then click again."):format(
+            GetItemNameByID((GetRecipeOutput(item.recipeID))) or GetRecipeName(item.recipeID) or "craft"))
+        return false
+    end
     if IsProfessionLoaded(item) then
         CraftNow(item, amount)
     elseif ProfessionsOpen() then
@@ -269,6 +274,45 @@ function TryCraft(item, amount)
     end
     return true
 end
+
+-- Room in your bags for what a craft makes: a free slot, a stack of it with
+-- room, or an ingredient the craft uses up (its slot comes free). Unknown
+-- counts as room.
+function CraftHasRoom(recipeID)
+    if not recipeID or FreeBagSlots() > 0 then return true end
+    local outputID, made = GetRecipeOutput(recipeID)
+    if not outputID then return true end
+    local _, size = StackCrafts(recipeID)
+    local have = CountOwned(outputID)
+    if size and have > 0 and (size - have % size) % size >= (made or 1) then return true end
+    local ok, reagents = pcall(GetRecipeReagents, recipeID)
+    for _, reagent in ipairs((ok and reagents) or {}) do
+        if reagent.itemID and reagent.need and CountOwned(reagent.itemID) <= reagent.need then return true end
+    end
+    return false
+end
+
+-- Bag space warnings (settings.bagSpaceWarn, on by default): once when your
+-- bags get down to BAG_SPACE_LOW free slots, and once when they're full.
+BAG_SPACE_LOW = 2
+lastFreeSlots = nil
+function CheckBagSpace()
+    local free = FreeBagSlots()
+    local before = lastFreeSlots
+    lastFreeSlots = free
+    if settings.bagSpaceWarn == false or before == nil or free >= before then return end
+    if free == 0 then
+        Print("Your bags are full.")
+    elseif free <= BAG_SPACE_LOW and before > BAG_SPACE_LOW then
+        Print(("Your bags are nearly full: %d %s left."):format(free, free == 1 and "slot" or "slots"))
+    end
+end
+bagSpaceWatcher = CreateFrame("Frame")
+pcall(bagSpaceWatcher.RegisterEvent, bagSpaceWatcher, "BAG_UPDATE_DELAYED")
+pcall(bagSpaceWatcher.RegisterEvent, bagSpaceWatcher, "PLAYER_ENTERING_WORLD")
+bagSpaceWatcher:SetScript("OnEvent", function()
+    C_Timer.After(0.2, function() Safe("bag space", CheckBagSpace)() end)
+end)
 
 -- Hovering a crafting bar loads its profession ahead of the click.
 function PreloadProfession(item)
@@ -4687,6 +4731,11 @@ function FinishBankJob(problem)
     if #parts > 0 then Print("Took out " .. JoinNames(parts, 6) .. ".") end
     if problem then Print(problem) end
     RequestUpdate(0.5)
+    if bankWindowOpen then
+        C_Timer.After(0.6, function()
+            if bankWindowOpen then Safe("bank", OfferBankDeposits)() end
+        end)
+    end
 end
 
 function BankStep()
@@ -4766,6 +4815,7 @@ function OfferBankWithdrawals(force)
     for _, entry in ipairs((okAlts and forAlts) or {}) do list[#list + 1] = entry end
     if #list == 0 then
         if force then Print("Your bank has nothing your bars are short of.") end
+        Safe("bank", OfferBankDeposits)()
         return
     end
     local altNote = (okAlts and #forAlts > 0)
@@ -4781,11 +4831,206 @@ function OfferBankWithdrawals(force)
         button1 = "Take out",
         button2 = NO or "No",
         OnAccept = function(_, data) TakeOutMaterials(data) end,
+        OnCancel = function(_, _, reason)
+            if reason ~= "override" then Safe("bank", OfferBankDeposits)() end
+        end,
         timeout = 0,
         whileDead = false,
         hideOnEscape = true,
     }
     StaticPopup_Show("BARTAB_BANK_TAKE", table.concat(DescribeWithdrawals(list), "\n"), altNote, list)
+end
+
+-- Putting away what no bar needs ---------------------------------------------------
+-- After the take-out offer: crafting materials in your bags (trade goods:
+-- ore, herbs, cloth, leather, parts) that none of your bars use, active or
+-- Inactive, that your other characters aren't short of, and that aren't
+-- vendor-bought (thread, vials) can go into the bank. Whole stacks only.
+-- CharSetting("bankDeposit"): "ask" (default), "auto" or "off".
+DEPOSIT_MODES = {
+    { key = "ask", name = "Offer to bank materials no bar needs" },
+    { key = "auto", name = "Bank materials no bar needs automatically" },
+    { key = "off", name = "Off (bank them by hand)" },
+}
+TRADE_GOODS_CLASS = (Enum and Enum.ItemClass and Enum.ItemClass.Tradegoods) or 7
+depositJob = nil
+
+function IsCraftingMaterial(itemID)
+    local getInfo = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+    if not getInfo then return false end
+    local ok, _, _, _, _, _, classID = pcall(getInfo, itemID)
+    return ok and classID == TRADE_GOODS_CLASS
+end
+
+-- Items any bar (or a bar's recipe, or what you'd mail) uses: { [itemID] = true },
+-- and the same by lowercase name.
+function MaterialsInUse()
+    local ids, names = {}, {}
+    local function Add(id, name)
+        if id then ids[id] = true end
+        if name then names[string.lower(name)] = true end
+    end
+    local recipes = {}
+    for _, item in pairs(trackedItems) do
+        Add(ItemIDFor(item), item.name)
+        if item.recipeID then recipes[item.recipeID] = true end
+    end
+    for recipeID in pairs(recipes) do
+        local ok, reagents = pcall(GetRecipeReagents, recipeID)
+        for _, reagent in ipairs((ok and reagents) or {}) do Add(reagent.itemID, reagent.name) end
+        local okOut, outputID = pcall(GetRecipeOutput, recipeID)
+        if okOut then Add(outputID) end
+    end
+    local okNeeds, needs = pcall(BarNeeds, trackedItems)
+    for id in pairs((okNeeds and needs) or {}) do Add(id) end
+    local okKeep, keep = pcall(MyKeepCounts)
+    for id in pairs((okKeep and keep) or {}) do Add(id) end
+    -- What your other characters are short of (and the ore for their bars).
+    local okAlts, alts = pcall(AltShortfalls)
+    for _, need in ipairs((okAlts and alts) or {}) do
+        Add(need.itemID, need.name)
+        if need.via then Add(need.via.itemID) end
+    end
+    return ids, names
+end
+
+-- { { name, itemID, count } }: what in your bags could go to the bank.
+function FindBankDeposits()
+    local ids, names = MaterialsInUse()
+    local found, order = {}, {}
+    for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count = ContainerItem(bag, slot)
+            if itemID and not ids[itemID] then
+                if found[itemID] then
+                    found[itemID].count = found[itemID].count + count
+                elseif IsCraftingMaterial(itemID) then
+                    local name = GetItemNameByID(itemID)
+                    if name and not names[string.lower(name)]
+                        and not IsVendorMaterial({ itemID = itemID, name = name }) then
+                        found[itemID] = { name = name, itemID = itemID, count = count }
+                        order[#order + 1] = found[itemID]
+                    else
+                        ids[itemID] = true -- not this one; skip its other stacks
+                    end
+                end
+            end
+        end
+    end
+    table.sort(order, function(a, b) return a.name < b.name end)
+    return order
+end
+
+function OfferBankDeposits(force)
+    local mode = CharSetting("bankDeposit") or "ask"
+    if mode == "off" and not force then return end
+    if depositJob or bankJob or not bankWindowOpen then return end
+    if InCombatLockdown and InCombatLockdown() then return end
+    local list = FindBankDeposits()
+    if #list == 0 then
+        if force then Print("Nothing in your bags to put away: your bars use all your materials.") end
+        return
+    end
+    if mode == "auto" and not force or not (StaticPopupDialogs and StaticPopup_Show) then
+        PutAwayMaterials(list)
+        return
+    end
+    StaticPopupDialogs.BARTAB_BANK_DEPOSIT = StaticPopupDialogs.BARTAB_BANK_DEPOSIT or {
+        text = "BarTab: none of your bars need these materials.\n\n%s\n\nPut them in the bank?\n\n(You can change this in /bartab config, Shopping tab.)",
+        button1 = "Put away",
+        button2 = NO or "No",
+        OnAccept = function(_, data) Safe("bank", PutAwayMaterials)(data) end,
+        timeout = 0,
+        whileDead = false,
+        hideOnEscape = true,
+    }
+    local lines = DescribeWithdrawals(list)
+    if #lines > 12 then
+        local more = #lines - 11
+        for i = #lines, 12, -1 do lines[i] = nil end
+        lines[12] = ("and %d more"):format(more)
+    end
+    StaticPopup_Show("BARTAB_BANK_DEPOSIT", table.concat(lines, "\n"), nil, list)
+end
+
+function BankHasRoom(itemID)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local maxStack = getInfo and tonumber((select(8, getInfo(itemID)))) or 1
+    for _, bag in ipairs(BankContainers()) do
+        for slot = 1, ContainerSlots(bag) do
+            local id, count = ContainerItem(bag, slot)
+            if not id then return true end
+            if id == itemID and count < maxStack then return true end
+        end
+    end
+    return false
+end
+
+function PutAwayMaterials(list)
+    if depositJob or not bankWindowOpen then return end
+    local wanted = {}
+    for _, entry in ipairs(list) do wanted[entry.itemID] = entry end
+    depositJob = { wanted = wanted, put = {}, full = {}, waits = 0, steps = 0 }
+    DepositStep()
+end
+
+function FinishDepositJob(problem)
+    local job = depositJob
+    depositJob = nil
+    if not job then return end
+    local parts = {}
+    for id, count in pairs(job.put) do
+        parts[#parts + 1] = count .. " " .. (GetItemNameByID(id) or ("item " .. id))
+    end
+    table.sort(parts)
+    if #parts > 0 then Print("Put away " .. JoinNames(parts, 6) .. ".") end
+    if next(job.full) then Print("Your bank is full; the rest stayed in your bags.") end
+    if problem then Print(problem) end
+    RequestUpdate(0.5)
+end
+
+function DepositStep()
+    local job = depositJob
+    if not job then return end
+    if not bankWindowOpen then
+        FinishDepositJob("The bank closed before BarTab finished.")
+        return
+    end
+    job.steps = job.steps + 1
+    if job.steps > 300 then
+        FinishDepositJob()
+        return
+    end
+    if CursorHasItem and CursorHasItem() then
+        FinishDepositJob("Put down what's on your cursor, then type /bartab bank to finish.")
+        return
+    end
+    local busy
+    for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            local itemID, count, locked = ContainerItem(bag, slot)
+            if itemID and job.wanted[itemID] and not job.full[itemID] then
+                if locked then
+                    busy = true
+                elseif BankHasRoom(itemID) then
+                    local use = (C_Container and C_Container.UseContainerItem) or _G.UseContainerItem
+                    use(bag, slot)
+                    job.put[itemID] = (job.put[itemID] or 0) + count
+                    job.waits = 0
+                    C_Timer.After(0.25, DepositStep)
+                    return
+                else
+                    job.full[itemID] = true
+                end
+            end
+        end
+    end
+    if busy and job.waits < 20 then
+        job.waits = job.waits + 1
+        C_Timer.After(0.2, DepositStep)
+        return
+    end
+    FinishDepositJob()
 end
 
 bankWatcher = CreateFrame("Frame")
@@ -4794,7 +5039,10 @@ pcall(bankWatcher.RegisterEvent, bankWatcher, "BANKFRAME_CLOSED")
 bankWatcher:SetScript("OnEvent", function(_, event)
     if event == "BANKFRAME_CLOSED" then
         bankWindowOpen = false
-        if StaticPopup_Hide then StaticPopup_Hide("BARTAB_BANK_TAKE") end
+        if StaticPopup_Hide then
+            StaticPopup_Hide("BARTAB_BANK_TAKE")
+            StaticPopup_Hide("BARTAB_BANK_DEPOSIT")
+        end
         return
     end
     bankWindowOpen = true
@@ -6294,7 +6542,7 @@ function FreeBagSlots()
     local free = 0
     local get = (C_Container and C_Container.GetContainerNumFreeSlots) or _G.GetContainerNumFreeSlots
     if not get then return 99 end
-    for bag = 0, (NUM_BAG_SLOTS or 4) + 1 do
+    for bag = 0, NUM_BAG_SLOTS or 4 do
         local ok, count, family = pcall(get, bag)
         if ok and count and (family == nil or family == 0) then free = free + count end
     end
