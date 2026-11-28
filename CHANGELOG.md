@@ -8,6 +8,7 @@
 - With "Send letters in one press", your BarTab craft key at a mailbox no longer starts mailing on its own: it mails only while BarTab's mail prompt is showing, and crafts otherwise. A letter that stalls is given up after a few seconds, so the key goes back to crafting.
 - "Until I reach a skill level..." on a recipe that already has bars now resizes them for the crafts needed (26 crafts from First Aid 49 to 75), and brings them back from Inactive. Before, they stayed at their old size.
 - Bars sized for a skill level have "Count down as you skill up" on their right-click menu (on by default): each skill point takes a craft's worth off, so the bar shows about how many crafts are left. Untick it to keep the bars at full size.
+- Bars working toward a skill level keep their "After crafting" rule waiting until you reach the level, so running out of materials partway no longer untracks them.
 - Mail on arrival: at a mailbox, the character your other characters mailed with BarTab is offered to take everything from those letters in one go (or, set in Characters settings, it's taken automatically). Only letters your own characters sent with BarTab are opened; other mail is left alone. It stops if your bags fill up. `/bartab mail take` takes them now.
 - At a vendor, the offer to buy again while you craft there waits until you've run out of the item (the last Empty Vial used), not as soon as you have fewer than your bars plan for.
 

@@ -664,6 +664,18 @@ function AfterCraftDone(recipeID, reason)
     if not reason then
         local left = CraftsLeft(recipeID)
         if left and left > 0 then return end
+        -- Bars working toward a skill level: the rule waits for the level
+        -- (running out of materials isn't done); the level's own stop rule
+        -- takes over when you get there.
+        for _, item in pairs(trackedItems) do
+            if item.recipeID == recipeID and not item.container and item.skillGoal then
+                local rank = GetProfessionSkill(item)
+                if not rank or rank < item.skillGoal then
+                    CraftLog("after-craft waits: skill " .. tostring(rank) .. " of " .. item.skillGoal)
+                    return
+                end
+            end
+        end
     end
     local moved, removed, name = 0, 0, nil
     for key, item in pairs(trackedItems) do
