@@ -2,7 +2,7 @@
 
 ## 1.60.1.17
 
-- Tidier right-click menus. A bar's menu leads with crafting (make materials first, Open recipe, Crafts); its rules (After crafting, Stop tracking, Count down, Buy materials at vendors) are under Rules, tracking its other ingredients or how to make a material under Track more, and Assign, Unassign and Share under More, with Move to Inactive and Untrack at the bottom. A profession heading's layouts are one "Show bars" submenu with the current one marked. The profession window's BarTab button uses the same Rules submenu.
+- Tidier right-click menus. A bar's menu leads with crafting (make materials first, Open recipe, Crafts); its rules (After crafting, Stop tracking, Count down, Buy materials at vendors) are under Rules, tracking its other ingredients or how to make a material under Track more, and Assign, Unassign and Share under More, with Move to Inactive and Untrack at the bottom. A profession heading's layouts are one "Show bars" submenu with the current one marked. The profession window's BarTab button menu leads with "Track all ingredients", with single ingredients under "Track one ingredient", the recipe's bars (Crafts, Rules, Untrack) under their own heading, and What to craft next, the profit calculator and recently removed bars under More.
 - The sell window's notes are shorter, so rows fit: "you have N" only when you're keeping some.
 - Wording: selling is described by item quality (common, uncommon and better).
 

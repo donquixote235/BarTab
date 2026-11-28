@@ -46,14 +46,15 @@ A section only appears when it has something to show.
 - When several bars use the same material, it's shared out in list order
   (configurable).
 - A BarTab button on the profession window's recipe panel (with a check mark
-  while the selected recipe has bars). Its menu is grouped:
-  - Track: any of the recipe's ingredients in one click, all of them, or
-    "With settings..." to pick the ingredients and set the recipe up (crafts,
+  while the selected recipe has bars). Its menu:
+  - Track all ingredients, Track one ingredient (a submenu), or "Track with
+    settings..." to pick the ingredients and set the recipe up (crafts,
     After crafting, Stop tracking, Count down) in one window.
-  - Goals: Make until I have... and Make until I reach....
-  - Its bars (once the recipe has some): Crafts, After crafting, Count down as
-    you craft, Stop tracking, and Untrack this recipe, for all of its bars at once.
-  - The profit calculator.
+  - Make until I have... and Make until I reach a skill level....
+  - Its bars (once the recipe has some): Crafts, Rules (After crafting, Stop
+    tracking, Count down as you craft) for all of its bars at once, and
+    Untrack this recipe.
+  - More: What to craft next..., the profit calculator and recently removed bars.
 - Tracked recipes have a check mark beside them in the profession window's
   recipe list (on/off in settings).
 - "Focus on" (right-click) shows just one ingredient of a recipe.

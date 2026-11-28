@@ -62,7 +62,7 @@ GUIDE_PAGES = {
             .. B .. H("BarTab: Crafting") .. " - materials, usually tied to a recipe you can craft straight from the bar. One subsection per profession, then Other and Inactive.\n"
             .. B .. H("BarTab: Items") .. " - fill-up items like Waylaid Crates, and anything else you're collecting.\n\n"
             .. H("Your first bar") .. "\n\n"
-            .. "Open a profession, select a recipe, and click the BarTab button beside the favorite star. Under Track, pick one of its ingredients, All ingredients, or With settings... to set the recipe up in one window. A bar appears, sized for one craft.\n\n"
+            .. "Open a profession, select a recipe, and click the BarTab button beside the favorite star. Choose Track all ingredients, one of them under Track one ingredient, or Track with settings... to set the recipe up in one window. A bar appears, sized for one craft.\n\n"
             .. "You can also Alt-Shift-click any item (in your bags, the bank, chat links or loot) to track it, or type " .. C("/bartab track Light Leather 20") .. ".\n\n"
             .. H("Getting help") .. "\n\n"
             .. C("/bartab help") .. " gives quick tips in chat; this guide has the details. Settings are in " .. C("/bartab config") .. ", the minimap button, or Options > AddOns > BarTab.",

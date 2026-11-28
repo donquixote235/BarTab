@@ -955,22 +955,28 @@ function ShowProfessionMenu(owner)
         return
     end
 
-    local track, goals, bars, more = {}, {}, {}, {}
+    -- Tracking all ingredients first; single ones in a submenu.
+    local track, bars, more = {}, {}, {}
+    local single = {}
     for _, reagent in ipairs(reagents) do
         local tracked = trackedItems[RecipeKey(reagent.name, recipeID)] ~= nil
-        track[#track + 1] = {
+        single[#single + 1] = {
             reagent.name .. " (" .. reagent.need .. " per craft)" .. (tracked and "  - tracked" or ""),
             function() AssignMaterial(reagent.name, recipeID) end,
         }
     end
     if #reagents > 1 then
-        track[#track + 1] = { "All ingredients", function()
+        track[#track + 1] = { "Track all ingredients", function()
             for _, reagent in ipairs(reagents) do
                 AssignMaterial(reagent.name, recipeID)
             end
         end }
+        track[#track + 1] = { "Track one ingredient", submenu = single }
+    else
+        single[1][1] = "Track " .. single[1][1]
+        track[#track + 1] = single[1]
     end
-    track[#track + 1] = { "With settings...", function()
+    track[#track + 1] = { "Track with settings...", function()
         TrackWithOptions(recipeID)
     end }
 
@@ -978,11 +984,11 @@ function ShowProfessionMenu(owner)
     local outputName = outputID and GetItemNameByID(outputID)
     if outputName then
         local bar = trackedItems[RecipeKey(outputName, recipeID)]
-        goals[#goals + 1] = { "Make until I have... (" .. outputName .. ")", function()
+        track[#track + 1] = { "Make until I have... (" .. outputName .. ")", function()
             AskMakeGoal(recipeID, bar and bar.goal)
         end }
     end
-    goals[#goals + 1] = { "Make until I reach... (skill level)", function()
+    track[#track + 1] = { "Make until I reach a skill level...", function()
         AskSkillGoal(recipeID)
     end }
 
@@ -1031,10 +1037,9 @@ function ShowProfessionMenu(owner)
     end
 
     local entries = GroupedEntries({
-        { heading = "Track", entries = track },
-        { heading = "Goals", entries = goals },
+        { entries = track },
         { heading = ("Its bars (%d)"):format(#barKeys), entries = bars },
-        { entries = more },
+        { entries = { { "More", submenu = more } } },
     })
     ShowMenu(owner, "BarTab: " .. (GetRecipeName(recipeID) or "this recipe"), entries)
 end
