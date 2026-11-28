@@ -726,6 +726,12 @@ ShowGroupMenu = function(owner, section, group)
         ConfirmUntrackKeys(keys, label)
     end }
 
+    -- The Crafting heading: where to get what your bars are short of.
+    if section == CRAFT_SECTION and not group then
+        table.insert(entries, 1, { "Restock list...", function() Safe("restock", ShowRestock)() end })
+        table.insert(entries, 2, { divider = true })
+    end
+
     -- A fill-up item's subsection also offers "Focus on".
     local first = trackedItems[keys[1]]
     if group and first and first.container and group == first.container.name then

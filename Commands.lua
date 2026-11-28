@@ -56,7 +56,7 @@ HELP_TOPICS = {
         "  At a vendor that sells what your recipes are short of (thread, dye, vials), BarTab asks to buy it.",
         "  At your bank, it offers to take out what your bars are short of (" .. cmd("/bartab bank") .. " asks again) and to put away materials no bar needs (" .. cmd("/bartab bank put") .. ").",
         "  At a vendor, it offers to sell what you crafted that nothing needs (" .. cmd("/bartab sell") .. ").",
-        "  " .. cmd("/bartab restock") .. " lists what your bars are short of and where to get it; " .. cmd("/bartab ask") .. " asks your other characters to send it.",
+        "  " .. cmd("/bartab restock") .. " shows what your bars are short of and where to get it; " .. cmd("/bartab ask") .. " asks your other characters to send it.",
         "  At a mailbox, it offers to mail your other characters what their bars need and you have spare (" .. cmd("/bartab mail") .. "), and to take what they mailed you (" .. cmd("/bartab mail take") .. ").",
         "  Optionally, bars for what your other characters need, so you can gather for them (" .. cmd("/bartab config") .. " > Shopping).",
         "  " .. cmd("/bartab config") .. " > Shopping: ask, automatic or off; a spend limit; only buy for crafts your bars cover.",
@@ -549,7 +549,11 @@ SlashCmdList.BARTAB = function(message)
         end
 
     elseif command == "restock" then
-        Safe("restock", ShowRestock)()
+        if string.lower(args or "") == "chat" then
+            Safe("restock", PrintRestock)()
+        else
+            Safe("restock", ShowRestock)()
+        end
 
     elseif command == "ask" then
         Safe("requests", ShowAskWindow)()

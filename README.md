@@ -141,7 +141,7 @@ unless another addon (such as an action bar addon) already uses it.
 | `/bartab mail take` | At a mailbox: take everything from BarTab letters your other characters sent |
 | `/bartab bank put` | At the bank: offer again to put away materials none of your bars use |
 | `/bartab sell` | At a vendor: offer again to sell what you crafted that nothing needs |
-| `/bartab restock` | What your bars are short of, grouped by where to get it: your bank, your other characters, making it, gathering it, a vendor, the auction house |
+| `/bartab restock` | A window of what your bars are short of, grouped by where to get it: your bank, your other characters (with Ask...), making it, gathering it, a vendor, the auction house (with Search while it's open). Also "Restock list..." on the Crafting heading's right-click menu; `/bartab restock chat` prints it in chat |
 | `/bartab ask` | Ask your other characters for what they have that you're short of; they're offered it at their next mailbox (or bank), even if their own bars would keep it |
 | `/bartab next` | What to craft next: the profit window sorted by what a skill point costs (after selling what you make), for the open profession. With none open, it opens yours (asks which if you have several; `/bartab next first aid` picks one) |
 | `/bartab make <count>` | Craft the selected recipe until you have that many (adds a bar for what it makes) |

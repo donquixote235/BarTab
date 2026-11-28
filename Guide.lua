@@ -164,6 +164,7 @@ GUIDE_PAGES = {
         title = "Managing bars",
         text = H("Menus") .. "\n\n"
             .. B .. "Right-click a bar: craft making materials first, Open recipe, Crafts, Rules (after crafting, stop tracking, count down, buy at vendors), Track more (its other ingredients, how to make a material), Move to Inactive, More (assign, unassign, share) and Untrack.\n"
+            .. B .. "Right-click the Crafting heading for the restock list.\n"
             .. B .. "Right-click a heading: open the profession, Show bars (per ingredient, material or recipe), move all to Inactive, share, untrack all.\n"
             .. B .. "Ctrl-drag a bar to reorder; Ctrl-click a recipe bar to open its recipe.\n\n"
             .. H("Undo") .. "\n\n"

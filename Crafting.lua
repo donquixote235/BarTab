@@ -8371,9 +8371,12 @@ end
 function RequestKey(to, itemID) return tostring(to) .. ":" .. tostring(itemID) end
 
 -- { bank = {}, others = {}, make = {}, gather = {}, vendor = {}, auction = {} },
--- each a list of text pieces.
+-- each a list of { text, name, itemID, count }.
 function RestockPlan()
     local plan = { bank = {}, others = {}, make = {}, gather = {}, vendor = {}, auction = {} }
+    local function Add(group, need, count, text)
+        plan[group][#plan[group] + 1] = { text = text, name = need.name, itemID = need.itemID, count = count }
+    end
     local me = CharacterKey()
     local mine = settings.producers and settings.producers[me]
     local okSkills, skills = pcall(AllGatherSkills)
@@ -8382,7 +8385,7 @@ function RestockPlan()
         local left = need.count
         local inBank = math.min(left, MyBankCount(need.itemID))
         if inBank > 0 then
-            plan.bank[#plan.bank + 1] = inBank .. " " .. need.name
+            Add("bank", need, inBank, inBank .. " " .. need.name)
             left = left - inBank
         end
         if left > 0 then
@@ -8391,8 +8394,8 @@ function RestockPlan()
                 local take = math.min(left, holder.bags + holder.bank)
                 local asked = RequestsFor(holder.key)[RequestKey(me, need.itemID)]
                 local where = holder.bags > 0 and (holder.bank > 0 and "bags and bank" or "bags") or "bank"
-                plan.others[#plan.others + 1] = ("%d %s from %s (%s%s)"):format(take, need.name, holder.name,
-                    where, asked and ", asked" or "")
+                Add("others", need, take, ("%d %s from %s (%s%s)"):format(take, need.name, holder.name,
+                    where, asked and ", asked" or ""))
                 left = left - take
             end
         end
@@ -8400,51 +8403,186 @@ function RestockPlan()
             local producer = need.itemID and mine and mine[need.itemID]
             local okGather, gather = pcall(CanGather, need.itemID, need.name, skills)
             if producer then
-                plan.make[#plan.make + 1] = ("%d %s (%s)"):format(left, need.name, producer.recipeName or "your recipe")
+                -- The recipe's name only when it says more than the item's (Smelt Copper).
+                local recipe = producer.recipeName
+                Add("make", need, left, left .. " " .. need.name
+                    .. ((recipe and recipe ~= need.name) and (" (" .. recipe .. ")") or ""))
             elseif okGather and gather then
                 local holder = skills[string.lower(gather)]
-                plan.gather[#plan.gather + 1] = ("%d %s (%s)"):format(left, need.name,
-                    type(holder) == "string" and (holder .. "'s " .. gather) or ("your " .. gather))
+                Add("gather", need, left, ("%d %s (%s)"):format(left, need.name,
+                    type(holder) == "string" and (holder .. "'s " .. gather) or ("your " .. gather)))
             elseif IsVendorMaterial({ itemID = need.itemID, name = need.name }) then
                 local price = need.itemID and VendorBuyPrice(need.itemID)
-                plan.vendor[#plan.vendor + 1] = ("%d %s%s"):format(left, need.name,
-                    price and (" (" .. MoneyText(price * left) .. ")") or "")
+                Add("vendor", need, left, ("%d %s%s"):format(left, need.name,
+                    price and (" (" .. MoneyText(price * left) .. ")") or ""))
             else
                 local price = need.itemID and AuctionPrice(need.itemID)
-                plan.auction[#plan.auction + 1] = ("%d %s%s"):format(left, need.name,
-                    price and (" (about " .. MoneyText(price * left) .. ")") or "")
+                Add("auction", need, left, ("%d %s%s"):format(left, need.name,
+                    price and (" (about " .. MoneyText(price * left) .. ")") or ""))
             end
         end
     end
     return plan
 end
 
-function ShowRestock()
+RESTOCK_GROUPS = {
+    { key = "bank", name = "Your bank" },
+    { key = "others", name = "Your other characters" },
+    { key = "make", name = "Make it" },
+    { key = "gather", name = "Gather it" },
+    { key = "vendor", name = "Vendor" },
+    { key = "auction", name = "Auction house" },
+}
+
+-- In chat (/bartab restock chat).
+function PrintRestock()
     Safe("requests", PruneMyRequests)()
     local plan = RestockPlan()
-    local groups = {
-        { "Your bank", plan.bank },
-        { "Your other characters", plan.others },
-        { "Make it", plan.make },
-        { "Gather it", plan.gather },
-        { "Vendor", plan.vendor },
-        { "Auction house", plan.auction },
-    }
     local any = false
-    for _, group in ipairs(groups) do if #group[2] > 0 then any = true end end
+    for _, group in ipairs(RESTOCK_GROUPS) do if #plan[group.key] > 0 then any = true end end
     if not any then
         Print("Restock: your bags have everything your bars need.")
         return
     end
     Print("Restock: what your bars are short of, and where to get it:")
-    for _, group in ipairs(groups) do
-        if #group[2] > 0 then
-            DEFAULT_CHAT_FRAME:AddMessage("  |cffffd200" .. group[1] .. ":|r " .. table.concat(group[2], ", "))
+    for _, group in ipairs(RESTOCK_GROUPS) do
+        local lines = {}
+        for _, entry in ipairs(plan[group.key]) do lines[#lines + 1] = entry.text end
+        if #lines > 0 then
+            DEFAULT_CHAT_FRAME:AddMessage("  |cffffd200" .. group.name .. ":|r " .. table.concat(lines, ", "))
         end
     end
     if #plan.others > 0 then
         DEFAULT_CHAT_FRAME:AddMessage("  /bartab ask to have your other characters send it.")
     end
+end
+
+-- The restock window: the same list, a line per item under each group, with
+-- Ask beside your other characters and a Search button on auction house lines
+-- while the auction house is open. Redraws as your bags change.
+RESTOCK_ROWS = 30
+
+local function RestockRow(frame, index)
+    local row = frame.rows[index]
+    if row then return row end
+    row = CreateFrame("Frame", nil, frame)
+    row:SetSize(400, 18)
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.text:SetPoint("LEFT", 0, 0)
+    row.text:SetJustifyH("LEFT")
+    if row.text.SetWordWrap then row.text:SetWordWrap(false) end
+    row.button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.button:SetSize(64, 18)
+    row.button:SetPoint("RIGHT", 0, 0)
+    row.text:SetPoint("RIGHT", row.button, "LEFT", -6, 0)
+    frame.rows[index] = row
+    return row
+end
+
+function ShowRestock()
+    Safe("requests", PruneMyRequests)()
+    local frame = restockFrame
+    if not frame then
+        local ok
+        ok, frame = pcall(CreateFrame, "Frame", "BarTabRestockFrame", UIParent, "BasicFrameTemplateWithInset")
+        if not ok then
+            frame = CreateFrame("Frame", "BarTabRestockFrame", UIParent, "BackdropTemplate")
+            frame:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32,
+                edgeSize = 32, insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+            local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+            close:SetPoint("TOPRIGHT", -4, -4)
+        end
+        frame:SetFrameStrata("DIALOG")
+        frame:SetMovable(true)
+        frame:EnableMouse(true)
+        frame:RegisterForDrag("LeftButton")
+        frame:SetScript("OnDragStart", frame.StartMoving)
+        frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+        frame:SetClampedToScreen(true)
+        tinsert(UISpecialFrames, "BarTabRestockFrame")
+        frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        frame.title:SetPoint("TOP", 0, -6)
+        frame.title:SetText("BarTab: restock")
+        frame.intro = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        frame.intro:SetPoint("TOPLEFT", 18, -32)
+        frame.intro:SetWidth(404)
+        frame.intro:SetJustifyH("LEFT")
+        frame.rows = {}
+        frame.more = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        frame:SetPoint("CENTER")
+        -- Bags changed (you took something out, crafted, bought): redraw.
+        frame:RegisterEvent("BAG_UPDATE_DELAYED")
+        -- The auction house opening or closing shows or hides Search buttons.
+        for _, event in ipairs({ "AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED" }) do
+            pcall(frame.RegisterEvent, frame, event)
+        end
+        frame:SetScript("OnEvent", function(self)
+            if self:IsShown() and not self.pending then
+                self.pending = true
+                C_Timer.After(0.5, function()
+                    self.pending = nil
+                    if self:IsShown() then Safe("restock", DrawRestock)() end
+                end)
+            end
+        end)
+        restockFrame = frame
+    end
+    DrawRestock()
+    frame:Show()
+end
+
+function DrawRestock()
+    local frame = restockFrame
+    if not frame then return end
+    local plan = RestockPlan()
+    local lines = {}
+    for _, group in ipairs(RESTOCK_GROUPS) do
+        local entries = plan[group.key]
+        if #entries > 0 then
+            local header = { header = group.name }
+            if group.key == "others" then
+                header.button, header.action = "Ask...", function() Safe("requests", ShowAskWindow)() end
+            end
+            lines[#lines + 1] = header
+            for _, entry in ipairs(entries) do
+                local line = { text = entry.text }
+                if group.key == "auction" and AuctionHouseOpen() then
+                    line.button, line.action = "Search", function() SearchAuctionHouse(entry.name) end
+                end
+                lines[#lines + 1] = line
+            end
+        end
+    end
+    frame.intro:SetText(#lines > 0 and "What your bars are short of in your bags, and where to get it:"
+        or "Your bags have everything your bars need.")
+    local shown = math.min(#lines, RESTOCK_ROWS)
+    for index = 1, shown do
+        local line, row = lines[index], RestockRow(frame, index)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", line.header and 16 or 28, -50 - (index - 1) * 19)
+        row:SetWidth(line.header and 404 or 392)
+        if line.header then
+            row.text:SetText("|cffffd200" .. line.header .. "|r")
+        else
+            row.text:SetText(line.text)
+        end
+        if line.button then
+            row.button:SetText(line.button)
+            row.button:SetScript("OnClick", line.action)
+            row.button:Show()
+        else
+            row.button:Hide()
+        end
+        row:Show()
+    end
+    for index = shown + 1, #frame.rows do frame.rows[index]:Hide() end
+    local bottom = -50 - shown * 19
+    frame.more:ClearAllPoints()
+    frame.more:SetPoint("TOPLEFT", 22, bottom - 2)
+    frame.more:SetText(#lines > shown and ("and " .. (#lines - shown) .. " more; /bartab restock chat lists them all") or "")
+    if #lines > shown then bottom = bottom - 16 end
+    frame:SetSize(440, -bottom + 16)
 end
 
 -- /bartab ask: a window of what your other characters hold that you're short
