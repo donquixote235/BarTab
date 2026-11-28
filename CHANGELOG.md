@@ -2,7 +2,7 @@
 
 ## 1.60.1.18
 
-- Restock window: `/bartab restock` (or "Restock list..." on the Crafting heading's right-click menu) opens a window of what your bars are short of, a line per item under each source, with Ask... beside your other characters and Search on auction house lines while the auction house is open. It updates as your bags change. `/bartab restock chat` prints it in chat as before. A recipe named like the item it makes (Bolt of Woolen Cloth) isn't named twice.
+- Restock window: `/bartab restock` (or "Restock list..." on the Crafting heading's right-click menu) opens a window of what your bars are short of, a line per item under each source, with Ask... beside your other characters and Search on auction house lines while the auction house is open. It updates as your bags change. The ask window opens beside it. `/bartab restock chat` prints it in chat as before. A recipe named like the item it makes (Bolt of Woolen Cloth) isn't named twice.
 - Putting away into a full (or nearly full) bank says what actually went in: BarTab checks each stack left your bags, instead of counting every one it tried, and stops with "Your bank is full; the rest stayed in your bags." Profession bags in the bank (a leatherworking bag, say) only count as room for what they take.
 
 ## 1.60.1.17

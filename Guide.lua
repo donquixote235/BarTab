@@ -13,7 +13,10 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.17: restocking") .. "\n\n"
+        text = H("New in 1.60.1.18: the restock window") .. "\n\n"
+            .. B .. C("/bartab restock") .. " (or \"Restock list...\" on the Crafting heading's right-click menu) opens a window of what your bars are short of and where to get it, with Ask... and auction house Search buttons. It updates as your bags change.\n"
+            .. B .. "Putting away into a full bank reports only what went in.\n\n"
+            .. H("New in 1.60.1.17: restocking") .. "\n\n"
             .. B .. C("/bartab restock") .. " lists what your bars are short of and where to get it: your bank, your other characters, making it, gathering it, a vendor or the auction house.\n"
             .. B .. C("/bartab ask") .. " asks your other characters for what they have; they're offered it at their next mailbox or bank.\n"
             .. B .. "Tidier right-click menus, with Rules, Track more and More submenus.\n\n"
