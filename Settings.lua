@@ -642,6 +642,38 @@ function BuildConfigFrame()
         function() return settings.mailAll end,
         function(v) settings.mailAll = v or nil end)
 
+    y = AddCheck(page, y, "Send crafted greens to my enchanter" .. CHARACTER_TAG,
+        "The mail prompt also offers gear you made with your recipes, uncommon (green) or better, that no bar uses, to your character with Enchanting to disenchant. Selling at a vendor leaves these out unless you ask for them there. This character only.",
+        function() return CharSetting("mailDisenchant") ~= false end,
+        function(v) SetCharSetting("mailDisenchant", v and true or false) end)
+    local enchanterButton = AddButton(page, 24, y, 350, "",
+        "Which character gets crafts to disenchant. Automatic: the first of your characters (same realm and faction) BarTab has seen with Enchanting; open their Enchanting window once so BarTab knows. Click to switch.",
+        function()
+            local choices = { false }
+            for _, key in ipairs(EnchanterCharacters()) do choices[#choices + 1] = key end
+            choices[#choices + 1] = "none"
+            local current, index = settings.enchanter or false, 1
+            for i, choice in ipairs(choices) do
+                if choice == current then index = i end
+            end
+            settings.enchanter = choices[index % #choices + 1] or nil
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local choice = settings.enchanter
+        local text
+        if choice == "none" then
+            text = "Enchanter: nobody (don't send crafts)"
+        elseif choice then
+            text = "Enchanter: " .. CharacterName(choice)
+        else
+            local auto = EnchanterCharacter()
+            text = "Enchanter: automatic (" .. (auto and CharacterName(auto) or "none seen yet") .. ")"
+        end
+        enchanterButton:SetText(text)
+    end)
+    y = y - 30
+
     y = AddHeading(page, y - 6, "Bank")
     y = AddCheck(page, y, "Also take out what my other characters need" .. CHARACTER_TAG,
         "At the bank, also offers what your other characters' bars are short of and your bank holds, so you can mail it to them: only what you don't keep for yourself, and only with the mailbox offer on. This character only.",

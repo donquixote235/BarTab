@@ -5850,11 +5850,94 @@ function FindMailSends(allSpare)
     -- profession, doesn't know it): "Pattern: Red Woolen Boots to Shadowpope".
     local okRecipes, recipeSends = pcall(RecipeItemSends, scan)
     for _, send in ipairs((okRecipes and recipeSends) or {}) do sends[#sends + 1] = send end
+    -- Crafted greens for your enchanter to disenchant.
+    local okDE, deSends = pcall(DisenchantSends)
+    for _, send in ipairs((okDE and deSends) or {}) do sends[#sends + 1] = send end
     table.sort(sends, function(a, b)
         if a.to ~= b.to then return a.to < b.to end
         return a.name < b.name
     end)
     return sends
+end
+
+-- Crafts for your enchanter ------------------------------------------------------
+-- At a mailbox: gear you made with your recipes, uncommon (green) or better,
+-- that no bar uses, goes to your character with Enchanting to disenchant.
+-- (Selling leaves these out unless you ask; see FindVendorSales.)
+-- settings.enchanter: a character key, "none", or nil for the first of
+-- your characters (same realm and faction) seen with Enchanting.
+-- CharSetting("mailDisenchant") ~= false: this character sends them.
+DISENCHANT_CLASSES = {
+    [(Enum and Enum.ItemClass and Enum.ItemClass.Weapon) or 2] = true,
+    [(Enum and Enum.ItemClass and Enum.ItemClass.Armor) or 4] = true,
+}
+
+-- Your characters with Enchanting on this realm and faction, sorted.
+function EnchanterCharacters()
+    local me = CharacterKey()
+    local myRealm = me:match("%-(.*)$")
+    local myFaction = UnitFactionGroup and UnitFactionGroup("player")
+    local list = {}
+    for key, index in pairs(settings.recipeIndex or {}) do
+        local snapshot = settings.inventory and settings.inventory[key]
+        if key:match("%-(.*)$") == myRealm
+            and not (snapshot and snapshot.faction and myFaction and snapshot.faction ~= myFaction) then
+            for _, entry in pairs(index) do
+                if entry.profession == "Enchanting" then
+                    list[#list + 1] = key
+                    break
+                end
+            end
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+-- The character key crafts go to, or nil.
+function EnchanterCharacter()
+    local choice = settings.enchanter
+    if choice == "none" then return nil end
+    local list = EnchanterCharacters()
+    for _, key in ipairs(list) do
+        if key == choice then return key end
+    end
+    return list[1]
+end
+
+function DisenchantSends()
+    local list = {}
+    if CharSetting("mailDisenchant") == false then return list end
+    local enchanter = EnchanterCharacter()
+    local me = CharacterKey()
+    if not enchanter or enchanter == me then return list end
+    local mine = settings.producers and settings.producers[me]
+    if not mine then return list end
+    local ids, names = ItemsToKeep()
+    local found = {}
+    for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+            local itemID = ok and type(info) == "table" and info.itemID
+            if itemID and mine[itemID] and not ids[itemID] and not info.isBound then
+                if found[itemID] then
+                    found[itemID].count = found[itemID].count + (info.stackCount or 1)
+                else
+                    local quality, classID = ItemQualityAndClass(itemID)
+                    local name = GetItemNameByID(itemID) or mine[itemID].name
+                    if quality and quality >= 2 and DISENCHANT_CLASSES[classID]
+                        and name and not names[string.lower(name)] then
+                        found[itemID] = { to = CharacterName(enchanter), character = enchanter, itemID = itemID,
+                            name = name, count = info.stackCount or 1, note = "to disenchant" }
+                        list[#list + 1] = found[itemID]
+                    else
+                        ids[itemID] = true
+                    end
+                end
+            end
+        end
+    end
+    return list
 end
 
 -- Whether a character knows a recipe, from what BarTab saw last time its

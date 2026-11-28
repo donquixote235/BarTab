@@ -2,6 +2,7 @@
 
 ## 1.60.1.16
 
+- Crafts for your enchanter: the mail prompt also offers gear you made with your recipes, uncommon (green) or better, that no bar uses, to your character with Enchanting to disenchant ("to disenchant" in the prompt). Untick to keep, remembered like the rest. Choose the enchanter, or nobody, in Characters settings (automatic: the one BarTab has seen with Enchanting); "Send crafted greens to my enchanter" turns it off for a character.
 - Selling what you crafted: at a vendor, BarTab offers to sell things you made with your recipes (skill-up crafts like daggers, bags and bandages) that no bar uses and your other characters don't need, in the same window as the bank: untick what to keep (remembered) or change amounts. Only common (white) and poor crafts unless you tick "Also offer green and better crafts for sale", so the rest can go to your enchanter. Food, potions, bandages and crafting tools (Arclight Spanner, enchanting rods) start unticked; crafting materials are never offered. "Keep a stack of each, sell the rest" (in the window, or Shopping settings) keeps a full stack of each stackable item. Ask, automatic or off, per character (Shopping settings); `/bartab sell` offers again.
 - The mail prompt remembers what you untick: the same item for the same character starts unticked next time.
 - "Mail all I have of each" in the mail prompt applies to that time only. The Characters setting ("Start the mail prompt with \"Mail all I have of each\"") is what the checkbox starts as each time.
