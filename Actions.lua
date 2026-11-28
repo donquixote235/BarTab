@@ -804,11 +804,11 @@ local function RecipeOfRow(owner)
     return type(info) == "table" and info.recipeID or nil
 end
 
-local function AddRecipeMenuEntries(owner, root)
+local function AddRecipeMenuEntries(owner, root, noDivider)
     local recipeID = RecipeOfRow(owner)
     if not (recipeID and root and root.CreateButton) then return end
     recipeMenuExtended = true
-    root:CreateDivider()
+    if not noDivider then root:CreateDivider() end
     if IsTrackedRecipe(recipeID) then
         root:CreateButton("Untrack in BarTab", function()
             UntrackRecipe(recipeID)
@@ -856,7 +856,7 @@ function ShowRecipeMenu(owner, recipeID)
             root:CreateDivider()
         end
         recipeMenuExtended = nil
-        AddRecipeMenuEntries(owner, root)
+        AddRecipeMenuEntries(owner, root, true)
         recipeMenuExtended = nil
     end)
     openingRecipeMenu = nil
