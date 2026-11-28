@@ -585,7 +585,7 @@ function BuildConfigFrame()
     y = y - 30
 
     y = AddCheck(page, y, "Send letters in one press",
-        "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or starts mailing. The game allows one letter per click or key press, so each letter still needs one.",
+        "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or mails what's ticked while BarTab's prompt is showing (otherwise it crafts as usual). The game allows one letter per click or key press, so each letter still needs one.",
         function() return settings.mailAutoSend end,
         function(on) settings.mailAutoSend = on or nil end)
     y = AddCheck(page, y, "Mail all I have of each, not just what's needed",

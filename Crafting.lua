@@ -5196,18 +5196,37 @@ function TrySendLetter()
 end
 
 -- The craft-next key (and /bartab craft) at an open mailbox, with one-press
--- mail on: sends the letter that's ready, or starts mailing.
+-- mail on: sends the letter that's ready, or mails what the prompt has ticked.
+-- Mailing only starts from BarTab's mail prompt (the key then sends what's
+-- ticked in it); with no prompt showing, the key crafts as usual. A letter
+-- that has stalled (emptied, or nothing happening for a while) is given up,
+-- so the key goes back to crafting.
 function MailKeyPress()
     if not (mailboxOpen and settings.mailAutoSend) then return false end
-    if mailJob then
-        if not TrySendLetter() then Print("The letter isn't ready yet; press again in a moment.") end
+    local job = mailJob
+    if job then
+        if TrySendLetter() then return true end
+        local attached = 0
+        for i = 1, MAIL_ATTACHMENTS do
+            if GetSendMailItem and GetSendMailItem(i) then attached = attached + 1 end
+        end
+        local now = GetTime and GetTime() or 0
+        local emptied = job.waitingSend and job.attached > 0 and attached == 0
+        local idle = job.lastStep and now - job.lastStep > 8
+        if emptied or idle then
+            local to = job.letter and job.letter.to
+            FinishMailJob(("Stopped mailing%s: the letter %s. Type /bartab mail to try again."):format(
+                to and (" to " .. to) or "", emptied and "was emptied" or "wasn't going anywhere"))
+            return false
+        end
+        Print("The letter isn't ready yet; press again in a moment.")
         return true
     end
-    local sends = FindMailSends(settings.mailAll)
-    if #sends == 0 then return false end
-    HideMailPrompt()
-    SendMailNow(sends, true)
-    return true
+    if mailPrompt and mailPrompt:IsShown() then
+        AcceptMailPrompt()
+        return true
+    end
+    return false
 end
 
 function FinishMailJob(problem)
@@ -5222,6 +5241,7 @@ end
 function MailStep()
     local job = mailJob
     if not job then return end
+    job.lastStep = GetTime and GetTime() or 0
     if not mailboxOpen then
         FinishMailJob("The mailbox closed before BarTab finished.")
         return
@@ -6674,7 +6694,7 @@ _G.BINDING_HEADER_BARTAB = "BarTab"
 _G.BINDING_NAME_BARTAB_CRAFT_NEXT = "BarTab: Craft the next ready bar"
 _G.BarTab_CraftNext = function()
     local ok, handled = pcall(MailKeyPress)
-    if not ok then ReportError("mail", handled) elseif handled then return end
+    if not ok then ReportError("mail", handled) mailJob = nil elseif handled then return end
     CraftNextReady()
 end
 
