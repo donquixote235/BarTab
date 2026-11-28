@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.13: smarter sharing") .. "\n\n"
+        text = H("New in 1.60.1.14: your characters, your way") .. "\n\n"
+            .. B .. "A Characters tab in the settings, with per-character choices marked \"(this character)\".\n"
+            .. B .. "The mail window lets you untick items and change amounts, and offers recipes to the character who can learn them; the bank offers what your other characters need.\n"
+            .. B .. C("/bartab session") .. " sums up what you've crafted, gathered and spent; right-click a recipe in the profession window for \"Track in BarTab\".\n\n"
+            .. H("New in 1.60.1.13: smarter sharing") .. "\n\n"
             .. B .. "One bar per recipe is the default layout; tracking a new recipe ticks every ingredient but vials and thread.\n"
             .. B .. "Your other characters' needs go one step down (Copper Ore for the Copper Bar they can smelt), and you keep what you'd smelt yourself.\n"
             .. B .. "Recipe bars share what you carry in list order, like ingredient bars.\n\n"

@@ -1,18 +1,24 @@
-# BarTab 1.60.1.13: smarter sharing
+# BarTab 1.60.1.14: your characters, your way
 
 A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **One bar per recipe by default:** professions you haven't set show one bar per recipe ("Minor Mana Potion: 1 / 3 materials"). Change the default with the Recipe bars button (Display tab in `/bartab config`), or one profession from its heading's right-click menu.
-- **All ingredients ticked:** tracking a new recipe ticks every ingredient except vendor-bought ones (vials, thread).
-- **One step down for your characters:** a character short of something they can make needs its materials too. Ein, short of Copper Bar and able to smelt, needs Copper Ore, so another character is offered to mail the ore. The character mailing keeps what it would smelt for its own recipes.
+- **Characters tab:** the settings window has a tab for everything about your other characters, and the settings each character keeps for itself are marked "(this character)". Turn shopping and mailing for others on for your gatherers and off for your mains.
+- **Mail window:** the mailbox prompt lists each item and character with a checkbox and an amount you can change.
+- **Recipes in the mail:** patterns, recipes and plans you carry are offered to the character who could learn them.
+- **The bank, for others too:** the bank prompt also offers what your other characters need, so you can mail it on.
+- **Choose what to shop for:** right-click a "For your other characters" bar to skip an item, one of that character's recipes, or the character.
+- **Session summary:** `/bartab session` for what you've crafted, gained in skill, gathered and spent; your last session is summed up at login.
+- **Track from the recipe list:** right-click a recipe in the profession window for "Track in BarTab".
 
 ## Improved
 
-- Recipe bars share what you carry between recipes in list order, like ingredient bars, so one Rough Grinding Stone counts for only one recipe.
-- Making materials first goes by the recipe's own share, and "Can't craft" messages say when recipes above it use the material.
+- One-bar-per-recipe professions track every ingredient straight away from "Track in BarTab".
+- "Open Alchemy" on a profession heading's right-click menu; untrack from a material bar's right-click menu.
+- A material bar used by only one recipe crafts it on click.
+- The settings window is reorganized, with Alerts on their own tab.
 
 ## Fixed
 
-- Opening another profession's window mid-batch left BarTab thinking it was still crafting, so the next click stopped instead of carrying on.
+- A false "The game didn't start crafting" right after another craft finished.

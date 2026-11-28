@@ -2,28 +2,19 @@
 
 ## 1.60.1.14
 
-- A material bar used by only one recipe crafts it when clicked (Shift- and Alt-click too), as that recipe's own bar would, instead of showing a menu with one entry.
-- Fixed: "The game didn't start crafting..." could show for a craft that did start, a moment late after another craft finished.
-
-- Session summary: `/bartab session` lists what you've crafted, the skill you've gained, the materials you've gathered and the gold you've spent at vendors and on postage since you logged in, plus your gold overall. At login, BarTab sums up your last session on that character (`/bartab session last` shows it again; untick "Sum up the last session at login" in Recipes settings to turn it off). `/bartab session reset` starts over.
-
-- "Show what my other characters need" and the Mailbox setting (Shopping settings) are per character now: turn them on for your gatherers and off for your mains. A character that hasn't chosen uses what you had before.
-
-- Right-click a "For your other characters" bar to stop shopping for that item, for one of that character's recipes ("Don't shop for Vespera's Copper Battle Axe"), for that character altogether, or for anyone on this character. "Shop for the hidden ones again" (Shopping settings) undoes them. Recipes and characters you skip are left out of mailing too.
-
+- Settings window reorganized: a new **Characters** tab gathers everything about your other characters (shopping for them, the mailbox, one-press letters, "Mail all", taking out at the bank for them), with per-character settings marked "(this character)"; **Alerts** get their own tab; the Items tab's settings and the session summary moved to General. Each tab starts with a line saying what's on it. No setting changed, only where it is.
+- "Show what my other characters need", the Mailbox offer and "Also take out what my other characters need" are per character: on for your gatherers, off for your mains. A character that hasn't chosen uses what you had before.
 - The mailbox prompt is a window with a row for each item and character: untick what you don't want to send, or change the amount (up to what you have). "Mail all I have of each" is still there and refills the amounts.
-
-- The mailbox prompt offers recipe items you carry to another character who could learn them: "Pattern: Red Woolen Boots to Shadowpope (to learn)". Only characters with that profession who don't know the recipe yet (as of their last time with the profession window open), only items that aren't soulbound, and not if you could learn it yourself.
-
-- At your bank, BarTab also offers what your other characters need and your bank holds ("5 Wool Cloth for Vespera"), so you can mail it to them; the prompt says where to turn it off. Only what you don't keep for yourself, and only with the mailbox offer on. "Also take out what my other characters need" (Shopping settings, per character) turns it off.
-
-- The settings window is reorganized: a new **Characters** tab gathers everything about your other characters (shopping for them, the mailbox, one-press letters, "Mail all", taking out at the bank for them), with per-character settings marked "(this character)"; **Alerts** get their own tab; the Items tab's two settings moved to General, and so did the session summary. Each tab starts with a line saying what's on it. No setting changed, only where it is.
-
-- Right-click a material bar to untrack its recipe ("Untrack Elixir of Minor Fortitude"), or, when several recipes use it, pick one of them or all of them from an Untrack submenu. /bartab undo brings them back.
-
-- "Open Alchemy" (or whichever profession) at the top of a profession heading's right-click menu.
+- The mailbox prompt offers recipe items you carry to another character who could learn them: "Pattern: Red Woolen Boots to Shadowpope (to learn)". Only characters with that profession who don't know the recipe yet, only items that aren't soulbound, and not if you could learn it yourself.
+- At your bank, BarTab also offers what your other characters need and your bank holds ("5 Wool Cloth for Vespera"), so you can mail it to them; the prompt says where to turn it off.
+- Right-click a "For your other characters" bar to stop shopping for that item, one of that character's recipes ("Don't shop for Vespera's Copper Battle Axe"), that character altogether, or for anyone on this character. "Shop for the hidden ones again" (Characters settings) undoes them. What you skip is left out of mailing too.
+- Session summary: `/bartab session` lists what you've crafted, the skill you've gained, the materials you've gathered and the gold you've spent at vendors and on postage since you logged in, plus your gold overall. At login, BarTab sums up your last session on that character (`/bartab session last` shows it again). `/bartab session reset` starts over.
+- "Track in BarTab" / "Untrack in BarTab" on the profession window's recipe list right-click menu, beside Set Favorite.
 - For a profession shown one bar per recipe, "Track in BarTab" tracks every ingredient (vendor-bought ones aside) for one craft straight away, instead of opening the Track with settings window.
-- "Track in BarTab" / "Untrack in BarTab" on the profession window's recipe list right-click menu (tracks the same way as the checkbox). With "Track Recipe tracks in BarTab" on, the game's own Track Recipe does too.
+- "Open Alchemy" (or whichever profession) at the top of a profession heading's right-click menu.
+- Right-click a material bar to untrack its recipe, or, when several recipes use it, pick one or all of them from an Untrack submenu. /bartab undo brings them back.
+- A material bar used by only one recipe crafts it when clicked, instead of showing a menu with one entry.
+- Fixed: "The game didn't start crafting..." could show for a craft that did start, a moment late after another craft finished.
 
 ## 1.60.1.13
 
