@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.60.1.17
+
+- Tidier right-click menus. A bar's menu leads with crafting (make materials first, Open recipe, Crafts); its rules (After crafting, Stop tracking, Count down, Buy materials at vendors) are under Rules, tracking its other ingredients or how to make a material under Track more, and Assign, Unassign and Share under More, with Move to Inactive and Untrack at the bottom. A profession heading's layouts are one "Show bars" submenu with the current one marked. The profession window's BarTab button uses the same Rules submenu.
+- The sell window's notes are shorter, so rows fit: "you have N" only when you're keeping some.
+- Wording: selling is described by item quality (common, uncommon and better).
+
 ## 1.60.1.16
 
 - Selling what you crafted: at a vendor, BarTab offers to sell things you made with your recipes (skill-up crafts like daggers, bags and bandages) that no bar uses and your other characters don't need, in the same window as the bank: untick what to keep (remembered) or change amounts. Only common and poor quality crafts unless you tick "Also offer green and better crafts for sale", so the rest can go to your enchanter. Food, potions, bandages and crafting tools (Arclight Spanner, enchanting rods) start unticked; crafting materials are never offered. "Keep a stack of each, sell the rest" (in the window, or Shopping settings) keeps a full stack of each stackable item. Ask, automatic or off, per character (Shopping settings); `/bartab sell` offers again.

@@ -241,102 +241,106 @@ function GroupedEntries(groups)
 end
 
 -- Opens a right-click menu: entries are { text, function }; { heading = text }
--- starts a labeled group, { divider = true } draws a line.
+-- starts a labeled group, { divider = true } draws a line; { text, choices = }
+-- is a submenu of radio choices (and checkboxes, marked check = true);
+-- { text, submenu = } is a submenu of any of these, nested as deep as needed;
+-- { text, function, check = true } is a checkbox.
+
+-- Modern menus: adds entries to a menu or submenu.
+local function AddMenuEntries(menu, entries)
+    for _, entry in ipairs(entries) do
+        if entry.heading then
+            menu:CreateDivider()
+            menu:CreateTitle(entry.heading)
+        elseif entry.divider then
+            menu:CreateDivider()
+        elseif entry.choices then
+            -- A submenu of choices, the current one marked.
+            local submenu = menu:CreateButton(entry[1])
+            for _, choice in ipairs(entry.choices) do
+                if choice.divider then
+                    submenu:CreateDivider()
+                elseif choice.check then
+                    -- A checkbox (on/off) rather than one of the choices.
+                    submenu:CreateDivider()
+                    -- isSelected reads the live state: a checkbox keeps the
+                    -- menu open, so it redraws after each click.
+                    submenu:CreateCheckbox(choice[1],
+                        function()
+                            if choice.isSelected then return choice.isSelected() end
+                            return choice.selected
+                        end,
+                        function() choice[2]() end)
+                else
+                    submenu:CreateRadio(choice[1],
+                        function()
+                            if choice.isSelected then return choice.isSelected() end
+                            return choice.selected
+                        end,
+                        function() choice[2]() end)
+                end
+            end
+        elseif entry.submenu then
+            AddMenuEntries(menu:CreateButton(entry[1]), entry.submenu)
+        elseif entry.check then
+            menu:CreateCheckbox(entry[1],
+                function()
+                    if entry.isSelected then return entry.isSelected() end
+                    return entry.selected
+                end,
+                function() entry[2]() end)
+        else
+            menu:CreateButton(entry[1], entry[2])
+        end
+    end
+end
+
+-- Older dropdowns have no submenus here: their entries are listed with
+-- the submenu's name in front ("Rules: Stop tracking: At a skill level...").
+local function AddLegacyEntries(entries, prefix)
+    for _, entry in ipairs(entries) do
+        if entry.heading then
+            UIDropDownMenu_AddButton({ text = prefix .. entry.heading, isTitle = true, notCheckable = true })
+        elseif entry.divider then
+            UIDropDownMenu_AddButton({ text = "", disabled = true, notCheckable = true })
+        elseif entry.choices then
+            for _, choice in ipairs(entry.choices) do
+                if not choice.divider then
+                    UIDropDownMenu_AddButton({
+                        text = prefix .. entry[1] .. ": " .. choice[1], func = choice[2],
+                        checked = choice.isSelected and choice.isSelected() or choice.selected,
+                        isNotRadio = choice.check and true or nil,
+                    })
+                end
+            end
+        elseif entry.submenu then
+            AddLegacyEntries(entry.submenu, prefix .. entry[1] .. ": ")
+        elseif entry.check then
+            UIDropDownMenu_AddButton({
+                text = prefix .. entry[1], func = entry[2],
+                checked = entry.isSelected and entry.isSelected() or entry.selected,
+                isNotRadio = true, keepShownOnClick = false,
+            })
+        else
+            UIDropDownMenu_AddButton({ text = prefix .. entry[1], func = entry[2], notCheckable = true })
+        end
+    end
+end
+
 function ShowMenu(owner, title, entries)
-    -- Modern menu system.
     if MenuUtil and MenuUtil.CreateContextMenu then
         MenuUtil.CreateContextMenu(owner, function(_, root)
             root:CreateTitle(title)
-            for _, entry in ipairs(entries) do
-                if entry.heading then
-                    root:CreateDivider()
-                    root:CreateTitle(entry.heading)
-                elseif entry.divider then
-                    root:CreateDivider()
-                elseif entry.choices then
-                    -- A submenu of choices, the current one marked.
-                    local submenu = root:CreateButton(entry[1])
-                    for _, choice in ipairs(entry.choices) do
-                        if choice.check then
-                            -- A checkbox (on/off) rather than one of the choices.
-                            submenu:CreateDivider()
-                            -- isSelected reads the live state: a checkbox keeps the
-                            -- menu open, so it redraws after each click.
-                            submenu:CreateCheckbox(choice[1],
-                                function()
-                                    if choice.isSelected then return choice.isSelected() end
-                                    return choice.selected
-                                end,
-                                function() choice[2]() end)
-                        else
-                            submenu:CreateRadio(choice[1],
-                                function()
-                                    if choice.isSelected then return choice.isSelected() end
-                                    return choice.selected
-                                end,
-                                function() choice[2]() end)
-                        end
-                    end
-                elseif entry.submenu then
-                    -- A submenu of plain actions.
-                    local submenu = root:CreateButton(entry[1])
-                    for _, child in ipairs(entry.submenu) do
-                        if child.divider then submenu:CreateDivider()
-                        else submenu:CreateButton(child[1], child[2]) end
-                    end
-                elseif entry.check then
-                    root:CreateCheckbox(entry[1],
-                        function()
-                            if entry.isSelected then return entry.isSelected() end
-                            return entry.selected
-                        end,
-                        function() entry[2]() end)
-                else
-                    root:CreateButton(entry[1], entry[2])
-                end
-            end
+            AddMenuEntries(root, entries)
         end)
         return
     end
-
-    -- Older dropdown menu system.
     if UIDropDownMenu_Initialize and ToggleDropDownMenu then
         legacyMenuFrame = legacyMenuFrame or CreateFrame("Frame",
             "BarTabMenu", UIParent, "UIDropDownMenuTemplate")
         UIDropDownMenu_Initialize(legacyMenuFrame, function()
-            UIDropDownMenu_AddButton({
-                text = title, isTitle = true, notCheckable = true
-            })
-            for _, entry in ipairs(entries) do
-                if entry.heading then
-                    UIDropDownMenu_AddButton({ text = entry.heading, isTitle = true, notCheckable = true })
-                elseif entry.divider then
-                    UIDropDownMenu_AddButton({ text = "", disabled = true, notCheckable = true })
-                elseif entry.choices then
-                    -- No submenus here: list them as "Focus on: X".
-                    for _, choice in ipairs(entry.choices) do
-                        UIDropDownMenu_AddButton({
-                            text = entry[1] .. ": " .. choice[1], func = choice[2],
-                            checked = choice.selected,
-                        })
-                    end
-                elseif entry.submenu then
-                    for _, child in ipairs(entry.submenu) do
-                        if not child.divider then
-                            UIDropDownMenu_AddButton({ text = entry[1] .. ": " .. child[1], func = child[2], notCheckable = true })
-                        end
-                    end
-                elseif entry.check then
-                    UIDropDownMenu_AddButton({
-                        text = entry[1], func = entry[2], checked = entry.selected,
-                        isNotRadio = true, keepShownOnClick = false,
-                    })
-                else
-                    UIDropDownMenu_AddButton({
-                        text = entry[1], func = entry[2], notCheckable = true
-                    })
-                end
-            end
+            UIDropDownMenu_AddButton({ text = title, isTitle = true, notCheckable = true })
+            AddLegacyEntries(entries, "")
         end, "MENU")
         ToggleDropDownMenu(1, nil, legacyMenuFrame, "cursor", 0, 0)
     end
@@ -444,12 +448,12 @@ ShowItemMenu = function(owner, itemKey)
             entries[#entries + 1] = { "Untrack", submenu = choices }
         end
         entries[#entries + 1] = { divider = true }
-        entries[#entries + 1] = { "Show each ingredient for " .. item.profession, function()
-            SetMaterialMode(item.profession, "ingredient")
-        end }
-        entries[#entries + 1] = { "Show one bar per recipe for " .. item.profession, function()
-            SetMaterialMode(item.profession, "recipe")
-        end }
+        local choices = {}
+        for _, mode in ipairs(BAR_MODES) do
+            choices[#choices + 1] = { "One bar per " .. mode.name:gsub("^one per ", ""),
+                function() SetMaterialMode(item.profession, mode.key) end, selected = mode.key == "material" }
+        end
+        entries[#entries + 1] = { "Show " .. item.profession .. " bars", choices = choices }
         ShowMenu(owner, item.name, entries)
         return
     end
@@ -489,46 +493,50 @@ ShowItemMenu = function(owner, itemKey)
         return
     end
 
-    -- Only offered while a profession window is open with a recipe selected.
-    local selectedRecipeID = GetSelectedRecipeID()
-
-    local top, crafting, rules, bar = {}, {}, {}, {}
-    if item.container then
-        top[#top + 1] = FocusMenuEntry(item.container)
-    elseif item.recipeID then
-        local focusEntry = RecipeFocusMenuEntry(item.recipeID, DisplayName(item))
-        if focusEntry then top[#top + 1] = focusEntry end
-    end
-    if item.recipeID and not item.container then
-        crafting[#crafting + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
-        local craftsEntry = IsOutputBar(item) and GoalCraftsMenuEntry(item) or CraftsMenuEntry(item)
-        if craftsEntry then crafting[#crafting + 1] = craftsEntry end
-    end
+    -- Top: crafting first; rules, "track more" and the rarer bar actions in
+    -- submenus; Move to Inactive and Untrack at the bottom.
+    local entries, rules, trackMore, more = {}, {}, {}, {}
+    local isRecipe = item.recipeID and not item.container
     -- Make missing materials first (always offered here, whatever the
     -- setting says clicks do).
-    if item.recipeID and not item.container and not item.notLearned then
+    if isRecipe and not item.notLearned then
         local craftable = GetCraftableCount(item.recipeID) or 0
         local wanted = ChainWanted(item, "max") or CHAIN_MOST
         local plan = PlanChain(item, wanted)
         if plan and plan.crafts > craftable then
-            crafting[#crafting + 1] = { ("Craft %d, making materials first"):format(plan.crafts), function()
+            entries[#entries + 1] = { ("Craft %d, making materials first"):format(plan.crafts), function()
                 TryChainCraft(item, "max", true)
             end }
         elseif craftable < 1 then
             local prep = PlanChain(item, wanted, true)
             if prep and prep.prepOnly then
-                crafting[#crafting + 1] = { ("Make materials for %d (vendor items later)"):format(prep.crafts),
+                entries[#entries + 1] = { ("Make materials for %d (vendor items later)"):format(prep.crafts),
                     function() TryChainCraft(item, "max", true) end }
             end
         end
     end
+    if isRecipe then
+        entries[#entries + 1] = { "Open recipe", function() OpenBarRecipe(itemKey) end }
+        local craftsEntry = IsOutputBar(item) and GoalCraftsMenuEntry(item) or CraftsMenuEntry(item)
+        if craftsEntry then entries[#entries + 1] = craftsEntry end
+        rules[#rules + 1] = AfterCraftMenuEntry(item)
+        rules[#rules + 1] = StopMenuEntry(item)
+        rules[#rules + 1] = { divider = true }
+        if not IsOutputBar(item) then
+            rules[#rules + 1] = CountdownMenuEntry(item)
+        end
+    end
+    if not item.container then
+        rules[#rules + 1] = VendorMenuEntry(item)
+    end
+    if #rules > 0 then entries[#entries + 1] = { "Rules", submenu = rules } end
     -- Ingredients the recipe takes that have no bar yet.
-    if item.recipeID and not item.container and not IsOutputBar(item) then
+    if isRecipe and not IsOutputBar(item) then
         local others = UntrackedIngredients(item.recipeID)
         if #others > 0 then
             local names = {}
             for _, reagent in ipairs(others) do names[#names + 1] = reagent.name end
-            crafting[#crafting + 1] = { "Also track its other ingredients (" .. JoinNames(names, 3) .. ")",
+            trackMore[#trackMore + 1] = { "Its other ingredients (" .. JoinNames(names, 3) .. ")",
                 function() TrackOtherIngredients(item.recipeID) end }
         end
     end
@@ -536,55 +544,49 @@ ShowItemMenu = function(owner, itemKey)
     if producer then
         -- One craft; Alt-click for everything the bar is short of.
         local crafts = ChainShortfallCrafts(item, producer)
-        local label = "Also track how to make " .. item.name
+        local label = "How to make " .. item.name
         if crafts > 1 then label = label .. " (Alt: " .. crafts .. " crafts)" end
-        crafting[#crafting + 1] = { label, function()
+        trackMore[#trackMore + 1] = { label, function()
             TrackChain(itemKey, IsAltKeyDown())
         end }
     end
-    if item.recipeID and not item.container then
-        rules[#rules + 1] = AfterCraftMenuEntry(item)
-        if not IsOutputBar(item) then
-            rules[#rules + 1] = CountdownMenuEntry(item)
-        end
-        rules[#rules + 1] = StopMenuEntry(item)
+    if #trackMore > 0 then entries[#entries + 1] = { "Track more", submenu = trackMore } end
+    if item.container then
+        entries[#entries + 1] = FocusMenuEntry(item.container)
+    elseif item.recipeID then
+        local focusEntry = RecipeFocusMenuEntry(item.recipeID, DisplayName(item))
+        if focusEntry then entries[#entries + 1] = focusEntry end
     end
-    if not item.container then
-        rules[#rules + 1] = VendorMenuEntry(item)
-    end
+
     -- Only when the recipe selected in the profession window uses this
     -- material and isn't already this bar's recipe.
+    local selectedRecipeID = GetSelectedRecipeID()
     if selectedRecipeID and not item.container
         and selectedRecipeID ~= item.recipeID
         and GetReagentQuantity(selectedRecipeID, item.name) then
-        bar[#bar + 1] = {
+        more[#more + 1] = {
             "Assign to " .. (GetRecipeName(selectedRecipeID) or "the selected recipe"),
             function() AssignRecipe(itemKey, selectedRecipeID) end,
         }
     end
     if item.recipeID then
-        bar[#bar + 1] = { "Unassign", function()
-            UnassignRecipe(itemKey)
-        end }
-    end
-    if item.inactive then
-        bar[#bar + 1] = { "Move to Active", function() SetItemActive(itemKey, true) end }
-    else
-        bar[#bar + 1] = { "Move to Inactive", function() SetItemActive(itemKey, false) end }
+        more[#more + 1] = { "Unassign", function() UnassignRecipe(itemKey) end }
     end
     if IsShareable(item) then
-        bar[#bar + 1] = { "Share this bar", function()
+        more[#more + 1] = { "Share this bar", function()
             ShareKeys({ itemKey }, DisplayName(item))
         end }
     end
-    bar[#bar + 1] = { "Untrack", function() UntrackItem(itemKey) end }
 
-    local entries = GroupedEntries({
-        { entries = top },
-        { heading = "Crafting", entries = crafting },
-        { heading = "Rules", entries = rules },
-        { heading = "This bar", entries = bar },
-    })
+    if #entries > 0 then entries[#entries + 1] = { divider = true } end
+    if item.inactive then
+        entries[#entries + 1] = { "Move to Active", function() SetItemActive(itemKey, true) end }
+    else
+        entries[#entries + 1] = { "Move to Inactive", function() SetItemActive(itemKey, false) end }
+    end
+    if #more > 0 then entries[#entries + 1] = { "More", submenu = more } end
+    entries[#entries + 1] = { "Untrack", function() UntrackItem(itemKey) end }
+
     ShowMenu(owner, DisplayName(item), entries)
 end
 
@@ -690,12 +692,15 @@ ShowGroupMenu = function(owner, section, group)
                 break
             end
         end
+        -- How the profession's bars show, the current way marked.
         local current = MaterialMode(group)
+        local choices = {}
         for _, mode in ipairs(BAR_MODES) do
-            if mode.key ~= current then
-                entries[#entries + 1] = { mode.menu, function() SetMaterialMode(group, mode.key) end }
-            end
+            choices[#choices + 1] = { "One bar per " .. mode.name:gsub("^one per ", ""),
+                function() SetMaterialMode(group, mode.key) end, selected = mode.key == current }
         end
+        entries[#entries + 1] = { "Show bars", choices = choices }
+        entries[#entries + 1] = { divider = true }
     end
     if #activeKeys > 0 then
         entries[#entries + 1] = { "Move all to Inactive (" .. #activeKeys .. ")", function()
@@ -996,11 +1001,12 @@ function ShowProfessionMenu(owner)
         local item = main or trackedItems[barKeys[1]]
         local craftsEntry = main and CraftsMenuEntry(main) or (IsOutputBar(item) and GoalCraftsMenuEntry(item))
         if craftsEntry then bars[#bars + 1] = craftsEntry end
-        bars[#bars + 1] = AfterCraftMenuEntry(item, true)
+        local rules = { AfterCraftMenuEntry(item, true), StopMenuEntry(item) }
         if main then
-            bars[#bars + 1] = CountdownMenuEntry(main)
+            rules[#rules + 1] = { divider = true }
+            rules[#rules + 1] = CountdownMenuEntry(main)
         end
-        bars[#bars + 1] = StopMenuEntry(item)
+        bars[#bars + 1] = { "Rules", submenu = rules }
         bars[#bars + 1] = { ("Untrack this recipe (%d %s)"):format(#barKeys,
             #barKeys == 1 and "bar" or "bars"), function()
             local removed = {}

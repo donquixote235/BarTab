@@ -30,7 +30,7 @@ GUIDE_PAGES = {
             .. B .. "Your other characters' needs go one step down (Copper Ore for the Copper Bar they can smelt), and you keep what you'd smelt yourself.\n"
             .. B .. "Recipe bars share what you carry in list order, like ingredient bars.\n\n"
             .. H("New in 1.60.1.12: whole recipes") .. "\n\n"
-            .. B .. "Right-click a recipe bar for \"Also track its other ingredients\".\n"
+            .. B .. "Right-click a recipe bar for \"Track more\", \"Its other ingredients\".\n"
             .. B .. "Your other characters' needs count every ingredient of their tracked recipes, bars or not.\n"
             .. B .. "Making materials first says what's still missing; mail sends one stack per item where it can.\n\n"
             .. H("New in 1.60.1.11: bar layouts") .. "\n\n"
@@ -87,12 +87,12 @@ GUIDE_PAGES = {
             .. "Change what each click does in the settings (Crafting tab). " .. C("/bartab craft") .. ", or a key binding (Key Bindings > AddOns), crafts the next bar that's ready.\n\n"
             .. H("Bar layouts") .. "\n\n"
             .. "By default each tracked recipe gets one bar, " .. C("Minor Mana Potion: 1 / 3 materials") .. ", filling as you gather any of its ingredients (1 Peacebloom of 1 Peacebloom and 2 Earthroot is a third). Blue is what you can craft now, orange whole crafts waiting on another ingredient. Hover it for each ingredient; click it as you would the recipe's own bars. Right-click a profession's heading to show a bar per ingredient instead, or one per material; the Recipe bars button (Display settings) sets the default for every profession.\n\n"
-            .. "Professions with many small recipes (alchemy, cooking) can show one bar per material: " .. C("Peacebloom 2 / 3") .. " for every tracked recipe that uses it. Right-click the profession's heading and choose Show one bar per material. Blue is what your ready crafts would use, orange what's waiting on another ingredient. Click the bar to pick a recipe, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready.\n\n"
+            .. "Professions with many small recipes (alchemy, cooking) can show one bar per material: " .. C("Peacebloom 2 / 3") .. " for every tracked recipe that uses it. Right-click the profession's heading and choose Show bars, One bar per material. Blue is what your ready crafts would use, orange what's waiting on another ingredient. Click the bar to pick a recipe, Shift-click to craft the first one that's ready, Alt-click to craft everything that's ready.\n\n"
             .. "Ingredients you buy from vendors (vials, thread) get no bar and aren't counted on material or recipe bars; BarTab still buys them for you. Tick \"Show vendor-bought materials on recipe bars\" (Display settings) to see them.\n\n"
             .. H("Shared materials") .. "\n\n"
             .. "When several bars count the same material, it's shared out in list order, so the bar higher up claims it first. Ctrl-drag bars to reorder them, or change this in the settings.\n\n"
             .. H("Count down as you craft") .. "\n\n"
-            .. "With Count down on (a bar's right-click menu, or a default in the settings), each craft takes one craft's worth off the recipe's bars, so the bar shows what's left to make.",
+            .. "With Count down on (a bar's right-click menu, Rules; or a default in the settings), each craft takes one craft's worth off the recipe's bars, so the bar shows what's left to make.",
     },
     {
         title = "Chain crafting",
@@ -113,8 +113,8 @@ GUIDE_PAGES = {
             .. "Levels a profession to a skill level. The bars are sized at one craft per skill point still needed, shrink only when a craft gives you a point, and clear when you get there.\n\n"
             .. H("On a bar's right-click menu") .. "\n\n"
             .. B .. C("Crafts") .. ": size the recipe's bars for 1, 5 or 10 crafts, the crafts to your next skill tier, a full stack, all of a material you have, or any number. It also switches a recipe between ingredient bars, a goal for what it makes, and a skill level.\n"
-            .. B .. C("After crafting") .. ": keep the bars, move them to Inactive, or untrack them once you've crafted the recipe.\n"
-            .. B .. C("Stop tracking") .. ": untrack at a skill level, or when the recipe turns yellow, green or gray (optionally asking first).\n\n"
+            .. B .. C("Rules > After crafting") .. ": keep the bars, move them to Inactive, or untrack them once you've crafted the recipe.\n"
+            .. B .. C("Rules > Stop tracking") .. ": untrack at a skill level, or when the recipe turns yellow, green or gray (optionally asking first).\n\n"
             .. H("Training reminders") .. "\n\n"
             .. "BarTab tells you when a profession reaches its limit (75, 150, 225) and which rank to learn next, and the skill on its heading turns orange until you train. Trainers you visit are remembered, and BarTab lets you know when recipes you couldn't learn there yet come within reach.",
     },
@@ -135,7 +135,7 @@ GUIDE_PAGES = {
     {
         title = "Shopping",
         text = H("Vendors") .. "\n\n"
-            .. "At a vendor that sells something your Crafting bars are short of (thread, dye, vials), BarTab lists it with the cost and offers to buy it. It never spends more than your per-visit limit (1g unless you change it). Untick \"Buy materials at vendors\" on a bar's right-click menu to leave that recipe out.\n\n"
+            .. "At a vendor that sells something your Crafting bars are short of (thread, dye, vials), BarTab lists it with the cost and offers to buy it. It never spends more than your per-visit limit (1g unless you change it). Untick \"Buy materials at vendors\" (a bar's right-click menu, Rules) to leave that recipe out.\n\n"
             .. H("Your bank") .. "\n\n"
             .. "At your bank, BarTab offers to take out what your bars are short of, moving only as much as you need. " .. C("/bartab bank") .. " asks again while the bank is open.\n\n"
             .. "Then it offers to put away crafting materials none of your bars use (ore, herbs, cloth, leather, parts), leaving anything your other characters need and vendor-bought things like thread. " .. C("/bartab bank put") .. " offers again. You can set it to ask, do it automatically, or stay off for each character (Shopping settings).\n\n"
@@ -159,8 +159,8 @@ GUIDE_PAGES = {
     {
         title = "Managing bars",
         text = H("Menus") .. "\n\n"
-            .. B .. "Right-click a bar: Crafting (open recipe, Crafts, chain crafting), Rules (after crafting, count down, stop tracking) and This bar (assign, move to Inactive, share, untrack).\n"
-            .. B .. "Right-click a heading: move all to Inactive, share, untrack all.\n"
+            .. B .. "Right-click a bar: craft making materials first, Open recipe, Crafts, Rules (after crafting, stop tracking, count down, buy at vendors), Track more (its other ingredients, how to make a material), Move to Inactive, More (assign, unassign, share) and Untrack.\n"
+            .. B .. "Right-click a heading: open the profession, Show bars (per ingredient, material or recipe), move all to Inactive, share, untrack all.\n"
             .. B .. "Ctrl-drag a bar to reorder; Ctrl-click a recipe bar to open its recipe.\n\n"
             .. H("Undo") .. "\n\n"
             .. "Bars removed by a rule, a goal or Untrack are remembered. " .. C("/bartab undo") .. " brings back the last ones, " .. C("/bartab undo list") .. " shows the last 10, and the BarTab button has Recently removed too.\n\n"
