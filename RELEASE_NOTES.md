@@ -1,19 +1,13 @@
-# BarTab 1.60.1.16: where your crafts go
+# BarTab 1.60.1.17: restocking
 
 A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **Sell what you crafted:** at a vendor, BarTab offers to sell skill-up crafts (daggers, bags, bandages) that no bar uses and your other characters don't need. Untick what to keep (remembered) or change amounts. Common quality only unless you include uncommon (green) and better; food, potions and crafting tools like the Arclight Spanner start unticked, and crafting materials are never offered. "Keep a stack of each, sell the rest" keeps a full stack of anything that stacks. `/bartab sell` offers again.
-- **Greens for your enchanter:** the mail window offers crafted green (and better) gear no bar uses to your character with Enchanting, to disenchant. Pick the enchanter, or nobody, in Characters settings. Soulbound items and anything you're wearing are never offered.
+- **`/bartab restock`:** everything your bars are short of, grouped by where to get it: your bank, your other characters, making it, gathering it, a vendor (with the cost) or the auction house (with the price, if your auction addon knows it).
+- **`/bartab ask`:** ask your other characters for what they have that you're short of. They get a note at login and are offered it at their next mailbox or bank, even if their own bars would keep it or mailing for others is off on them. Requests clear as they're mailed, or once you have enough.
 
 ## Improved
 
-- The mail window remembers what you untick, per item and character.
-- "Mail all I have of each" in the mail window applies to that time only; the Characters setting is what it starts as. It only shows when it changes something.
-- Mail window rows stay on one line.
-
-## Fixed
-
-- Closing the mailbox (or pressing Escape) with a letter unsent no longer keeps the mail window away until a reload; `/bartab mail` starts over.
-- Mailing skips a soulbound copy of an item for one that can be mailed.
+- **Tidier right-click menus.** A bar's menu leads with crafting (Open recipe, Crafts); its rules are under Rules, tracking more under Track more, and Assign, Unassign and Share under More. A profession heading's layouts are one "Show bars" submenu. The profession window's BarTab button leads with "Track all ingredients".
+- The sell window's rows fit on one line.
