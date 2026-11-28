@@ -432,18 +432,18 @@ ShowItemMenu = function(owner, itemKey)
             local recipeName = GetRecipeName(recipeID) or ("recipe " .. recipeID)
             entries[#entries + 1] = { "Don't shop for " .. alt .. "'s " .. recipeName, function()
                 SkipAltShopping(character, recipeID)
-                Print(("Not shopping for %s's %s (Shopping tab in /bartab config to undo)."):format(alt, recipeName))
+                Print(("Not shopping for %s's %s (Characters tab in /bartab config to undo)."):format(alt, recipeName))
             end }
         end
         entries[#entries + 1] = { "Don't shop for " .. alt .. " at all", function()
             SkipAltShopping(character, "all")
-            Print(("Not shopping for %s (Shopping tab in /bartab config to undo)."):format(alt))
+            Print(("Not shopping for %s (Characters tab in /bartab config to undo)."):format(alt))
         end }
         entries[#entries + 1] = { divider = true }
         entries[#entries + 1] = { "Turn off shopping for others on this character", function()
             SetCharSetting("altShopping", false)
             SyncAltNeedBars()
-            Print("Shopping for other characters is off on this character (Shopping tab in /bartab config to turn it on).")
+            Print("Shopping for other characters is off on this character (Characters tab in /bartab config to turn it on).")
         end }
         ShowMenu(owner, DisplayName(item), entries)
         return

@@ -24,9 +24,9 @@ GUIDE_PAGES = {
             .. H("New in 1.60.1.11: bar layouts") .. "\n\n"
             .. B .. "Right-click a profession's heading to show its recipes as one bar per ingredient, per material (" .. C("Peacebloom 2 / 3") .. ") or per recipe (" .. C("Minor Mana Potion: 1 / 3 materials") .. "). Alt-click a material bar to craft everything that's ready.\n"
             .. B .. "Vendor-bought ingredients (vials, thread) are left off recipe bars; BarTab still buys them for you.\n"
-            .. B .. "\"Send letters in one press\" (Shopping settings): Mail sends the first letter, your craft key each one after. \"Mail all I have of each\" sends everything spare.\n\n"
+            .. B .. "\"Send letters in one press\" (Characters settings): Mail sends the first letter, your craft key each one after. \"Mail all I have of each\" sends everything spare.\n\n"
             .. H("New in 1.60.1.10: shopping for your other characters") .. "\n\n"
-            .. B .. "Tick \"Show what my other characters need\" (Shopping settings) for bars of what your other characters' bars are short of and this character can get (" .. C("Copper Ore for [Alt]") .. "). At login, BarTab says what you're already carrying for them; mail it at a mailbox.\n"
+            .. B .. "Tick \"Show what my other characters need\" (Characters settings) for bars of what your other characters' bars are short of and this character can get (" .. C("Copper Ore for [Alt]") .. "). At login, BarTab says what you're already carrying for them; mail it at a mailbox.\n"
             .. B .. "The profit window fills itself in while item details arrive, and says whose gathering skill makes a material free (" .. C("from [Alt]'s Mining") .. ").\n\n"
             .. H("New in 1.60.1.9: your other characters") .. "\n\n"
             .. B .. "The profit window includes recipes your other characters know (marked with who), counts their gathering skills, and has a Profession dropdown for any profession your characters know.\n"
@@ -127,11 +127,11 @@ GUIDE_PAGES = {
             .. H("Your bank") .. "\n\n"
             .. "At your bank, BarTab offers to take out what your bars are short of, moving only as much as you need. " .. C("/bartab bank") .. " asks again while the bank is open.\n\n"
             .. H("Your other characters") .. "\n\n"
-            .. "At a mailbox, BarTab offers to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals: ore for your blacksmith, leather for your leatherworker. It sends exact amounts, one letter per character; you click Send on each. Tick \"Send letters in one press\" (Shopping settings) and clicking Mail sends the first letter, and your BarTab craft key sends each one after (the game needs a click or key press per letter). " .. C("/bartab mail") .. " asks again. Their needs come from their bars and their last saved bags and bank.\n\n"
-            .. "Tick \"Show what my other characters need\" (Shopping settings; each character has its own choice) for a " .. H("For your other characters") .. " subsection under BarTab: Crafting: a bar per material their bars are short of (" .. C("Copper Ore for [Alt]") .. "), filling as you gather, after your own bars take what they need.\n\n"
+            .. "At a mailbox, BarTab offers to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals: ore for your blacksmith, leather for your leatherworker. It sends exact amounts, one letter per character; you click Send on each. Tick \"Send letters in one press\" (Characters settings) and clicking Mail sends the first letter, and your BarTab craft key sends each one after (the game needs a click or key press per letter). " .. C("/bartab mail") .. " asks again. Their needs come from their bars and their last saved bags and bank.\n\n"
+            .. "Tick \"Show what my other characters need\" (Characters settings; each character has its own choice) for a " .. H("For your other characters") .. " subsection under BarTab: Crafting: a bar per material their bars are short of (" .. C("Copper Ore for [Alt]") .. "), filling as you gather, after your own bars take what they need.\n\n"
             .. H("The auction house") .. "\n\n"
             .. "A BarTab tab on the auction house's right edge opens a list of what your bars are short of, each with a Search button.\n\n"
-            .. "All of these can ask first, act automatically, or be turned off in the settings (Shopping tab).",
+            .. "All of these can ask first, act automatically, or be turned off in the settings (Shopping and Characters tabs).",
     },
     {
         title = "Fill-up items",

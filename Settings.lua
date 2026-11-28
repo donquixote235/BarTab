@@ -36,6 +36,31 @@ function AddNote(parent, y, text)
     return y - height - 6
 end
 
+-- Marks settings each character keeps for itself.
+CHARACTER_TAG_TEXT = "|cff66ccff(this character)|r"
+CHARACTER_TAG = "  " .. CHARACTER_TAG_TEXT
+
+-- A tab's one-line summary at the top, in soft gold; returns the next y.
+function AddIntro(parent, y, text)
+    local intro = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    intro:SetPoint("TOPLEFT", 18, y - 4)
+    intro:SetPoint("RIGHT", parent, "RIGHT", -18, 0)
+    intro:SetJustifyH("LEFT")
+    intro:SetTextColor(1, 0.9, 0.6)
+    intro:SetText(text)
+    local height = intro:GetStringHeight()
+    if not height or height < 12 then height = 14 end
+    return y - height - 10
+end
+
+-- The "(this character)" tag beside a button.
+function AddCharacterTag(parent, widget)
+    local tag = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tag:SetPoint("LEFT", widget, "RIGHT", 8, 0)
+    tag:SetText(CHARACTER_TAG_TEXT)
+    return tag
+end
+
 -- A section heading, with a faint line running from it to the right edge.
 function AddHeading(parent, y, text)
     local heading = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -126,7 +151,7 @@ function BuildConfigFrame()
         local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
         close:SetPoint("TOPRIGHT", -4, -4)
     end
-    frame:SetSize(520, 560)
+    frame:SetSize(620, 580)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
@@ -154,15 +179,16 @@ function BuildConfigFrame()
     -- Tabs along the top; each shows one page of settings.
     local TABS = {
         { key = "general", name = "General" },
+        { key = "alerts", name = "Alerts" },
         { key = "crafting", name = "Crafting" },
         { key = "shopping", name = "Shopping" },
+        { key = "characters", name = "Characters" },
         { key = "recipes", name = "Recipes" },
-        { key = "items", name = "Items" },
         { key = "display", name = "Display" },
     }
     local pages, tabButtons = {}, {}
     local function ShowTab(key)
-        if key == "quests" then key = "items" end -- the tab's old name
+        if key == "quests" or key == "items" then key = "general" end -- tabs that moved
         if not pages[key] then key = "general" end
         for pageKey, tabPage in pairs(pages) do tabPage:SetShown(pageKey == key) end
         for _, button in ipairs(tabButtons) do
@@ -172,15 +198,15 @@ function BuildConfigFrame()
     end
     for index, tab in ipairs(TABS) do
         local button = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-        button:SetSize(78, 22)
-        button:SetPoint("TOPLEFT", 16 + (index - 1) * 82, -30)
+        button:SetSize(80, 22)
+        button:SetPoint("TOPLEFT", 16 + (index - 1) * 84, -30)
         button:SetText(tab.name)
         button.key = tab.key
         button:SetScript("OnClick", function() ShowTab(tab.key) end)
         tabButtons[index] = button
         local tabPage = CreateFrame("Frame", nil, frame)
         tabPage:SetPoint("TOPLEFT", 0, -56)
-        tabPage:SetSize(520, 500)
+        tabPage:SetSize(620, 520)
         tabPage:Hide()
         pages[tab.key] = tabPage
     end
@@ -194,6 +220,7 @@ function BuildConfigFrame()
 
     -- General ------------------------------------------------------------
     page, y = pages.general, -4
+    y = AddIntro(page, y, "Which sections show, fill-up items, and a few odds and ends.")
     y = AddHeading(page, y - 6, "Sections")
     y = AddNote(page, y, "A section only appears in the objective tracker when it has "
         .. "something to show. For example, BarTab: Items stays hidden until a fill-up "
@@ -204,6 +231,17 @@ function BuildConfigFrame()
     y = AddCheck(page, y, "Show BarTab: Items", "Fill-up items such as Waylaid Crates.",
         function() return not settings.hiddenSections[ITEM_SECTION] end,
         function(v) SetSectionShown(ITEM_SECTION, v) end)
+
+
+    y = AddHeading(page, y - 6, "Fill-up items")
+    y = AddCheck(page, y, "Track fill-up items automatically",
+        "Adds bars when an item like a Waylaid Crate reaches your bags. (/bartab autoitems)",
+        function() return settings.autoItems end,
+        function(v) settings.autoItems = v end)
+    y = AddCheck(page, y, "Combine stacks automatically",
+        "Merges split stacks so one click can fill the crate.",
+        function() return settings.autoStack ~= false end,
+        function(v) settings.autoStack = v end)
 
 
     y = AddHeading(page, y - 6, "Behavior")
@@ -223,8 +261,38 @@ function BuildConfigFrame()
         "A BarTab button on the edge of the minimap: click to open these settings, drag to move it around the minimap.",
         function() return settings.minimapButton ~= false end,
         function(v) settings.minimapButton = v; UpdateMinimapButton() end)
+    y = AddCheck(page, y, "Sum up the last session at login",
+        "At login, a few lines in chat on your last session on this character: crafts, skill gained, materials gathered, gold spent. /bartab session shows the current one.",
+        function() return settings.sessionAtLogin ~= false end,
+        function(v) settings.sessionAtLogin = (not v) and false or nil end)
 
 
+    y = AddHeading(page, y - 6, "Data")
+    AddButton(page, 24, y, 112, "Reset sections", "Expands every section and subsection again.", function()
+        settings.collapsed = {}
+        for _, module in pairs(sectionModules) do
+            if module.SetCollapsed then pcall(module.SetCollapsed, module, false) end
+        end
+        UpdateBars()
+        Print("Section collapse states reset.")
+    end)
+    AddButton(page, 142, y, 112, "Untrack all", "Removes every bar (asks first).", function()
+        local keys = {}
+        for key in pairs(trackedItems) do keys[#keys + 1] = key end
+        ConfirmUntrackKeys(keys, "BarTab")
+    end)
+    y = y - 30
+    AddButton(page, 24, y, 112, "Share bars", "A text string of all your bars, to paste to a friend or another account.", function()
+        ShareAll()
+    end)
+    AddButton(page, 142, y, 112, "Import bars", "Add bars from a string someone shared.", function()
+        ShowShareWindow(nil)
+    end)
+
+
+    -- Alerts -------------------------------------------------------------
+    page, y = pages.alerts, -4
+    y = AddIntro(page, y, "What BarTab tells you when a bar fills, and how.")
     y = AddHeading(page, y - 6, "Alerts")
     y = AddCheck(page, y, "Alert when a bar reaches its goal",
         "A chat message when a material bar fills or a crate bundle is ready.",
@@ -270,31 +338,9 @@ function BuildConfigFrame()
     y = y - 30
 
 
-    y = AddHeading(page, y - 6, "Data")
-    AddButton(page, 24, y, 112, "Reset sections", "Expands every section and subsection again.", function()
-        settings.collapsed = {}
-        for _, module in pairs(sectionModules) do
-            if module.SetCollapsed then pcall(module.SetCollapsed, module, false) end
-        end
-        UpdateBars()
-        Print("Section collapse states reset.")
-    end)
-    AddButton(page, 142, y, 112, "Untrack all", "Removes every bar (asks first).", function()
-        local keys = {}
-        for key in pairs(trackedItems) do keys[#keys + 1] = key end
-        ConfirmUntrackKeys(keys, "BarTab")
-    end)
-    y = y - 30
-    AddButton(page, 24, y, 112, "Share bars", "A text string of all your bars, to paste to a friend or another account.", function()
-        ShareAll()
-    end)
-    AddButton(page, 142, y, 112, "Import bars", "Add bars from a string someone shared.", function()
-        ShowShareWindow(nil)
-    end)
-
-
     -- Crafting -----------------------------------------------------------
     page, y = pages.crafting, -4
+    y = AddIntro(page, y, "What clicking a recipe bar does, making materials first, and shared materials.")
     y = AddHeading(page, y - 6, "Clicking a recipe bar")
     for _, modifier in ipairs(CLICK_MODIFIERS) do
         local button = AddButton(page, 24, y, 350, "", "Click to change what this does.", function()
@@ -375,6 +421,7 @@ function BuildConfigFrame()
 
     -- Shopping ------------------------------------------------------------
     page, y = pages.shopping, -4
+    y = AddIntro(page, y, "Getting what your own bars are short of: vendors, your bank, the auction house.")
     y = AddHeading(page, y - 6, "Vendors")
     local vendorButton = AddButton(page, 24, y, 350, "",
         "At a vendor that sells something your Crafting bars are short of (thread, dye, vials...): ask with a list and the cost, buy it straight away, or do nothing.",
@@ -453,55 +500,6 @@ function BuildConfigFrame()
         end
     end)
     y = y - 30
-    y = AddCheck(page, y, "Also take out what my other characters need (this character)",
-        "At the bank, also offers what your other characters' bars are short of and your bank holds, so you can mail it to them: only what you don't keep for yourself, and only with the mailbox offer on. This character only.",
-        function() return CharSetting("bankForAlts") ~= false end,
-        function(v) SetCharSetting("bankForAlts", v and true or false) end)
-
-
-    y = AddHeading(page, y - 6, "Mailbox")
-    local mailButton = AddButton(page, 24, y, 350, "",
-        "At a mailbox: offer to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals. Their needs come from their bars and their last saved bags and bank. /bartab mail asks again. This character only: each character keeps its own choice.",
-        function()
-            local current, index = CharSetting("mailSend") or "ask", 1
-            for i, mode in ipairs(MAIL_MODES) do
-                if mode.key == current then index = i end
-            end
-            SetCharSetting("mailSend", MAIL_MODES[index % #MAIL_MODES + 1].key)
-            RefreshConfig()
-        end)
-    table.insert(configRefreshers, function()
-        local current = CharSetting("mailSend") or "ask"
-        for _, mode in ipairs(MAIL_MODES) do
-            if mode.key == current then mailButton:SetText(mode.name .. " (this character)") end
-        end
-    end)
-    y = y - 30
-
-    y = AddCheck(page, y, "Send letters in one press",
-        "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or starts mailing. The game allows one letter per click or key press, so each letter still needs one.",
-        function() return settings.mailAutoSend end,
-        function(on) settings.mailAutoSend = on or nil end)
-
-    y = AddCheck(page, y, "Show what my other characters need (this character)",
-        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for [Alt]\") that this character can get: gather with its own skills, make with its own recipes, or already has some of. Bars fill as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it. This character only: each character keeps its own choice (turn it on for your gatherers, off for your mains).",
-        function() return CharSetting("altShopping") end,
-        function(v)
-            SetCharSetting("altShopping", v and true or false)
-            Safe("alt shopping", SyncAltNeedBars)()
-        end)
-    local unhideButton = AddButton(page, 24, y, 350, "",
-        "Bars and recipes you chose not to shop for (right-click a \"For your other characters\" bar): show them all again.",
-        function()
-            ResetAltShopHidden()
-            RefreshConfig()
-        end)
-    table.insert(configRefreshers, function()
-        local count = AltShopHiddenCount()
-        unhideButton:SetText(count > 0 and ("Shop for the hidden ones again (" .. count .. ")") or "Nothing hidden")
-        if unhideButton.SetEnabled then unhideButton:SetEnabled(count > 0) end
-    end)
-    y = y - 30
 
     y = AddHeading(page, y - 6, "Auction house")
     y = AddCheck(page, y, "Add a BarTab tab beside the auction house",
@@ -522,8 +520,69 @@ function BuildConfigFrame()
             if auctionPanel and auctionPanel:IsShown() then Safe("auction", UpdateAuctionPanel)() end
         end)
 
+    -- Characters ----------------------------------------------------------
+    page, y = pages.characters, -4
+    y = AddIntro(page, y, "Gathering, banking and mailing for your other characters. Settings marked "
+        .. CHARACTER_TAG_TEXT .. " are kept for each character on its own: on for your gatherers, off for your mains.")
+    y = AddHeading(page, y - 6, "Shopping for others")
+    y = AddCheck(page, y, "Show what my other characters need" .. CHARACTER_TAG,
+        "A \"For your other characters\" subsection under BarTab: Crafting, with a bar for each material your other characters' bars are short of (\"Copper Ore for [Alt]\") that this character can get: gather with its own skills, make with its own recipes, or already has some of. Bars fill as you gather. Your own bars claim what you carry first. Mail them at a mailbox. Right-click a bar to hide it. This character only: each character keeps its own choice (turn it on for your gatherers, off for your mains).",
+        function() return CharSetting("altShopping") end,
+        function(v)
+            SetCharSetting("altShopping", v and true or false)
+            Safe("alt shopping", SyncAltNeedBars)()
+        end)
+    local unhideButton = AddButton(page, 24, y, 350, "",
+        "Bars and recipes you chose not to shop for (right-click a \"For your other characters\" bar): show them all again.",
+        function()
+            ResetAltShopHidden()
+            RefreshConfig()
+        end)
+    table.insert(configRefreshers, function()
+        local count = AltShopHiddenCount()
+        unhideButton:SetText(count > 0 and ("Shop for the hidden ones again (" .. count .. ")") or "Nothing hidden")
+        if unhideButton.SetEnabled then unhideButton:SetEnabled(count > 0) end
+    end)
+    y = y - 30
+
+    y = AddHeading(page, y - 6, "Mailbox")
+    local mailButton = AddButton(page, 24, y, 350, "",
+        "At a mailbox: offer to mail your other characters (same realm and faction) what their bars are short of and you have spare after your own bars' goals. Their needs come from their bars and their last saved bags and bank. /bartab mail asks again. This character only: each character keeps its own choice.",
+        function()
+            local current, index = CharSetting("mailSend") or "ask", 1
+            for i, mode in ipairs(MAIL_MODES) do
+                if mode.key == current then index = i end
+            end
+            SetCharSetting("mailSend", MAIL_MODES[index % #MAIL_MODES + 1].key)
+            RefreshConfig()
+        end)
+    AddCharacterTag(page, mailButton)
+    table.insert(configRefreshers, function()
+        local current = CharSetting("mailSend") or "ask"
+        for _, mode in ipairs(MAIL_MODES) do
+            if mode.key == current then mailButton:SetText(mode.name) end
+        end
+    end)
+    y = y - 30
+
+    y = AddCheck(page, y, "Send letters in one press",
+        "Clicking Mail in BarTab's prompt sends the first letter right away, and at an open mailbox your BarTab craft key (or /bartab craft) sends the next one, or starts mailing. The game allows one letter per click or key press, so each letter still needs one.",
+        function() return settings.mailAutoSend end,
+        function(on) settings.mailAutoSend = on or nil end)
+    y = AddCheck(page, y, "Mail all I have of each, not just what's needed",
+        "The mail prompt starts with everything you have spare of each material (after your own bars' goals), not just what the other character is short. You can still change each amount in the prompt. The same as the checkbox in the prompt.",
+        function() return settings.mailAll end,
+        function(v) settings.mailAll = v or nil end)
+
+    y = AddHeading(page, y - 6, "Bank")
+    y = AddCheck(page, y, "Also take out what my other characters need" .. CHARACTER_TAG,
+        "At the bank, also offers what your other characters' bars are short of and your bank holds, so you can mail it to them: only what you don't keep for yourself, and only with the mailbox offer on. This character only.",
+        function() return CharSetting("bankForAlts") ~= false end,
+        function(v) SetCharSetting("bankForAlts", v and true or false) end)
+
     -- Recipes -------------------------------------------------------------
     page, y = pages.recipes, -4
+    y = AddIntro(page, y, "The profession window, favorite recipes, and appearances you haven't collected.")
     y = AddHeading(page, y - 6, "Professions")
     y = AddCheck(page, y, "Mark tracked recipes in the profession window",
         "A check mark beside each recipe you have bars for, in the profession window's recipe list.",
@@ -540,10 +599,6 @@ function BuildConfigFrame()
         "The Track Recipe checkbox under a recipe in the profession window opens BarTab's Track with settings window (pick the ingredients, crafts and rules) instead of the game's own recipe tracking; unticking it untracks the recipe's bars. The checkbox then shows whether the recipe has BarTab bars.",
         function() return settings.trackCheckboxBarTab end,
         function(v) settings.trackCheckboxBarTab = v or nil end)
-    y = AddCheck(page, y, "Sum up the last session at login",
-        "At login, a few lines in chat on your last session on this character: crafts, skill gained, materials gathered, gold spent. /bartab session shows the current one.",
-        function() return settings.sessionAtLogin ~= false end,
-        function(v) settings.sessionAtLogin = (not v) and false or nil end)
 
     y = AddHeading(page, y - 6, "Favorite recipes")
     AddButton(page, 24, y, 170, "Import favorites",
@@ -592,21 +647,9 @@ function BuildConfigFrame()
         function() return settings.appearanceAllColors end,
         function(v) settings.appearanceAllColors = v end)
 
-    -- Items --------------------------------------------------------------
-    page, y = pages.items, -4
-    y = AddHeading(page, y - 6, "Items")
-    y = AddCheck(page, y, "Track fill-up items automatically",
-        "Adds bars when an item like a Waylaid Crate reaches your bags. (/bartab autoitems)",
-        function() return settings.autoItems end,
-        function(v) settings.autoItems = v end)
-    y = AddCheck(page, y, "Combine stacks automatically",
-        "Merges split stacks so one click can fill the crate.",
-        function() return settings.autoStack ~= false end,
-        function(v) settings.autoStack = v end)
-
-
     -- Display ------------------------------------------------------------
     page, y = pages.display, -4
+    y = AddIntro(page, y, "How the bars look, and where they show.")
     y = AddHeading(page, y - 6, "Look")
     y = AddStepper(page, y, "Bar height", "Height of every bar, in pixels.", 12, 32,
         function() return settings.barHeight or 20 end,

@@ -4671,7 +4671,7 @@ function OfferBankWithdrawals(force)
         return
     end
     local altNote = (okAlts and #forAlts > 0)
-        and "\n\n(Items for your other characters are taken out so you can mail them. You can turn that off in /bartab config, Shopping tab.)"
+        and "\n\n(Items for your other characters are taken out so you can mail them. You can turn that off in /bartab config, Characters tab.)"
         or ""
     if mode == "auto" and not force or not (StaticPopupDialogs and StaticPopup_Show) then
         TakeOutMaterials(list)
