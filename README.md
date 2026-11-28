@@ -63,6 +63,9 @@ A section only appears when it has something to show.
 - "Also track how to make <item>" (right-click) adds bars for one craft of the recipe that makes a material you can craft (Alt-click it for everything you're short); handy as a gathering target, since chain crafting makes it for you anyway.
 - At your bank, BarTab offers to take out what your bars are short of, only as much as you need (`/bartab bank`), then to put away crafting materials none of your bars use (`/bartab bank put`). Both use a window where you untick items or change amounts; what you untick from putting away is remembered.
 - At a mailbox, BarTab offers to take everything from the letters your other characters sent with BarTab (`/bartab mail take`); other mail is left alone.
+- At a vendor, BarTab offers to sell what you crafted that no bar or other character needs (`/bartab sell`): white items only unless you turn on greens, with food, potions and crafting tools unticked to start and an option to keep a stack of each. What you untick is remembered.
+- Crafted green (and better) gear no bar uses is offered in the mail window to your character with Enchanting, to disenchant (Characters settings: which character, or nobody).
+- The mail window remembers what you untick; "Mail all I have of each" applies to that time only.
 - Bag space warnings: a chat message when your bags get down to 2 free slots and when they're full; a crafting bar with no room for what it makes says so instead of trying.
 - Profit calculator (`/bartab profit`): what each of the open profession's recipes earns sold to a vendor or at auction (after the cut), counting your materials and missing ones your way; sort by profit per craft, per hour, or in total. What to craft next (`/bartab next`): the same list ranked by what a skill point costs, or takes.
 - Training reminders: when a profession reaches its limit (75, 150, 225) and needs the next rank, and when recipes you saw at a trainer come within reach.
@@ -136,6 +139,7 @@ unless another addon (such as an action bar addon) already uses it.
 | `/bartab mail` | At a mailbox: offer again to mail your other characters what their bars need |
 | `/bartab mail take` | At a mailbox: take everything from BarTab letters your other characters sent |
 | `/bartab bank put` | At the bank: offer again to put away materials none of your bars use |
+| `/bartab sell` | At a vendor: offer again to sell what you crafted that nothing needs |
 | `/bartab next` | What to craft next: the profit window sorted by what a skill point costs (after selling what you make), for the open profession. With none open, it opens yours (asks which if you have several; `/bartab next first aid` picks one) |
 | `/bartab make <count>` | Craft the selected recipe until you have that many (adds a bar for what it makes) |
 | `/bartab trainer` | At a profession trainer: track the selected recipe (waits in Inactive until learned) |
@@ -155,7 +159,7 @@ Options > AddOns > BarTab. Six tabs:
 | --- | --- |
 | **General** | Which sections show, Inactive collapse, bank/alt counts, minimap button, alerts (goal reached, enough to make the rest, sound, on-screen style), reset / share / import / untrack all |
 | **Crafting** | What each click does, making materials first (automatic / ask / menu only, other professions), count down as you craft, shared materials |
-| **Shopping** | Vendor buying (ask / automatic / off, spend limit, only for crafts your bars cover), bank withdraw and put away (ask / automatic / off), the auction house tab |
+| **Shopping** | Vendor buying (ask / automatic / off, spend limit, only for crafts your bars cover), selling crafts (ask / automatic / off, greens, keep a stack), bank withdraw and put away (ask / automatic / off), the auction house tab |
 | **Recipes** | Recipe list check marks, training reminders, "Track Recipe" in BarTab, import favorite recipes, track when you favorite, appearance recipes (which ingredients, Inactive, which colors) |
 | **Items** | Fill-up item auto-tracking, stack combining |
 | **Display** | Bar height, text size, color sets (color-blind friendly, classic, high contrast), recipe difficulty marking, item tooltip lines, BarTab's own window (when to show it, width, lock, position) |

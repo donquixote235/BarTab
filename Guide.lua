@@ -13,7 +13,11 @@ local B = "  - "                                                   -- a bullet
 GUIDE_PAGES = {
     {
         title = "What's new",
-        text = H("New in 1.60.1.15: mail and bank, both ways") .. "\n\n"
+        text = H("New in 1.60.1.16: where your crafts go") .. "\n\n"
+            .. B .. "At a vendor, BarTab offers to sell skill-up crafts nothing needs (" .. C("/bartab sell") .. "): white items only unless you ask, with \"Keep a stack of each\".\n"
+            .. B .. "Crafted greens go to your character with Enchanting, in the mail window.\n"
+            .. B .. "The mail window remembers what you untick; \"Mail all\" is for that time only.\n\n"
+            .. H("New in 1.60.1.15: mail and bank, both ways") .. "\n\n"
             .. B .. "At a mailbox, BarTab offers to take everything from letters your other characters sent with BarTab (" .. C("/bartab mail take") .. ").\n"
             .. B .. "At the bank, it offers to put away materials none of your bars use; the take-out and put-away windows let you untick items (remembered) or change amounts.\n"
             .. B .. "\"Until I reach a skill level...\" resizes a recipe's bars and counts them down as you skill up. BarTab warns when your bags are nearly full.\n\n"

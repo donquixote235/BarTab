@@ -1,23 +1,19 @@
-# BarTab 1.60.1.15: mail and bank, both ways
+# BarTab 1.60.1.16: where your crafts go
 
 A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **Mail on arrival:** at a mailbox, BarTab offers to take everything from the letters your other characters sent with BarTab, in one go (or does it automatically). Other mail is left alone, and it stops if your bags fill up. `/bartab mail take` takes them now.
-- **Put away at the bank:** after taking out what you need, BarTab offers to put away crafting materials none of your bars use (ore, herbs, cloth, leather, parts). It leaves anything your other characters need, and vendor-bought things like thread and vials. `/bartab bank put` offers again.
-- **Bank windows:** taking out and putting away use a window like the mail one: untick items or change amounts. What you untick from putting away is remembered for next time.
-- **Bag space warnings:** a chat message when your bags get down to 2 free slots and when they're full. Clicking a crafting bar with no room for what it makes says so instead of trying.
+- **Sell what you crafted:** at a vendor, BarTab offers to sell skill-up crafts (daggers, bags, bandages) that no bar uses and your other characters don't need. Untick what to keep (remembered) or change amounts. Only white items unless you ask for greens; food, potions and crafting tools like the Arclight Spanner start unticked, and crafting materials are never offered. "Keep a stack of each, sell the rest" keeps a full stack of anything that stacks. `/bartab sell` offers again.
+- **Greens for your enchanter:** the mail window offers crafted green (and better) gear no bar uses to your character with Enchanting, to disenchant. Pick the enchanter, or nobody, in Characters settings. Soulbound items and anything you're wearing are never offered.
 
 ## Improved
 
-- "Until I reach a skill level..." resizes a recipe's existing bars for the crafts needed, and they count down as you skill up ("Count down as you skill up" on the right-click menu).
-- Bars working toward a skill level wait for the level before their "After crafting" rule, so running out of materials partway doesn't untrack them.
-- At a vendor, the offer to buy again waits until you've used the last of the item.
-- With "Send letters in one press", your craft key at a mailbox only mails while BarTab's mail window is showing, and crafts otherwise.
+- The mail window remembers what you untick, per item and character.
+- "Mail all I have of each" in the mail window applies to that time only; the Characters setting is what it starts as. It only shows when it changes something.
+- Mail window rows stay on one line.
 
 ## Fixed
 
-- The craft key now makes materials first when a bar needs them (smelting Copper Bar for a Copper Dagger), as clicking the bar does.
-- "Until I reach a skill level..." left a recipe's existing bars at their old size.
-- A stalled letter no longer keeps your craft key from crafting at the mailbox.
+- Closing the mailbox (or pressing Escape) with a letter unsent no longer keeps the mail window away until a reload; `/bartab mail` starts over.
+- Mailing skips a soulbound copy of an item for one that can be mailed.
