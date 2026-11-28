@@ -2178,7 +2178,8 @@ function ScanProducers()
         local okRecipe, info = pcall(C_TradeSkillUI.GetRecipeInfo, recipeID)
         if okRecipe and type(info) == "table" and info.name then
             index[string.lower(info.name)] = { recipeID = recipeID, profession = profession,
-                skillLineID = (tonumber(base.professionID) or 0) > 0 and base.professionID or nil }
+                skillLineID = (tonumber(base.professionID) or 0) > 0 and base.professionID or nil,
+                learned = info.learned and true or nil }
         end
         if okRecipe and type(info) == "table" and info.learned then
             local okSchematic, schematic = pcall(C_TradeSkillUI.GetRecipeSchematic, recipeID, false)
@@ -4862,11 +4863,83 @@ function FindMailSends(allSpare)
             spare[itemID] = 0
         end
     end
+    -- Recipe items you carry that another character could learn (has the
+    -- profession, doesn't know it): "Pattern: Red Woolen Boots to Shadowpope".
+    local okRecipes, recipeSends = pcall(RecipeItemSends, scan)
+    for _, send in ipairs((okRecipes and recipeSends) or {}) do sends[#sends + 1] = send end
     table.sort(sends, function(a, b)
         if a.to ~= b.to then return a.to < b.to end
         return a.name < b.name
     end)
     return sends
+end
+
+-- Whether a character knows a recipe, from what BarTab saw last time its
+-- profession was open.
+function CharacterKnowsRecipe(character, recipeID, entry)
+    if entry and entry.learned then return true end
+    for _, producer in pairs((settings.producers and settings.producers[character]) or {}) do
+        if producer.recipeID == recipeID then return true end
+    end
+    return false
+end
+
+-- A recipe item in your bags that can be mailed (not soulbound).
+local function RecipeItemSlots()
+    local found = {}
+    for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4 do
+        for slot = 1, ContainerSlots(bag) do
+            local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+            if ok and type(info) == "table" and info.itemID and not info.isBound then
+                found[info.itemID] = true
+            end
+        end
+    end
+    return found
+end
+
+function RecipeItemSends(scan)
+    local list = {}
+    if not (C_Container and C_Container.GetContainerItemInfo) then return list end
+    local me = CharacterKey()
+    local myRealm = me:match("%-(.*)$")
+    local myFaction = UnitFactionGroup and UnitFactionGroup("player")
+    local mailable = RecipeItemSlots()
+    local keys = {}
+    for key in pairs(settings.recipeIndex or {}) do keys[#keys + 1] = key end
+    table.sort(keys)
+    for itemID in pairs(mailable) do
+        local itemName = GetItemNameByID(itemID)
+        local rest
+        for _, prefix in ipairs(RECIPE_ITEM_PREFIXES) do
+            rest = itemName and itemName:match("^" .. prefix .. ":%s*(.+)$")
+            if rest then break end
+        end
+        if rest then
+            local wanted = string.lower(rest)
+            -- Not if you could learn it yourself.
+            local mine = settings.recipeIndex[me] and settings.recipeIndex[me][wanted]
+            if not (mine and not CharacterKnowsRecipe(me, mine.recipeID, mine)) then
+                for _, key in ipairs(keys) do
+                    local snapshot = settings.inventory and settings.inventory[key]
+                    local skip = settings.altShopSkip and settings.altShopSkip[key]
+                    local entry = settings.recipeIndex[key][wanted]
+                    local mailed = settings.mailed and settings.mailed[key]
+                    if key ~= me and key:match("%-(.*)$") == myRealm and snapshot and entry
+                        and not (skip and skip.all)
+                        and not (snapshot.faction and myFaction and snapshot.faction ~= myFaction)
+                        and not CharacterKnowsRecipe(key, entry.recipeID, entry)
+                        and not (mailed and mailed.items and mailed.items[itemID])
+                        and not ((snapshot.bags or {})[itemID] or (snapshot.bank or {})[itemID]) then
+                        list[#list + 1] = { to = CharacterName(key), character = key, itemID = itemID,
+                            name = itemName, count = 1, note = "to learn" }
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return list
 end
 
 function DescribeMailSends(sends)
@@ -5958,7 +6031,8 @@ function ShowMailPrompt(sends)
         row.max = inBags[send.itemID] or send.count
         row.check:SetChecked(true)
         row.box:SetText(tostring(send.count))
-        row.label:SetText(("%s to %s  |cff808080(you have %d)|r"):format(send.name, send.to, row.max))
+        row.label:SetText(("%s to %s  |cff808080(%s)|r"):format(send.name, send.to,
+            send.note and (send.note .. ", you have " .. row.max) or ("you have " .. row.max)))
         row:Show()
     end
     for index = shown + 1, #frame.rows do

@@ -13,6 +13,8 @@
 
 - The mailbox prompt is a window with a row for each item and character: untick what you don't want to send, or change the amount (up to what you have). "Mail all I have of each" is still there and refills the amounts.
 
+- The mailbox prompt offers recipe items you carry to another character who could learn them: "Pattern: Red Woolen Boots to Shadowpope (to learn)". Only characters with that profession who don't know the recipe yet (as of their last time with the profession window open), only items that aren't soulbound, and not if you could learn it yourself.
+
 ## 1.60.1.13
 
 - Recipe bars now show one bar per recipe by default. Change the default for every profession with the Recipe bars button (Display settings), or one profession from its heading's right-click menu. Professions you've already set keep their choice.
