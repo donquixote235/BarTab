@@ -4572,7 +4572,7 @@ end)
 -- Selling what you crafted -------------------------------------------------------
 -- At a vendor: things you made with your recipes (skill-up crafts: daggers,
 -- bandages, bags) that no bar uses and your other characters aren't short
--- of. Common (white) and poor items only, unless settings.sellCraftedBetter:
+-- of. Common and poor quality only, unless settings.sellCraftedBetter:
 -- green and better are left for disenchanting. Crafting materials (Copper
 -- Bar, Bolt of Linen Cloth) are never offered. Food, potions and bandages
 -- start unticked. What you untick is remembered: settings.sellKeep[character].

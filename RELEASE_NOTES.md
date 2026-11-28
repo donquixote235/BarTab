@@ -4,7 +4,7 @@ A /reload is enough after installing; no new files this time.
 
 ## New
 
-- **Sell what you crafted:** at a vendor, BarTab offers to sell skill-up crafts (daggers, bags, bandages) that no bar uses and your other characters don't need. Untick what to keep (remembered) or change amounts. Only white items unless you ask for greens; food, potions and crafting tools like the Arclight Spanner start unticked, and crafting materials are never offered. "Keep a stack of each, sell the rest" keeps a full stack of anything that stacks. `/bartab sell` offers again.
+- **Sell what you crafted:** at a vendor, BarTab offers to sell skill-up crafts (daggers, bags, bandages) that no bar uses and your other characters don't need. Untick what to keep (remembered) or change amounts. Common quality only unless you include uncommon (green) and better; food, potions and crafting tools like the Arclight Spanner start unticked, and crafting materials are never offered. "Keep a stack of each, sell the rest" keeps a full stack of anything that stacks. `/bartab sell` offers again.
 - **Greens for your enchanter:** the mail window offers crafted green (and better) gear no bar uses to your character with Enchanting, to disenchant. Pick the enchanter, or nobody, in Characters settings. Soulbound items and anything you're wearing are never offered.
 
 ## Improved

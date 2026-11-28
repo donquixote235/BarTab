@@ -14,7 +14,7 @@ GUIDE_PAGES = {
     {
         title = "What's new",
         text = H("New in 1.60.1.16: where your crafts go") .. "\n\n"
-            .. B .. "At a vendor, BarTab offers to sell skill-up crafts nothing needs (" .. C("/bartab sell") .. "): white items only unless you ask, with \"Keep a stack of each\".\n"
+            .. B .. "At a vendor, BarTab offers to sell skill-up crafts nothing needs (" .. C("/bartab sell") .. "): common quality only unless you ask, with \"Keep a stack of each\".\n"
             .. B .. "Crafted greens go to your character with Enchanting, in the mail window.\n"
             .. B .. "The mail window remembers what you untick; \"Mail all\" is for that time only.\n\n"
             .. H("New in 1.60.1.15: mail and bank, both ways") .. "\n\n"

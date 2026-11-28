@@ -505,7 +505,7 @@ function BuildConfigFrame()
     end)
     y = y - 30
     y = AddCheck(page, y, "Also offer green and better crafts for sale",
-        "Off: only common (white) and poor crafts are offered, so uncommon and better ones are left for disenchanting or your enchanter. On: those are offered too.",
+        "Off: only common and poor quality crafts are offered, so uncommon (green) and better ones are left for disenchanting or your enchanter. On: those are offered too.",
         function() return settings.sellCraftedBetter end,
         function(v) settings.sellCraftedBetter = v or nil end)
     y = AddCheck(page, y, "Keep a stack of each when selling",
